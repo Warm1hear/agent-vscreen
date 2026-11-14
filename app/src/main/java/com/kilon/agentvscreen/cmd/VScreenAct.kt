@@ -10,6 +10,7 @@ import com.kilon.agentvscreen.cmd.NativeOffloadResult
 import com.kilon.agentvscreen.core.BackgroundOperation
 import com.kilon.agentvscreen.core.BackgroundOperation.ActionError
 import com.kilon.agentvscreen.core.Mask
+import com.kilon.agentvscreen.core.MotionTrack
 import com.kilon.agentvscreen.core.VPixels
 import com.kilon.agentvscreen.core.VScreenDisplay
 import com.kilon.agentvscreen.core.VScreenGame
@@ -45,7 +46,7 @@ import kotlin.math.roundToInt
  *  - words inside the field that was just typed into never count;
  *  - OCR readings count only when taken after the change.
  */
-internal class Probe(private val h: VScreenOffloadHandler, private val d: VScreenDisplay, val conds: List<Cond>, private val afterAction: Boolean = false) {
+internal class Probe(private val h: VScreenOffloadHandler, private val d: VScreenDisplay, val conds: List<Cond>, private val afterAction: Boolean = false, private val look: Boolean = false) {
     companion object {
         /** A settle wait after an action that changed nothing gives up waiting for a change after this long. */
         const val GRACE_MS = 1_000L
@@ -53,7 +54,18 @@ internal class Probe(private val h: VScreenOffloadHandler, private val d: VScree
     }
     private val since = SystemClock.elapsedRealtime()
     /** Areas already playing before (video, carousel): not waited for, not read. */
-    private val mask: Mask? = VScreenPerception.mask(d.displayId)
+    private var maskNow: Mask? = VScreenPerception.mask(d.displayId, if (look) MotionTrack.LOOK_SPAN_MS else MotionTrack.MIN_SPAN_MS)
+    private var maskAt = SystemClock.elapsedRealtime()
+    /**
+     * 1.3.0: a look (no action of ours before it) asks again while it waits: a page whose video started just before
+     * (or a watcher that has only just begun) gets its moving area after about a second, not never.
+     */
+    private val mask: Mask? get() {
+        if (look && maskNow == null && SystemClock.elapsedRealtime() - maskAt >= 300L) {
+            maskAt = SystemClock.elapsedRealtime(); maskNow = VScreenPerception.mask(d.displayId, MotionTrack.LOOK_SPAN_MS)
+        }
+        return maskNow
+    }
     private var base: Bitmap? = d.latestFrame()?.let { VScreenPerception.small(it) }
     private var prev: Bitmap? = null
     private val stillMs = HashMap<Int, Long>()
@@ -455,7 +467,7 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
             fail(e.code, e.message ?: e.code, (outs.count { it.status != "skipped" && !it.n.contains(' ') } + 1).toString())
         }
         if (steps.isEmpty() && !o.fast && stoppedBy == null && outcome == "done") {
-            val p = Probe(this, d, listOf(Cond("stable", "stable")))
+            val p = Probe(this, d, listOf(Cond("stable", "stable")), look = true)
             try {
                 val w = waitOn(d, p, 3_000L, stop)
                 lines += when {

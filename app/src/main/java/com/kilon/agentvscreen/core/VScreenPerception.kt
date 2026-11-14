@@ -151,9 +151,9 @@ object VScreenPerception {
      * 1.3: the areas of [displayId] that keep moving on their own right now (a playing video, a carousel), or null.
      * Taken before an action, it tells the waits what not to wait for (see [MotionTrack]).
      */
-    fun mask(displayId: Int): Mask? = watcher(displayId)?.let { w ->
+    fun mask(displayId: Int, minSpanMs: Long = MotionTrack.MIN_SPAN_MS): Mask? = watcher(displayId)?.let { w ->
         val m = w.motion ?: return null
-        m.moving(SystemClock.elapsedRealtime())?.let { Mask(it, m.cols, m.rows, w.d.width, w.d.height) }
+        m.moving(SystemClock.elapsedRealtime(), minSpanMs)?.let { Mask(it, m.cols, m.rows, w.d.width, w.d.height) }
     }
 
     /** OCR items outside the moving areas (the words inside a playing video are not the page's words). */

@@ -71,6 +71,13 @@ object AgentNews {
             "The built-in Tailscale node now runs inside the app's process: when the user leaves the app, remote access no longer drops for minutes every two minutes. status.remote.bridge_silent now only counts the node itself hanging.",
             "Reading the CLI's output through a pipe (vscreen … | cat, \$(vscreen …)) no longer adds 20 s to every command.",
         )),
+        Entry(23, "1.3.0-beta10", listOf(
+            "“一直在动的区域”现在是整块视频或轮播（含弹幕、字幕经过的地方），里面的字不再列进【这段时间】；视频页上“看一眼”不再先等满 3 秒。",
+            "OCR 读到正在出现的字的半截（如“音频广”和“音频广播”）不再单独列出。collect 不再把吸顶栏、标签栏、底栏当成条目。",
+        ), listOf(
+            "\"Areas that keep moving\" is now the whole video or carousel (including where danmaku and subtitles pass); words there are no longer listed in [Meanwhile], and a look on a video page no longer waits out 3 s first.",
+            "Pieces of words caught while they were drawing (\"音频广\" next to \"音频广播\") are no longer listed on their own. collect no longer takes top bars, tab bars and bottom bars as items.",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */

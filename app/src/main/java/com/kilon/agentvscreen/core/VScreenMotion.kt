@@ -22,6 +22,10 @@ class MotionTrack(val cols: Int, val rows: Int) {
         const val WINDOW_MS = 3_000L
         /** Share of looks in the window in which a cell changed. */
         const val RATE = 0.55
+        /** 1.3.0: share of looks in which a cell changed for it to belong to a moving area around a busy core. */
+        const val RATE_TOUCHED = 0.15
+        /** 1.3.0: for a look (no action of ours before it), motion this long already counts. */
+        const val LOOK_SPAN_MS = 1_200L
         const val MIN_LOOKS = 10
         /** Areas smaller than this many cells (a blinking cursor, a ticking clock digit) are not "playing". */
         const val MIN_CELLS = 3
@@ -37,31 +41,46 @@ class MotionTrack(val cols: Int, val rows: Int) {
 
     @Synchronized fun clear() = looks.clear()
 
-    /** Cells that keep moving now (null = none, or not enough looks to say). */
-    @Synchronized fun moving(nowMs: Long): BooleanArray? {
+    /**
+     * Cells that keep moving now (null = none, or not enough looks to say). [minSpanMs]: how long the motion must have
+     * gone on; shorter is fine when no action of ours can have caused it (a look).
+     *
+     * 1.3.0: a playing area is a region, not just its busiest cells. Danmaku and subtitles cross the whole video but
+     * touch each cell only now and then, so only the video's busy middle passed [RATE], and the words flying over
+     * the rest were listed as changes. Now: cells that changed in at least [RATE_TOUCHED] of the looks are joined into
+     * areas; an area that holds a busy core (at least [MIN_CELLS] cells over [RATE]) is moving as a whole, as its
+     * bounding rectangle (a video, a carousel, a game scene are rectangles).
+     */
+    @Synchronized fun moving(nowMs: Long, minSpanMs: Long = MIN_SPAN_MS): BooleanArray? {
         val fresh = looks.filter { nowMs - it.first <= WINDOW_MS }
-        if (fresh.size < MIN_LOOKS || fresh.last().first - fresh.first().first < MIN_SPAN_MS - 500L) return null
+        if (fresh.size < (if (minSpanMs >= MIN_SPAN_MS) MIN_LOOKS else 6)) return null
         // The window must reach back far enough: the motion has to have lasted, not just started.
+        if (fresh.last().first - fresh.first().first < minSpanMs - 500L) return null
         val counts = IntArray(cols * rows)
         for ((_, c) in fresh) for (i in c.indices) if (c[i]) counts[i]++
-        val m = BooleanArray(cols * rows) { counts[it] >= fresh.size * RATE }
-        // Drop tiny islands.
-        val keep = BooleanArray(m.size)
-        val seen = BooleanArray(m.size)
-        for (s in m.indices) {
-            if (!m[s] || seen[s]) continue
+        val core = BooleanArray(cols * rows) { counts[it] >= fresh.size * RATE }
+        val touched = BooleanArray(cols * rows) { core[it] || (counts[it] >= 2 && counts[it] >= fresh.size * RATE_TOUCHED) }
+        val keep = BooleanArray(touched.size)
+        val seen = BooleanArray(touched.size)
+        for (s in touched.indices) {
+            if (!touched[s] || seen[s]) continue
+            // One area: touched cells joined, also across a one-cell gap (danmaku leaves holes).
             val group = ArrayList<Int>(); val st = ArrayDeque<Int>(); st.addLast(s); seen[s] = true
             while (st.isNotEmpty()) {
                 val i = st.removeLast(); group += i
                 val cx = i % cols; val cy = i / cols
-                for ((dx, dy) in listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)) {
+                for (dy in -2..2) for (dx in -2..2) {
+                    if (dx == 0 && dy == 0) continue
                     val nx = cx + dx; val ny = cy + dy
                     if (nx !in 0 until cols || ny !in 0 until rows) continue
                     val j = ny * cols + nx
-                    if (m[j] && !seen[j]) { seen[j] = true; st.addLast(j) }
+                    if (touched[j] && !seen[j]) { seen[j] = true; st.addLast(j) }
                 }
             }
-            if (group.size >= MIN_CELLS) group.forEach { keep[it] = true }
+            if (group.count { core[it] } < MIN_CELLS) continue
+            val x0 = group.minOf { it % cols }; val x1 = group.maxOf { it % cols }
+            val y0 = group.minOf { it / cols }; val y1 = group.maxOf { it / cols }
+            for (y in y0..y1) for (x in x0..x1) keep[y * cols + x] = true
         }
         return keep.takeIf { k -> k.any { it } }
     }

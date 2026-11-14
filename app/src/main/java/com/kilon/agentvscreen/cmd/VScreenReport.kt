@@ -336,10 +336,14 @@ internal fun wordFacts(d: VScreenDisplay, from: Long, to: Long): List<String> {
     if (rs.size >= 2) {
         val then = rs.first().words; val now = rs.last().words
         val thenN = then.map { VScreenOcr.norm(it) }.toSet(); val nowN = now.map { VScreenOcr.norm(it) }.toSet()
-        val appeared = now.filter { VScreenOcr.norm(it) !in thenN }
-        val gone = then.filter { VScreenOcr.norm(it) !in nowN }
+        // 1.3.0: a reading taken while text was still drawing or sliding in gives pieces of it ("Auracast 音频广",
+        // "频广", "o"). A piece of a word that is on the screen now is not a word of its own: it did not appear
+        // next to the whole word, and it did not go away.
+        fun partOf(k: String, of: Collection<String>) = k.isNotEmpty() && of.any { it.length > k.length && it.contains(k) }
+        val appeared = now.filter { val k = VScreenOcr.norm(it); k !in thenN && !partOf(k, nowN) }
+        val gone = then.filter { val k = VScreenOcr.norm(it); k !in nowN && !partOf(k, nowN) }
         val between = LinkedHashMap<String, String>()
-        for (r in rs.drop(1).dropLast(1)) for (w in r.words) { val k = VScreenOcr.norm(w); if (k !in thenN && k !in nowN) between.putIfAbsent(k, w) }
+        for (r in rs.drop(1).dropLast(1)) for (w in r.words) { val k = VScreenOcr.norm(w); if (k !in thenN && k !in nowN && !partOf(k, nowN) && !partOf(k, thenN)) between.putIfAbsent(k, w) }
         if (appeared.isNotEmpty()) lines += tr("出现了：", "appeared: ") + list(appeared, 20)
         if (gone.isNotEmpty()) lines += tr("不见了：", "disappeared: ") + list(gone, 20)
         if (between.isNotEmpty()) lines += tr("中途出现过又消失：", "appeared and disappeared meanwhile: ") + list(between.values.toList(), 12)

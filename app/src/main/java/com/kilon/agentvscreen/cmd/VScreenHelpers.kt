@@ -210,18 +210,25 @@ internal fun VScreenOffloadHandler.collectCmd(sid: String?, args: OffloadArgs): 
                 if (Call.current()?.cancelled == true) throw ActionError("CANCELLED", tr("调用方取消了", "The caller cancelled"))
                 val els = snapshot(d).els
                 scanned++
-                // Bars that did not move with the scroll are kept out from the second page on (the first page keeps them once).
+                // Bars that did not move with the scroll (top tabs, a bottom bar, a sticky search box) are not entries.
                 prevEls?.let { pe -> fixed = (fixed + fixedBoxes(pe, els)).distinctBy { "${it.centerX() / 12},${it.centerY() / 12}" } }
-                prevEls = els
                 var hit = false
-                for ((e, _) in entriesOfEls(els, d.width, d.height, if (p == 0) emptyList() else fixed)) {
-                    val n = VScreenOcr.norm(e)
-                    if (n.length < 2) continue
-                    val dup = keys.indexOfFirst { sameEntry(it, n) || (n.length >= 6 && (it.contains(n) || n.contains(it))) }
-                    if (dup >= 0) { if (n.length > keys[dup].length) { keys[dup] = n; entries[dup] = e }; continue }
-                    keys += n; entries += e
-                    if (until != null && n.contains(until)) hit = true
+                fun add(list: List<El>) {
+                    for ((e, _) in entriesOfEls(list, d.width, d.height, fixed)) {
+                        val n = VScreenOcr.norm(e)
+                        if (n.length < 2) continue
+                        val dup = keys.indexOfFirst { sameEntry(it, n) || (n.length >= 6 && (it.contains(n) || n.contains(it))) }
+                        if (dup >= 0) { if (n.length > keys[dup].length) { keys[dup] = n; entries[dup] = e }; continue }
+                        keys += n; entries += e
+                        if (until != null && n.contains(until)) hit = true
+                    }
                 }
+                // 1.3.0: which boxes are bars is known only after the first scroll. The first screen is read again
+                // then, without them: before, its bars stayed in as entries, and a card under the bottom bar took
+                // the bar's words into it.
+                if (p == 1 && fixed.isNotEmpty()) { entries.clear(); keys.clear(); hit = false; prevEls?.let { add(it) } }
+                prevEls = els
+                add(els)
                 if (hit) { why = run { val u = args.get("until"); tr("看到了“$u”", "saw \"$u\"") }; break }
                 if (p == pages - 1) break
                 val before = d.latestFrame()?.let { VScreenPerception.small(it) }
@@ -244,8 +251,8 @@ internal fun VScreenOffloadHandler.collectCmd(sid: String?, args: OffloadArgs): 
             why = tr("在第 $scanned 屏停下（${e.code}：${e.message}）", "stopped at screen $scanned (${e.code}: ${e.message})")
         }
         chrome = fixed.size
-        val sb = StringBuilder(tr("收集了 ${entries.size} 条，看了 $scanned 屏，停下原因：$why（控件文字为主、OCR 补充，可能有错字；一张卡片或一行列表是一条，同一条在几屏里重复出现只记一次" + (if (chrome > 0) "；不随滚动移动的吸顶栏/底栏 $chrome 处只在第一屏记" else "") + "）\n",
-            "Collected ${entries.size} items over $scanned screens, stopped because: $why (widget text first, OCR fills in, may have typos; one card or list row is one item, an item repeated across screens is counted once" + (if (chrome > 0) "; $chrome bars that stay in place while scrolling are recorded on the first screen only" else "") + ")\n"))
+        val sb = StringBuilder(tr("收集了 ${entries.size} 条，看了 $scanned 屏，停下原因：$why（控件文字为主、OCR 补充，可能有错字；一张卡片或一行列表是一条，同一条在几屏里重复出现只记一次" + (if (chrome > 0) "；不随滚动移动的吸顶栏、标签栏、底栏（$chrome 处）不算条目" else "") + "）\n",
+            "Collected ${entries.size} items over $scanned screens, stopped because: $why (widget text first, OCR fills in, may have typos; one card or list row is one item, an item repeated across screens is counted once" + (if (chrome > 0) "; $chrome bars that stay in place while scrolling (top, tabs, bottom) are not items" else "") + ")\n"))
         startNote?.let { sb.append(it).append('\n') }
         entries.forEachIndexed { i, l -> sb.append(i + 1).append(". ").append(if (l.length > 160) l.take(150) + tr("…（这条共 ${l.length} 字）", "… (${l.length} characters in all)") else l).append('\n') }
         sb.toString()
