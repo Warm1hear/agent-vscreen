@@ -55,6 +55,10 @@ type status struct {
 	// reported (unreachable server, bad address, rejected key ...), so the app can name the real cause.
 	Control    string `json:"control,omitempty"`
 	LoginError string `json:"login_error,omitempty"`
+	// 1.3 beta4: when this node's login (node key) expires, unix seconds (0 = never or unknown), and how old the
+	// login link shown to the user is.
+	KeyExpiry int64 `json:"key_expiry,omitempty"`
+	LinkAgeS  int   `json:"link_age_s,omitempty"`
 }
 
 // normalizeControlURL turns what a person types ("hs.example.com", "https://hs.example.com/") into the URL tsnet needs.
@@ -335,6 +339,10 @@ func main() {
 	}()
 
 	var needSince time.Time
+	// 1.3 beta4: a login link is not good forever. One left open for 10 minutes (the user went away, the browser tab
+	// was lost) is replaced with a fresh one, so the button in the app never opens a dead page.
+	var link string
+	var linkSince time.Time
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	for {
@@ -360,6 +368,18 @@ func main() {
 			} else {
 				needSince = time.Time{}
 			}
+			if st.BackendState == "NeedsLogin" && st.AuthURL != "" {
+				if st.AuthURL != link {
+					link, linkSince = st.AuthURL, time.Now()
+				}
+				s.LinkAgeS = int(time.Since(linkSince) / time.Second)
+				if time.Since(linkSince) > 10*time.Minute && srv.AuthKey == "" {
+					kick(true)
+					linkSince = time.Now()
+				}
+			} else {
+				link = ""
+			}
 			if len(st.TailscaleIPs) > 0 {
 				for _, ip := range st.TailscaleIPs {
 					if ip.Is4() {
@@ -369,6 +389,9 @@ func main() {
 			}
 			if st.Self != nil {
 				s.DNSName = strings.TrimSuffix(st.Self.DNSName, ".")
+				if st.Self.KeyExpiry != nil && !st.Self.KeyExpiry.IsZero() {
+					s.KeyExpiry = st.Self.KeyExpiry.Unix()
+				}
 				if u, ok := st.User[st.Self.UserID]; ok {
 					s.User = u.LoginName
 				}

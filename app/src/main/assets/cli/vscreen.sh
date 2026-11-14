@@ -149,6 +149,30 @@ alive() { ct=$(c -s -m 5 -o /dev/null -w '%{time_connect}' "$URL/v2/ping"); }
 # instead of running the command a second time.
 rid="c$$-$(date +%s)-$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
 target="/v2/run?format=text&session=$SESSION&request_id=$rid"
+# 1.3 beta4: why a remote phone does not answer, as precisely as this machine can tell. With the tailscale command
+# here, a Tailscale ping separates "the phone's node is offline" (service off or paused, phone offline, login needed)
+# from "the node is up but the app does not answer". Either way the user gets the one place to look.
+remote_probe() {
+  _rh=$(printf '%s' "$URL" | sed 's#^[a-z]*://##; s#[:/].*##'); _rv=
+  if command -v tailscale >/dev/null 2>&1; then
+    _ro=$(tailscale ping -c 1 --timeout 3s "$_rh" 2>&1); case "$_ro" in *pong*) _rv=up ;; *) _rv=down ;; esac
+  fi
+}
+remote_why() {
+  if [ "$1" = en ]; then
+    case $_rv in
+      up) echo "The phone is online in Tailscale, but Agent-VScreen does not answer: the app may be frozen or restarting. Ask the user to open Agent-VScreen." ;;
+      down) echo "The phone's Tailscale node is offline. Usually: the service is hidden (then devices elsewhere cannot wake it; it is online during a booked window or after an agent on the phone woke it), agent access is blocked, the phone is offline, or the built-in Tailscale needs logging in again. Ask the user to open Agent-VScreen: the status under the switch and the Connect tile say which; for access at any time it must be always on." ;;
+      *) echo "The service may be hidden (devices elsewhere cannot wake it; it is online during a booked window), agent access blocked, the phone offline, or its built-in Tailscale logged out. Ask the user to open Agent-VScreen: the status under the switch and the Connect tile say which; for access at any time it must be always on." ;;
+    esac
+  else
+    case $_rv in
+      up) echo "手机在 Tailscale 上在线，但 Agent-VScreen 没有回应：可能被系统冻结或正在重启。请用户打开一次 Agent-VScreen。" ;;
+      down) echo "手机的 Tailscale 节点不在线。通常是：服务收起了（收起时其它设备叫不醒它，只在预约时间里或手机上的 agent 叫醒后在线）、禁止了 agent 访问、手机没网，或内置 Tailscale 要重新登录。请用户打开 Agent-VScreen，开关下面的状态和“接入 agent”卡片会写是哪一种；要随时连得上，得打开常驻。" ;;
+      *) echo "可能是：服务收起了（其它设备叫不醒它，只在预约时间里在线）、禁止了 agent 访问、手机没网，或内置 Tailscale 掉了登录。请用户打开 Agent-VScreen，开关下面的状态和“接入 agent”卡片会写是哪一种；要随时连得上，得打开常驻。" ;;
+    esac
+  fi
+}
 post() { req POST "$target" "$tmp/body" "$tmp/${1:-h}" "$tmp/${2:-b}" --connect-timeout 5 -H "Content-Type: application/x-vscreen-hex" -H "Accept: text/plain"; }
 # 1.3: the command and the liveness check go out together (before, the check came first and cost a round trip on
 # every command). If the check says the app is frozen, the command is abandoned, the app woken, and the command sent
@@ -161,7 +185,11 @@ if [ $pr -eq 28 ]; then
   case "$URL" in
     http://127.0.0.1:*|http://localhost:*)
       if command -v am >/dev/null 2>&1; then
-        am broadcast -n com.kilon.agentvscreen/.host.WakeReceiver -a com.kilon.agentvscreen.WAKE >/dev/null 2>&1
+        _wb=$(am broadcast -n com.kilon.agentvscreen/.host.WakeReceiver -a com.kilon.agentvscreen.WAKE 2>&1)
+        case "$_wb" in *'data="blocked"'*)
+          echo "vscreen: NOT_READY «用户在 Agent-VScreen 里禁止了 agent 访问，叫不醒它。请用户在 App 里打开开关，或改成“收起”（agent 用到时自动唤起）。|The user blocked agent access in Agent-VScreen, so it cannot be woken. Ask the user to turn the switch on, or change it to \"hidden\" (woken when an agent needs it).»" >&2
+          exit 3 ;;
+        esac
         for i in 1 2 3; do sleep 2; alive && { pr=0; break; }; done
         [ $pr -eq 0 ] && echo "«（Agent-VScreen 刚才没有响应，已唤醒）|(Agent-VScreen was not answering; it was woken up)»" >&2
       fi ;;
@@ -170,7 +198,7 @@ fi
 if [ $pr -eq 28 ] && { [ -z "$ct" ] || [ "$(printf '%s' "$ct" | tr -d '0.')" = "" ]; }; then
   case "$URL" in
     http://127.0.0.1:*|http://localhost:*) ;;
-    *) echo "vscreen: NOT_READY «5 秒内连不上手机（$URL）：手机不在线，或它的 Tailscale 没连上（刚装好或更新后，要先打开一次 Agent-VScreen）。请用户看一下手机上的 Agent-VScreen 和网络。|could not reach the phone within 5 s ($URL): it is offline, or its Tailscale is not connected (after installing or updating, Agent-VScreen has to be opened once). Ask the user to check Agent-VScreen and the network on the phone.»" >&2
+    *) remote_probe; echo "vscreen: NOT_READY «5 秒内连不上手机（$URL）。$(remote_why)|could not reach the phone within 5 s ($URL). $(remote_why en)»" >&2
        exit 3 ;;
   esac
 fi
@@ -191,7 +219,7 @@ fi
 if [ $rc -ne 0 ]; then
   case "$URL" in
     http://127.0.0.1:*|http://localhost:*) echo "vscreen: «连不上 Agent-VScreen（$URL，curl $rc）：打开 Agent-VScreen，确认“服务”已启动；手机重启后要先启动 Shizuku 再打开它。|cannot reach Agent-VScreen ($URL, curl $rc): open Agent-VScreen and check the service is on; after a phone restart, start Shizuku first, then open it.»" >&2 ;;
-    *) echo "vscreen: «连不上手机上的 Agent-VScreen（$URL，curl $rc）：手机离线、它的 Tailscale 没连上，或服务没开。请用户打开 Agent-VScreen 看一下。|cannot reach Agent-VScreen on the phone ($URL, curl $rc): the phone is offline, its Tailscale is not connected, or the service is off. Ask the user to open Agent-VScreen and check.»" >&2 ;;
+    *) remote_probe; echo "vscreen: «连不上手机上的 Agent-VScreen（$URL，curl $rc）。$(remote_why)|cannot reach Agent-VScreen on the phone ($URL, curl $rc). $(remote_why en)»" >&2 ;;
   esac
   exit 3
 fi

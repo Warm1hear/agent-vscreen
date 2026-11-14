@@ -40,7 +40,7 @@ object Readiness {
     )
 
     fun evaluate(i: Inputs): List<Item> = buildList {
-        if (!i.serviceOn) add(Item("service_off", true, tr("用户在 Agent-VScreen 里关掉了服务", "The user turned the service off in Agent-VScreen")))
+        if (!i.serviceOn) add(Item("service_off", true, tr("用户在 Agent-VScreen 里禁止了 agent 访问", "The user blocked agent access in Agent-VScreen")))
         when (i.privilege) {
             // 1.3: with Shizuku there, the next command reconnects by itself: a warning, not a block.
             "READY" -> if (i.connection == "ERROR" || i.needsReconnect)
@@ -67,7 +67,7 @@ object Readiness {
             else -> true
         }
         return Inputs(
-            serviceOn = Prefs.serviceOn(ctx), serviceAlive = HostService.isAlive, foreground = Liveness.foreground,
+            serviceOn = !Prefs.blocked(ctx), serviceAlive = HostService.isAlive, foreground = Liveness.foreground,
             privilege = s.privilege.name, connection = s.connection.name, needsReconnect = s.needsExplicitReconnect,
             userStopped = s.userStopped, frozen = Liveness.frozenUnresolved(), remoteMode = mode.key, remoteUp = remoteUp,
         )

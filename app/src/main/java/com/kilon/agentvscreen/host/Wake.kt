@@ -346,8 +346,19 @@ object Wake {
                 else tr("预约窗口 $whenText 前的检查没通过：", "The check before window $whenText failed: ") + items.filter { it.blocking }.joinToString(tr("；", "; ")) { it.text }
             due.map { it.session }.distinct().forEach { s -> quiet("wake-event") { com.kilon.agentvscreen.api.EventHub.post(ctx, s, "wake", due.first { it.session == s }.name, text) } }
             if (!ok) quiet("wake-alert") {
-                com.kilon.agentvscreen.core.VScreenHandoff.alert(ctx, 7702, tr("agent 的定时任务快到了，但 Agent-VScreen 还没准备好", "An agent's scheduled task is due, but Agent-VScreen is not ready"),
-                    items.filter { it.blocking }.joinToString("\n") { it.text } + tr("\n（$whenText）", "\n($whenText)"))
+                // 1.3 beta4: say plainly what happens to the agent's task and what the user can do, with the one tap
+                // that does it. "Off" is the user's own choice, so it is told as a consequence, not as a fault.
+                val tap = android.app.PendingIntent.getActivity(ctx, 7703, Intent(ctx, com.kilon.agentvscreen.ui.MainActivity::class.java), android.app.PendingIntent.FLAG_IMMUTABLE)
+                val on = android.app.PendingIntent.getForegroundService(ctx, 7704, Intent(ctx, HostService::class.java).setAction(HostService.ACTION_ON), android.app.PendingIntent.FLAG_IMMUTABLE)
+                if (items.any { it.blocking && it.code == "service_off" })
+                    com.kilon.agentvscreen.core.VScreenHandoff.alert(ctx, 7702,
+                        tr("agent 预约的 $whenText 到了，但你禁止了 agent 访问", "The agent's booking $whenText is due, but you blocked agent access"),
+                        tr("这次 agent 用不了手机。要让它来，现在打开服务；只想让服务不占通知栏的话，关开关就是“收起”，预约照样能叫醒它。",
+                            "The agent cannot use the phone this time. To let it in, turn the service on now. If you only want the service out of the notification shade, the switch's off is \"hidden\", and bookings still wake it."),
+                        tap, listOf(tr("现在打开服务", "Turn on now") to on))
+                else com.kilon.agentvscreen.core.VScreenHandoff.alert(ctx, 7702,
+                    tr("agent 预约的 $whenText 快到了，但还有问题要你处理", "The agent's booking $whenText is due, but something needs you"),
+                    items.filter { it.blocking }.joinToString("\n") { it.text } + tr("\n点这里打开 Agent-VScreen 处理。", "\nTap to open Agent-VScreen."), tap)
             }
             AppLogger.info(TAG, "window $whenText: ready=$ok ${items.joinToString(",") { it.code }} did=$did")
         }, "vscreen-wake").apply { isDaemon = true }.start()
@@ -363,8 +374,12 @@ object Wake {
         if (now - lastPoke < 3_000L) return
         lastPoke = now
         AppLogger.info(TAG, "woken by a local caller")
-        if (!HostService.isAlive && Prefs.serviceOn(ctx)) HostService.start(ctx)
+        // 1.3 beta4: a hidden service is woken too; a blocked one is not (ServiceControl.wake).
+        ServiceControl.wake(ctx, "local agent")
     }
+
+    /** A booked window is open now (the service should stay awake for it). */
+    fun windowOpen(ctx: Context, now: Long): Boolean = list(ctx).any { it.opened > 0 && now <= it.opened + it.forMin * 60_000L }
 }
 
 /** The schedule's alarm (not exported: only our own PendingIntent sends it). */
@@ -384,6 +399,11 @@ class WakeAlarmReceiver : BroadcastReceiver() {
  */
 class WakeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Wake.ACTION_WAKE) Wake.poke(context.applicationContext)
+        if (intent.action != Wake.ACTION_WAKE) return
+        // 1.3 beta4: the CLI reads this answer from `am broadcast`: "blocked" = the user blocked agents (say so, do not
+        // blame the system), "waking" = on its way.
+        if (Prefs.blocked(context)) { resultData = "blocked"; return }
+        resultData = "waking"
+        Wake.poke(context.applicationContext)
     }
 }

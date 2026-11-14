@@ -61,7 +61,30 @@ object AgentLedger {
         save(Snapshot(installAt = System.currentTimeMillis(), lastCallAt = System.currentTimeMillis()))
     }
 
+    // ── 1.3 beta4: which app version each agent's note is for (per token) ──
+    private val nudged = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    const val NUDGE_EVERY_MS = 20 * 60_000L
+
+    /** The version code [tokenId]'s agent last confirmed its note for; 0 = never. */
+    fun ackVersion(tokenId: String): Int = if (::prefs.isInitialized) prefs.getInt("ack_$tokenId", 0) else 0
+
+    fun ack(tokenId: String) {
+        if (::prefs.isInitialized) prefs.edit().putInt("ack_$tokenId", com.kilon.agentvscreen.BuildConfig.VERSION_CODE).putLong("ack_at_$tokenId", System.currentTimeMillis()).apply()
+        nudged.remove(tokenId)
+        _snap.value = _snap.value.copy()
+    }
+
+    /** The update notice goes out on the first command after an update, then at most every 20 minutes or at a new stretch of use. */
+    fun nudgeDue(tokenId: String, freshStretch: Boolean): Boolean {
+        val now = System.currentTimeMillis()
+        val last = nudged[tokenId] ?: 0L
+        if (!freshStretch && now - last < NUDGE_EVERY_MS) return false
+        nudged[tokenId] = now
+        return true
+    }
+
     fun remembered(where: String) {
+        com.kilon.agentvscreen.cmd.Call.current()?.tokenId.let { ack(it ?: "main") }
         save(_snap.value.copy(rememberedAt = System.currentTimeMillis(), rememberedWhere = where.trim().take(80).ifEmpty { tr("（没说）", "(not said)") }))
     }
 

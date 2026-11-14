@@ -42,6 +42,7 @@ class HostService : Service() {
         private const val NOTE_ID = 7001
         const val ACTION_STOP = "com.kilon.agentvscreen.STOP"
         const val ACTION_PAUSE = "com.kilon.agentvscreen.PAUSE"
+        const val ACTION_ON = "com.kilon.agentvscreen.ON"
         const val ACTION_ALLOW = "com.kilon.agentvscreen.ALLOW"
         const val ACTION_SHOW_WINDOW = "com.kilon.agentvscreen.SHOW_WINDOW"
         private const val STOP_CHANNEL = "agent_vscreen_stopped"
@@ -95,6 +96,17 @@ class HostService : Service() {
         A11yHeal.maybeHeal(applicationContext, "service start")
         Tailnet.sync(applicationContext)
         com.kilon.agentvscreen.core.VScreenPower.heal(applicationContext, "service start")
+        // 1.3 beta4: woken while hidden: go back once nothing needs the service (ServiceControl.shouldSleep).
+        sleeper = scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(60_000L)
+                if (ServiceControl.shouldSleep(applicationContext)) {
+                    AppLogger.info("HostService", "nothing needs the service: hidden again")
+                    BackgroundOperation.stopAndRelease(tr("用完了，自动收起", "Done: hidden again"))
+                    stopSelf(); break
+                }
+            }
+        }
         // 1.1.6: the Stop lock and a hidden window are never silent: both live in the notification shade.
         watch = scope.launch {
             kotlinx.coroutines.flow.combine(
@@ -106,6 +118,7 @@ class HostService : Service() {
 
     private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
     private var watch: kotlinx.coroutines.Job? = null
+    private var sleeper: kotlinx.coroutines.Job? = null
 
     /**
      * A separate, visible notification while the user's Stop holds: the user may have pressed it (or closed the screen
@@ -135,10 +148,12 @@ class HostService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP || intent?.action == ACTION_PAUSE) {
-            // 1.3 beta2: the same off / pause as the switch on the home page (ServiceControl), so they mean the same.
-            ServiceControl.turnOff(this, untilNextBooking = intent.action == ACTION_PAUSE, why = "notification")
+            // 1.3 beta4: the notification's button hides the service (the same as the switch): out of the shade and
+            // the background, still woken when an agent needs it. Blocking agents is a choice made in the app.
+            ServiceControl.hide(this, "notification")
             stopSelf(); return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_ON) ServiceControl.turnOn(this, "notification")
         if (intent?.action == ACTION_ALLOW) { BackgroundOperation.userResume(); return START_STICKY }
         if (intent?.action == ACTION_SHOW_WINDOW) { BackgroundOperation.showWindow(); return START_STICKY }
         if (intent?.action == Consent.ACTION) { Consent.answer(applicationContext, intent.getIntExtra("id", -1), intent.getBooleanExtra("allow", false)); return START_STICKY }
@@ -164,7 +179,7 @@ class HostService : Service() {
     }
 
     override fun onDestroy() {
-        watch?.cancel()
+        watch?.cancel(); sleeper?.cancel()
         Tailnet.stop()
         com.kilon.agentvscreen.host.quiet("HostService:167") { getSystemService(NotificationManager::class.java)?.cancel(STOP_NOTE_ID) }
         Overlay.detach()
@@ -191,6 +206,7 @@ class HostService : Service() {
             .setContentTitle(when {
                 s.userStopped -> tr("Agent-VScreen · AI 已停止", "Agent-VScreen · AI stopped")
                 s.windowHidden && s.displayId != null -> tr("Agent-VScreen · AI 在后台工作（小窗已收起）", "Agent-VScreen · AI working in the background (window hidden)")
+                ServiceControl.awakeOnDemand(this) -> tr("Agent-VScreen · 被 agent 叫醒，用完自动收起", "Agent-VScreen · woken by an agent, hides again when done")
                 else -> tr("Agent-VScreen 服务运行中", "Agent-VScreen service running")
             })
             .setContentText(err ?: "$where · CLI / HTTP / MCP")
@@ -199,12 +215,7 @@ class HostService : Service() {
         if (s.windowHidden && s.displayId != null)
             b.addAction(0, tr("显示小窗", "Show window"), PendingIntent.getService(this, 5, Intent(this, HostService::class.java).setAction(ACTION_SHOW_WINDOW), PendingIntent.FLAG_IMMUTABLE))
         else b.addAction(0, tr("查看副屏", "View screen"), PendingIntent.getActivity(this, 2, Intent(this, com.kilon.agentvscreen.ui.FullscreenActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE))
-        // When an agent booked a window, "pause until then" sits next to "stop": done for now, the booking still works.
-        ServiceControl.nextBooking(this)?.let { at ->
-            b.addAction(0, tr("暂停到 ${ServiceControl.hhmm(at)}", "Pause until ${ServiceControl.hhmm(at)}"),
-                PendingIntent.getService(this, 6, Intent(this, HostService::class.java).setAction(ACTION_PAUSE), PendingIntent.FLAG_IMMUTABLE))
-        }
-        return b.addAction(0, tr("停止服务", "Stop service"), stop).build()
+        return b.addAction(0, tr("收起", "Hide"), stop).build()
     }
 }
 
@@ -217,6 +228,9 @@ object Prefs {
      * 1.3 beta2: the service is off only until the next booked window ("pause"), not for good. Only the user sets it
      * (the switch on the home page); a booking alone never turns a service the user switched off back on.
      */
+    /** 1.3 beta4: the user blocked agent access (really off; nothing wakes the service). */
+    fun blocked(ctx: Context) = p(ctx).getBoolean("agents_blocked", false)
+    fun setBlocked(ctx: Context, on: Boolean) { p(ctx).edit().putBoolean("agents_blocked", on).apply() }
     fun resumeOnSchedule(ctx: Context) = p(ctx).getBoolean("resume_on_schedule", false)
     fun setResumeOnSchedule(ctx: Context, on: Boolean) { p(ctx).edit().putBoolean("resume_on_schedule", on).apply() }
 }

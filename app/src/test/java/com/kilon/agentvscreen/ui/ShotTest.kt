@@ -51,6 +51,19 @@ class ShotTest {
             v.draw(Canvas(b))
             FileOutputStream(File(out, "ask-choose.png")).use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
+        // 1.3 beta4: the hero when hidden (wakeable) and when agents are blocked.
+        for ((name, blocked) in listOf("home-hidden" to false, "home-blocked" to true)) {
+            com.kilon.agentvscreen.host.Prefs.setServiceOn(app, false)
+            com.kilon.agentvscreen.host.Prefs.setBlocked(app, blocked)
+            val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+            repeat(20) { ShadowLooper.idleMainLooper(); Thread.sleep(50) }
+            val v = a.window.decorView
+            val b = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+            v.draw(Canvas(b))
+            FileOutputStream(File(out, "$name.png")).use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+        com.kilon.agentvscreen.host.Prefs.setBlocked(app, false)
+        com.kilon.agentvscreen.host.Prefs.setServiceOn(app, true)
         for (night in listOf(false, true)) {
             if (night) org.robolectric.RuntimeEnvironment.setQualifiers("+night")
             val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()

@@ -49,6 +49,9 @@ object Tailnet {
         /** 1.1.8: the control server in use (null = Tailscale's own) and the backend's last login error. */
         val control: String? = null,
         val loginError: String? = null,
+        /** 1.3 beta4: when this node's login runs out (epoch ms, 0 = never / unknown), and how old the login link is. */
+        val keyExpiry: Long = 0L,
+        val linkAgeS: Int = 0,
     ) {
         /** The server's host for messages: "controlplane.tailscale.com" or the user's own (Headscale). */
         val serverName get() = control?.let { runCatching { java.net.URI(it).host }.getOrNull() ?: it } ?: "controlplane.tailscale.com"
@@ -59,6 +62,82 @@ object Tailnet {
             .put("dns_name", dnsName ?: JSONObject.NULL).put("tailnet", tailnet ?: JSONObject.NULL)
             .put("peers_online", online).put("error", error ?: JSONObject.NULL).put("last_peer", lastPeer ?: JSONObject.NULL)
             .put("control", control ?: "tailscale").put("login_error", loginError ?: JSONObject.NULL)
+    }
+
+    /**
+     * 1.3 beta4: what the user (and an agent) should understand about the built-in node, in one word. "Not logged in"
+     * used to show whenever the node was not running, e.g. with the service off, though the login was kept; now the
+     * last good login is remembered per control server, so a stopped or starting node says so and keeps its address.
+     */
+    enum class Phase(val key: String) {
+        OFF("off"), SERVICE_OFF("service_off"), STARTING("starting"), NEEDS_LOGIN("needs_login"), EXPIRED("login_expired"),
+        NEEDS_APPROVAL("needs_approval"), CONNECTED("connected"), ERROR("error")
+    }
+
+    /** The last login that worked with the current control server. */
+    data class Known(val ip: String, val dnsName: String?, val user: String?, val at: Long)
+
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences("tailnet_known", Context.MODE_PRIVATE)
+    private fun knownKey() = ApiConfig.tailnetControlUrl ?: "tailscale"
+
+    fun known(ctx: Context): Known? = runCatching {
+        val o = JSONObject(prefs(ctx).getString(knownKey(), null) ?: return null)
+        Known(o.getString("ip"), o.optString("dns").ifBlank { null }, o.optString("user").ifBlank { null }, o.optLong("at"))
+    }.getOrNull()
+
+    private fun remember(ctx: Context, st: Status) {
+        val ip = st.ip ?: return
+        val k = known(ctx)
+        if (k != null && k.ip == ip && k.dnsName == st.dnsName && System.currentTimeMillis() - k.at < 3_600_000L) return
+        prefs(ctx).edit().putString(knownKey(), JSONObject().put("ip", ip).put("dns", st.dnsName ?: "").put("user", st.user ?: "")
+            .put("at", System.currentTimeMillis()).toString()).apply()
+    }
+
+    fun forget(ctx: Context) { prefs(ctx).edit().remove(knownKey()).apply() }
+
+    fun phase(ctx: Context): Phase {
+        val s = _status.value
+        return when {
+            ApiConfig.tailnetMode != Mode.BUILTIN -> Phase.OFF
+            !HostService.isAlive -> Phase.SERVICE_OFF
+            s.loggedIn -> Phase.CONNECTED
+            s.state == "NeedsMachineAuth" -> Phase.NEEDS_APPROVAL
+            s.state == "NeedsLogin" -> if (known(ctx) != null) Phase.EXPIRED else Phase.NEEDS_LOGIN
+            s.state == "Error" -> Phase.ERROR
+            else -> Phase.STARTING
+        }
+    }
+
+    /** One short line for the home tile and for agents (status / ping). */
+    fun line(ctx: Context): String {
+        val k = known(ctx)
+        return when (phase(ctx)) {
+            Phase.OFF -> tr("仅本机", "This phone only")
+            Phase.SERVICE_OFF -> (if (ServiceControl.now(ctx) == ServiceControl.State.BLOCKED) tr("已禁止访问", "Access blocked") else tr("已收起", "Hidden")) +
+                (k?.let { " · ${it.ip}" } ?: "")
+            Phase.STARTING -> tr("Tailscale 连接中…", "Tailscale connecting…")
+            Phase.NEEDS_LOGIN -> tr("Tailscale 要登录", "Tailscale: log in")
+            Phase.EXPIRED -> tr("Tailscale 要重新登录", "Tailscale: log in again")
+            Phase.NEEDS_APPROVAL -> tr("等待批准这台设备", "Waiting for approval")
+            Phase.CONNECTED -> "Tailscale · ${_status.value.ip}"
+            Phase.ERROR -> tr("Tailscale 出错，重试中", "Tailscale error, retrying")
+        }
+    }
+
+    /** Needs the user's hand (a login, an approval); everything else sorts itself out. */
+    fun needsUser(ctx: Context): Boolean = phase(ctx).let { it == Phase.NEEDS_LOGIN || it == Phase.EXPIRED || it == Phase.NEEDS_APPROVAL }
+
+    /** For status: the phase, what to do about it, and the last address that worked. */
+    fun json(ctx: Context): JSONObject {
+        val p = phase(ctx)
+        val k = known(ctx)
+        return _status.value.json().put("phase", p.key).put("summary", line(ctx)).put("last_ip", k?.ip ?: JSONObject.NULL)
+            .put("key_expiry", _status.value.keyExpiry.takeIf { it > 0 }?.let { it / 1000 } ?: JSONObject.NULL)
+            .put("user_action", when (p) {
+                Phase.NEEDS_LOGIN, Phase.EXPIRED -> tr("请用户在 Agent-VScreen › 接入 agent 里登录 Tailscale", "Ask the user to log in to Tailscale under Agent-VScreen › Connect")
+                Phase.NEEDS_APPROVAL -> tr("请用户在 Tailscale / Headscale 控制台批准这台设备", "Ask the user to approve this device in the Tailscale / Headscale console")
+                else -> JSONObject.NULL
+            })
     }
 
     /** Random per process: only our own child knows it, so no app on the phone can pose as a tailnet peer. */
@@ -102,7 +181,7 @@ object Tailnet {
     }
 
     /** Sign out of the tailnet (the node stays listed in the admin console until removed there). */
-    fun logout() { runCatching { stdin?.apply { write("logout\n"); flush() } } }
+    fun logout(ctx: Context? = null) { ctx?.let { forget(it) }; runCatching { stdin?.apply { write("logout\n"); flush() } } }
 
     /** 1.1.7: ask the control server for a fresh login link (the bridge also does this by itself every 20 s). */
     fun login() { runCatching { stdin?.apply { write("login\n"); flush() } } }
@@ -199,7 +278,10 @@ object Tailnet {
                 health = o.optString("health").takeIf { it.isNotBlank() },
                 control = o.optString("control").takeIf { it.isNotBlank() },
                 loginError = o.optString("login_error").takeIf { it.isNotBlank() },
+                keyExpiry = o.optLong("key_expiry") * 1000L,
+                linkAgeS = o.optInt("link_age_s"),
             )
+            if (st.loggedIn) remember(ctx, st)
             if (st.state != _status.value.state) AppLogger.info(TAG, "state ${st.state}${st.ip?.let { " $it" } ?: ""}${st.error?.let { " ($it)" } ?: ""}")
             if (st.loggedIn && ApiConfig.tailnetAuthKey != null) ApiConfig.tailnetAuthKey = null
             _status.value = st

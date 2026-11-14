@@ -132,7 +132,8 @@ internal object VScreenHandoff {
     }.getOrNull()
 
     /** A heads-up notification; false when the system does not allow it (see [notifyBlocked]) or posting failed. */
-    fun alert(context: Context, id: Int, title: String, body: String): Boolean = runCatching {
+    fun alert(context: Context, id: Int, title: String, body: String, tap: android.app.PendingIntent? = null,
+              actions: List<Pair<String, android.app.PendingIntent>> = emptyList()): Boolean = runCatching {
         if (notifyBlocked(context) != null) return@runCatching false
         ensureAlertChannel(context)
         val n = NotificationCompat.Builder(context, ALERT_CHANNEL)
@@ -141,6 +142,7 @@ internal object VScreenHandoff {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
+            .apply { tap?.let { setContentIntent(it) }; actions.forEach { (t, pi) -> addAction(0, t, pi) } }
             .build()
         context.getSystemService(NotificationManager::class.java)?.notify(id, n)
         true

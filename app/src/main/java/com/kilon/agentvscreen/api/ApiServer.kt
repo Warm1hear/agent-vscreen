@@ -521,18 +521,29 @@ class ApiServer(private val ctx: Context) {
         // Two words that need no screen. `guide` = the short usage; `remembered <where>` = the agent reports where it
         // saved its note (the app shows it to the user).
         when (argv.firstOrNull()) {
-            null, "guide" -> return NativeOffloadResult(0, AgentGuide.guide())
+            null, "guide" -> {
+                // 1.3 beta4: the guide says which version it is for, and whether this agent's note is older.
+                val tid = com.kilon.agentvscreen.cmd.Call.current()?.tokenId ?: "main"
+                val ack = AgentLedger.ackVersion(tid)
+                val head = "Agent-VScreen ${com.kilon.agentvscreen.BuildConfig.VERSION_NAME}" +
+                    (if (ack < com.kilon.agentvscreen.BuildConfig.VERSION_CODE) tr("（你的说明还没按这一版确认：更新后执行 remembered \"<存在哪里>\"）", " (your note is not confirmed for this version yet: refresh it, then run remembered \"<where>\")") else "") + "\n\n"
+                return NativeOffloadResult(0, head + AgentGuide.guide())
+            }
             "remembered" -> {
                 val where = argv.drop(1).joinToString(" ").trim()
                 if (where.isEmpty()) return NativeOffloadResult(2, tr("用法：vscreen remembered \"<你把说明存在了哪里>\"（例如：长期记忆 / skills/agent-vscreen）\n", "Usage: vscreen remembered \"<where you saved the note>\" (e.g. long-term memory / skills/agent-vscreen)\n"))
                 AgentLedger.remembered(where)
-                return NativeOffloadResult(0, tr("已记录：你说把 Agent-VScreen 的说明存在了「${where.take(80)}」。App 首页会显示给用户。以后的新对话里，要操作手机应用时用 vscreen（不知道怎么用就先 vscreen guide）。\n", "Recorded: you saved the Agent-VScreen note in \"${where.take(80)}\". The app shows this to the user. In future conversations, use vscreen to operate apps on the phone (run vscreen guide first if unsure how).\n"))
+                return NativeOffloadResult(0, tr("已记录（版本 ${com.kilon.agentvscreen.BuildConfig.VERSION_NAME}）：你说把 Agent-VScreen 的说明存在了「${where.take(80)}」。App 首页会显示给用户。以后的新对话里，要操作手机应用时用 vscreen（不知道怎么用就先 vscreen guide）。\n", "Recorded: you saved the Agent-VScreen note in \"${where.take(80)}\". The app shows this to the user. In future conversations, use vscreen to operate apps on the phone (run vscreen guide first if unsure how).\n"))
             }
         }
         com.kilon.agentvscreen.host.A11yHeal.maybeHeal(ctx, "command")
         Turns.begin(session)
         try {
-            val res = handler.handle(NativeOffloadRequest(listOf("vscreen") + argv, session))
+            val res0 = handler.handle(NativeOffloadRequest(listOf("vscreen") + argv, session))
+            // 1.3 beta4: the agent's note is for an older version: what changed, and how to refresh it (AgentNews).
+            val notice = AgentNews.notice(com.kilon.agentvscreen.cmd.Call.current()?.tokenId ?: "main", fresh)
+            val res = if (notice != null) res0.copy(output = notice + "\n" + res0.output) else res0
+            if (notice != null) return res
             // First call after a long silence (likely a new conversation): one line pointing at the short usage.
             if (!fresh || argv.first() == "help") return res
             return res.copy(output = res.output.trimEnd() + tr("\n\n（Agent-VScreen：用法速查 `vscreen guide`；完整说明 `vscreen help all`。）\n", "\n\n(Agent-VScreen: quick usage `vscreen guide`; full reference `vscreen help all`.)\n"))

@@ -67,6 +67,8 @@ internal fun VScreenOffloadHandler.status(sid: String?, args: OffloadArgs): Nati
     val data = JSONObject()
         .put("ready", com.kilon.agentvscreen.host.Readiness.ready(readiness))
         .put("readiness", com.kilon.agentvscreen.host.Readiness.json(readiness))
+        .put("app_version", com.kilon.agentvscreen.BuildConfig.VERSION_NAME)
+        .put("your_note_version", com.kilon.agentvscreen.api.AgentLedger.ackVersion(Call.current()?.tokenId ?: "main").let { if (it <= 0) JSONObject.NULL else com.kilon.agentvscreen.api.AgentNews.nameOf(it) })
         .put("schedules", JSONArray(com.kilon.agentvscreen.host.Wake.list(context).map { it.json() }))
         .put("enabled", s.enabled)
         .put("connection", s.connection.name)
@@ -90,7 +92,7 @@ internal fun VScreenOffloadHandler.status(sid: String?, args: OffloadArgs): Nati
         .also { o -> if (BackgroundOperation.state.value.userStopped) o.put("user_stopped_note", BackgroundOperation.userStoppedMessage()) }
         .put("window_hidden_by_user", s.windowHidden)
         .put("remote", when (com.kilon.agentvscreen.api.ApiConfig.tailnetMode) {
-            com.kilon.agentvscreen.host.Tailnet.Mode.BUILTIN -> com.kilon.agentvscreen.host.Tailnet.status.value.json()
+            com.kilon.agentvscreen.host.Tailnet.Mode.BUILTIN -> com.kilon.agentvscreen.host.Tailnet.json(context)
             com.kilon.agentvscreen.host.Tailnet.Mode.SYSTEM -> JSONObject().put("mode", "system").put("ip", com.kilon.agentvscreen.host.HostService.server?.tailAddress ?: JSONObject.NULL)
             else -> JSONObject().put("mode", "off")
         })

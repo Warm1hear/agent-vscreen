@@ -103,6 +103,7 @@ import com.kilon.agentvscreen.host.A11yHeal
 import com.kilon.agentvscreen.host.AppLogger
 import com.kilon.agentvscreen.host.HostService
 import com.kilon.agentvscreen.host.ServiceControl
+import com.kilon.agentvscreen.host.Tailnet.Phase as TsPhase
 import com.kilon.agentvscreen.host.Prefs
 import com.kilon.agentvscreen.host.Setup
 import com.kilon.agentvscreen.host.ShizukuManager
@@ -249,26 +250,15 @@ class MainActivity : ComponentActivity() {
         s: BackgroundOperation.State, serviceOn: Boolean, setServiceOn: (Boolean) -> Unit, items: List<Setup.Item>, allOk: Boolean,
         liveProblem: String?, setLiveProblem: (String?) -> Unit, tick: Int, bump: () -> Unit, open: (Page) -> Unit,
     ) {
-        // 1.3 beta2: on / paused / off all go through ServiceControl. Turning it off while an agent has a booking
-        // asks once: pause until that booking, or off for good (the booking then only notifies you).
-        var askOff by remember { mutableStateOf<Long?>(null) }
+        // 1.3 beta4: the switch is "always on". Off = hidden (woken when an agent needs it); blocking agents is its
+        // own button under the status line. All through ServiceControl.
         Hero(s, serviceOn) { on ->
             if (on) { ServiceControl.turnOn(this@MainActivity, "switch"); setServiceOn(true) }
-            else ServiceControl.nextBooking(this@MainActivity)?.let { askOff = it } ?: run {
-                ServiceControl.turnOff(this@MainActivity, untilNextBooking = false, why = "switch"); setServiceOn(false)
+            else {
+                ServiceControl.hide(this@MainActivity, "switch"); setServiceOn(false)
+                Toast.makeText(this@MainActivity, tr("已收起：agent 用到时会自动唤起。要完全禁止，点“禁止 agent 访问”", "Hidden: it wakes when an agent needs it. To block agents entirely, tap \"Block agent access\""), Toast.LENGTH_LONG).show()
             }
             bump()
-        }
-        askOff?.let { at ->
-            val hm = ServiceControl.hhmm(at)
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { askOff = null },
-                title = { Text(tr("关掉服务", "Turn the service off")) },
-                text = { Text(tr("agent 预约了 $hm 用手机。暂停：到 $hm 自动打开，预约照常。完全关闭：到点不会打开，只通知你。",
-                    "An agent booked the phone for $hm. Pause: it turns itself on at $hm and the booking works. Off: it stays off and the booking only notifies you.")) },
-                confirmButton = { TextButton(onClick = { askOff = null; ServiceControl.turnOff(this@MainActivity, true, "switch"); setServiceOn(false); bump() }) { Text(tr("暂停到 $hm", "Pause until $hm")) } },
-                dismissButton = { TextButton(onClick = { askOff = null; ServiceControl.turnOff(this@MainActivity, false, "switch"); setServiceOn(false); bump() }) { Text(tr("完全关闭", "Turn off")) } },
-            )
         }
 
         // What needs you now.
@@ -294,12 +284,8 @@ class MainActivity : ComponentActivity() {
         val lastLog = remember(tick) { runCatching { com.kilon.agentvscreen.host.Audit.tail(1).firstOrNull()?.optLong("at") }.getOrNull() }
         val mode = ApiConfig.tailnetMode
         val tiles = listOf(
-            Triple(Page.CONNECT, Icons.Filled.Link, tr("接入 agent", "Connect") to when {
-                mode == com.kilon.agentvscreen.host.Tailnet.Mode.OFF -> tr("仅本机", "This phone only")
-                mode == com.kilon.agentvscreen.host.Tailnet.Mode.BUILTIN && ts.loggedIn -> "Tailscale · ${ts.ip}"
-                mode == com.kilon.agentvscreen.host.Tailnet.Mode.BUILTIN -> tr("Tailscale 未登录", "Tailscale not logged in")
-                else -> tr("Tailscale App", "Tailscale app")
-            }),
+            Triple(Page.CONNECT, Icons.Filled.Link, tr("接入 agent", "Connect") to
+                (if (mode == com.kilon.agentvscreen.host.Tailnet.Mode.SYSTEM) tr("Tailscale App", "Tailscale app") else remember(ts, serviceOn) { com.kilon.agentvscreen.host.Tailnet.line(this@MainActivity) })),
             Triple(Page.PERMS, Icons.Filled.Shield, tr("权限", "Permissions") to
                 ((if (ApiConfig.autonomy == "careful") tr("谨慎", "Careful") else tr("放手跑", "Hands-off")) + if (rules.isNotEmpty()) tr(" · ${rules.size} 条限制", " · ${rules.size} rules") else "")),
             Triple(Page.SCREEN, Icons.Filled.PhoneAndroid, tr("副屏与悬浮窗", "Screen & window") to
@@ -315,7 +301,7 @@ class MainActivity : ComponentActivity() {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 row.forEachIndexed { c, (pg, icon, words) ->
                     val alert = (pg == Page.SETUP && items.isNotEmpty() && !allOk) ||
-                        (pg == Page.CONNECT && mode == com.kilon.agentvscreen.host.Tailnet.Mode.BUILTIN && !ts.loggedIn)
+                        (pg == Page.CONNECT && remember(ts, serviceOn) { com.kilon.agentvscreen.host.Tailnet.needsUser(this@MainActivity) })
                     Tile(icon, words.first, words.second, colors[r * 2 + c], Modifier.weight(1f), alert) { open(pg) }
                 }
             }
@@ -424,12 +410,15 @@ class MainActivity : ComponentActivity() {
                     }
                     Switch(checked = serviceOn, onCheckedChange = setOn)
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // 1.3 beta4: one status line. On: running (or the error). Paused / off: what that means for bookings,
+                // and one tap to switch between the two. (beta3 said "service stopped" and "off" on two lines.)
+                var flip by remember { mutableIntStateOf(0) }
+                if (serviceOn) Row(verticalAlignment = Alignment.CenterVertically) {
                     val ok = HostService.isAlive && HostService.server?.lastError == null
                     Box(Modifier.size(8.dp).clip(CircleShape).background(if (ok) Palette.takeover else Palette.stopped))
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        if (HostService.isAlive) (HostService.server?.lastError ?: tr("服务运行中 · 127.0.0.1:${ApiConfig.port}", "Service running · 127.0.0.1:${ApiConfig.port}")) else tr("服务已停止", "Service stopped"),
+                        if (HostService.isAlive) (HostService.server?.lastError ?: tr("服务运行中 · 127.0.0.1:${ApiConfig.port}", "Service running · 127.0.0.1:${ApiConfig.port}")) else tr("服务正在启动…", "Service starting…"),
                         color = Color.White, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
@@ -441,17 +430,25 @@ class MainActivity : ComponentActivity() {
                                 Toast.makeText(this@MainActivity, tr("端口改成 $np：请在“接入 agent”里重新复制接入命令给 agent", "Port changed to $np: copy the connect message for your agent again under \"Connect an agent\""), Toast.LENGTH_LONG).show()
                             }) { Text(tr("换端口", "Change port"), color = Color.White) }
                         else TextButton(onClick = { HostService.server?.start(ApiConfig.port) }) { Text(tr("立即重试", "Retry now"), color = Color.White) }
-                }
-                // 1.3 beta2: paused (back at the next booking) or off, and one tap to switch between the two.
-                var flip by remember { mutableIntStateOf(0) }
-                if (!serviceOn) ServiceControl.line(this@MainActivity).takeIf { flip >= 0 }?.let { line ->
+                } else {
+                    @Suppress("UNUSED_EXPRESSION") flip
                     val st = ServiceControl.now(this@MainActivity)
-                    val next = ServiceControl.nextBooking(this@MainActivity)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(line, color = Color(0xB3FFFFFF), fontSize = 12.sp, modifier = Modifier.weight(1f))
-                        if (next != null) TextButton(onClick = {
-                            Prefs.setResumeOnSchedule(this@MainActivity, st != ServiceControl.State.PAUSED); ServiceControl.now(this@MainActivity); flip++
-                        }) { Text(if (st == ServiceControl.State.PAUSED) tr("改成完全关闭", "Keep it off") else tr("改成暂停到 ${ServiceControl.hhmm(next)}", "Pause until ${ServiceControl.hhmm(next)}"), color = Color.White, fontSize = 12.sp) }
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(if (st == ServiceControl.State.BLOCKED) Palette.stopped else Palette.standby))
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(ServiceControl.title(this@MainActivity), color = Color.White, fontSize = 13.sp)
+                            ServiceControl.sub(this@MainActivity)?.let { Text(it, color = Color(0xB3FFFFFF), fontSize = 11.sp) }
+                        }
+                        Help(tr("常驻、收起和禁止", "Always on, hidden and blocked"), ServiceControl.help(), Color(0xB3FFFFFF))
+                    }
+                    Row {
+                        Spacer(Modifier.weight(1f))
+                        if (st == ServiceControl.State.BLOCKED) TextButton(onClick = { ServiceControl.allow(this@MainActivity, "home"); flip++ }) {
+                            Text(tr("改成收起（允许唤起）", "Hide instead (allow waking)"), color = Color.White, fontSize = 12.sp)
+                        } else TextButton(onClick = { ServiceControl.block(this@MainActivity, "home"); flip++ }) {
+                            Text(tr("禁止 agent 访问", "Block agent access"), color = Color(0xFFFFB4B4), fontSize = 12.sp)
+                        }
                     }
                 }
                 // The screen right now.
@@ -633,6 +630,11 @@ class MainActivity : ComponentActivity() {
                     "vscreen was installed ${at(l.installAt)}, but the agent has not said where it saved the note. New conversations may not know they have this ability: send the message for your agent again, or put the ability note in its custom instructions."))
         }
         StatusCard(color, title, body)
+        // 1.3 beta4: the note the agent keeps is for some app version; an older one gets refreshed on its next use.
+        val ack = remember(l) { com.kilon.agentvscreen.api.AgentLedger.ackVersion("main") }
+        if (ack < BuildConfig.VERSION_CODE) Note(
+            if (ack <= 0) tr("还不知道 agent 记下的说明是哪个版本的。它下次用 vscreen 时会收到更新提醒。", "Not known which version the agent's note is for. Its next use of vscreen brings an update notice.")
+            else tr("agent 记下的说明是 ${com.kilon.agentvscreen.api.AgentNews.nameOf(ack)} 的。它下次用 vscreen 时会收到这一版的变化，并被请求更新说明。", "The agent's note is from ${com.kilon.agentvscreen.api.AgentNews.nameOf(ack)}. Its next use of vscreen brings this version's changes and a request to refresh the note."))
     }
 
     @Composable
@@ -665,24 +667,52 @@ class MainActivity : ComponentActivity() {
                 var more by remember { mutableStateOf(false) }
                 if (!com.kilon.agentvscreen.host.Tailnet.available(this@MainActivity)) {
                     StatusCard(Palette.stopped, tr("这个安装包里没有内置 Tailscale", "This package has no built-in Tailscale"), tr("只支持 arm64 手机。", "Only arm64 phones are supported."))
-                } else when {
-                    ts.loggedIn -> {
-                        StatusCard(Palette.takeover, tr("已连上 Tailscale", "Connected to Tailscale"),
-                            tr("名字", "Name") + " ${ts.dnsName ?: ApiConfig.tailnetHostname}\n" + tr("地址", "Address") + " ${ts.ip}" +
-                                (ts.user?.let { "\n" + tr("账号", "Account") + " $it" } ?: "") +
-                                (if (ts.ownServer) "\n" + tr("服务器", "Server") + " ${ts.serverName}" else "") +
-                                "\n" + tr("在线设备 ${ts.online} 台", "${ts.online} devices online") +
-                                (ts.lastPeer?.let { "\n" + tr("最近来访", "Last visitor") + " $it" } ?: ""))
-                        SecondaryAction(tr("退出 Tailscale 登录", "Log out of Tailscale")) { com.kilon.agentvscreen.host.Tailnet.logout() }
+                } else {
+                    // 1.3 beta4: one phase decides the card (Tailnet.phase), the same word the home tile and agents see.
+                    val T = com.kilon.agentvscreen.host.Tailnet
+                    val phase = T.phase(this@MainActivity)
+                    val known = remember(ts.loggedIn, phase) { T.known(this@MainActivity) }
+                    // Logged in while this page was open (the user came back from the browser): say so.
+                    var wasOut by remember { mutableStateOf(false) }
+                    LaunchedEffect(phase) {
+                        if (phase == TsPhase.NEEDS_LOGIN || phase == TsPhase.EXPIRED || phase == TsPhase.NEEDS_APPROVAL) wasOut = true
+                        if (phase == TsPhase.CONNECTED && wasOut) { wasOut = false; Toast.makeText(this@MainActivity, tr("已连上 Tailscale", "Connected to Tailscale"), Toast.LENGTH_SHORT).show() }
                     }
-                    ts.needsLogin && ts.authUrl != null -> {
-                        if (ts.ownServer) Hint(tr("这是你的服务器 ${ts.serverName} 的注册页，只要做一次。Headscale 通常会在页面上给出一条注册命令，在服务器上运行它（用户名换成你的）就连上了；也可以在下面的高级选项里填预授权 key，不用开网页。",
-                            "This is the registration page of your server ${ts.serverName}; it is needed once. Headscale usually shows a register command on that page: run it on the server (with your user name) and the node joins. Or put a pre-auth key in Advanced below and skip the page."))
-                        else Hint(tr("第一次使用要登录一次 Tailscale，之后会记住。用你电脑上 Tailscale 的同一个账号登录；手机上不方便的话，复制链接到电脑上打开也行。", "The first time, log in to Tailscale once; it is remembered after that. Use the same account as Tailscale on your computer. If that's awkward on the phone, copy the link and open it on the computer."))
-                        PrimaryAction(if (ts.ownServer) tr("打开注册页", "Open the registration page") else tr("在浏览器里登录 Tailscale", "Log in to Tailscale in the browser")) { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ts.authUrl))) } }
-                        SecondaryAction(tr("复制登录链接", "Copy login link")) { copy(tr("登录链接", "Login link"), ts.authUrl!!) }
-                    }
-                    ts.needsLogin -> {
+                    when (phase) {
+                        TsPhase.SERVICE_OFF -> {
+                            StatusCard(Palette.idle, if (ServiceControl.now(this@MainActivity) == ServiceControl.State.BLOCKED) tr("已禁止 agent 访问，内置 Tailscale 没在运行", "Agent access is blocked; the built-in Tailscale is not running")
+                                else tr("服务收起了，内置 Tailscale 只在服务醒着时在线", "The service is hidden; the built-in Tailscale is online only while it is awake"),
+                                (known?.let { tr("登录还在（${it.dnsName ?: it.ip}），醒来后自动连上，不用重新登录。", "The login is kept (${it.dnsName ?: it.ip}); it reconnects when awake, no new login needed.") } ?: tr("打开服务后再登录。", "Turn the service on, then log in.")) +
+                                    tr("要让其它设备上的 agent 随时连得上，打开常驻。", " For agents on other devices to reach it at any time, keep it always on."))
+                            PrimaryAction(tr("打开常驻", "Keep it always on")) { ServiceControl.turnOn(this@MainActivity, "tailnet card") }
+                        }
+                        TsPhase.CONNECTED -> {
+                            StatusCard(Palette.takeover, tr("已连上 Tailscale", "Connected to Tailscale"),
+                                tr("名字", "Name") + " ${ts.dnsName ?: ApiConfig.tailnetHostname}\n" + tr("地址", "Address") + " ${ts.ip}" +
+                                    (ts.user?.let { "\n" + tr("账号", "Account") + " $it" } ?: "") +
+                                    (if (ts.ownServer) "\n" + tr("服务器", "Server") + " ${ts.serverName}" else "") +
+                                    "\n" + tr("在线设备 ${ts.online} 台", "${ts.online} devices online") +
+                                    (ts.lastPeer?.let { "\n" + tr("最近来访", "Last visitor") + " $it" } ?: ""))
+                            // The login runs out (180 days by default on Tailscale): warn two weeks ahead, not on the day.
+                            val days = if (ts.keyExpiry > 0) ((ts.keyExpiry - System.currentTimeMillis()) / 86_400_000L).toInt() else -1
+                            if (days in 0..14) Note(tr("登录 $days 天后过期，到时要重新登录。可以在 Tailscale 控制台给这台设备关掉“密钥过期”。",
+                                "The login expires in $days days; then it needs logging in again. You can turn off key expiry for this device in the Tailscale console."), Palette.stopped)
+                            SecondaryAction(tr("退出 Tailscale 登录", "Log out of Tailscale")) { T.logout(this@MainActivity) }
+                        }
+                        TsPhase.NEEDS_APPROVAL -> StatusCard(Palette.standby, tr("等待批准这台设备", "Waiting for this device to be approved"),
+                            tr("登录已经完成，你的网络要求新设备先批准。在 ${if (ts.ownServer) ts.serverName + " 的管理端" else "Tailscale 控制台（login.tailscale.com/admin/machines）"}里批准“${ApiConfig.tailnetHostname}”，批准后这里自动连上。",
+                                "The login is done; your network requires new devices to be approved. Approve \"${ApiConfig.tailnetHostname}\" in ${if (ts.ownServer) "the admin of " + ts.serverName else "the Tailscale console (login.tailscale.com/admin/machines)"}; this connects by itself afterwards."))
+                        TsPhase.NEEDS_LOGIN, TsPhase.EXPIRED -> if (ts.authUrl != null) {
+                            val again = phase == TsPhase.EXPIRED
+                            StatusCard(Palette.standby,
+                                if (again) tr("Tailscale 登录过期了，重新登录一次", "The Tailscale login ran out: log in once more") else tr("登录 Tailscale（只要一次）", "Log in to Tailscale (once)"),
+                                if (ts.ownServer) tr("打开 ${ts.serverName} 的注册页。Headscale 通常会给出一条注册命令，在服务器上运行它就连上了；也可以在下面的高级选项里填预授权 key。",
+                                    "Open the registration page of ${ts.serverName}. Headscale usually shows a register command: run it on the server and the node joins. Or put a pre-auth key in Advanced below.")
+                                else tr("1. 点下面的按钮，用你电脑上 Tailscale 的同一个账号登录\n2. 登录完回到这里，会自动连上\n手机上不方便登录的话，复制链接到电脑上打开。",
+                                    "1. Tap the button and log in with the same account as Tailscale on your computer\n2. Come back here: it connects by itself\nIf logging in on the phone is awkward, copy the link and open it on the computer."))
+                            PrimaryAction(if (ts.ownServer) tr("打开注册页", "Open the registration page") else tr("在浏览器里登录", "Log in in the browser")) { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ts.authUrl))) } }
+                            SecondaryAction(tr("复制登录链接", "Copy login link")) { copy(tr("登录链接", "Login link"), ts.authUrl!!) }
+                        } else run {
                         // 1.1.7: logged out but no link yet. The bridge keeps asking; say why it may not come.
                         // 1.1.8: name the server actually in use, and show the node's own login error as soon as there is one.
                         val slow = ts.waitingS >= 15 || ts.loginError != null
@@ -698,8 +728,11 @@ class MainActivity : ComponentActivity() {
                                 (if (ts.loginError == null) ts.health?.let { "\n" + tr("Tailscale 报告：", "Tailscale says: ") + it.take(240) } ?: "" else ""))
                         SecondaryAction(tr("重新获取登录链接", "Get a login link again")) { com.kilon.agentvscreen.host.Tailnet.login() }
                     }
-                    ts.error != null -> StatusCard(Palette.stopped, tr("内置 Tailscale 出错，会自动重试", "Built-in Tailscale failed, retrying automatically"), ts.error!!)
-                    else -> StatusCard(Palette.standby, tr("内置 Tailscale 正在启动…", "Built-in Tailscale is starting…"), ts.state)
+
+                        TsPhase.ERROR -> StatusCard(Palette.stopped, tr("内置 Tailscale 出错，会自动重试", "Built-in Tailscale failed, retrying automatically"), ts.error ?: ts.state)
+                        else -> StatusCard(Palette.standby, tr("正在连接 Tailscale…", "Connecting to Tailscale…"),
+                            known?.let { tr("用上次的登录（${it.dnsName ?: it.ip}），不用重新登录。", "Using the saved login (${it.dnsName ?: it.ip}); no new login needed.") } ?: tr("通常几秒钟。", "Usually a few seconds."))
+                    }
                 }
                 // 1.1.8: the built-in node is userspace: it only carries what other devices send to Agent-VScreen, never
                 // this phone's own traffic, so an exit node has nothing to route there. Say so where people look for it.
