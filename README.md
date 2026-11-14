@@ -122,6 +122,14 @@ The app speaks Chinese or English (the **Language** card on the home page: Syste
 
 The token equals control of the phone, so the app never offers a public link.
 
+## 1.3.0-beta8 (pre-release)
+
+- **No more minutes offline after the system restarts the app**: the built-in Tailscale node lives and dies with the app's process, and a new process first ends a node an earlier one left behind. Before, the old and the new node were online at once with one identity and threw each other off the relay for minutes.
+- **Commands no longer hang**: when the app on the phone restarts during a command, the CLI says so (the command may be partly done); when the phone stops answering for a minute, it stops waiting and says why.
+- **Why it restarted**: the log and `status` record why the previous app process ended (killed by the system, low memory, crash …).
+- `VSCREEN_PROXY` wins over `no_proxy`; when the proxy itself cannot be reached, the message says so.
+- Sheet: spare places go to what each action led to, not to a blinking cursor, and the caption says how many are before actions; a tap by coordinates no longer names words from the previous page.
+
 ## 1.3.0-beta7 (pre-release)
 
 - **Teach it by doing it**: do it once on the background screen and it is saved as a segment agents can replay. Take over the screen, tap the record key in the bottom bar, work as usual, tap Done; the review page says where each step came from, lets you untick slips and name it. A tap on words on the screen becomes `tap <words>` (found again when the layout moves); only when no words name the place is it a point. Words that appear or the app that comes up after a step become its `until`, so the replay waits for the same result and stops when it does not come. Typed words become a blank `{1}` that agents fill with `use <name> <values>…`; passwords are never kept.

@@ -38,7 +38,9 @@ fi
 PROXY="${VSCREEN_PROXY:-$(conf VSCREEN_PROXY)}"
 case "$URL" in
   http://127.0.0.1:*|http://localhost:*|http://\[::1\]:*) c() { curl --noproxy '*' "$@"; } ;;
-  *) if [ -n "$PROXY" ]; then c() { curl --proxy "$PROXY" "$@"; }; else c() { curl "$@"; }; fi ;;
+  # 1.3 beta8: VSCREEN_PROXY wins over no_proxy (a container's no_proxy often lists 100.64.0.0/10, which made curl
+  # skip the proxy and fail at once).
+  *) if [ -n "$PROXY" ]; then c() { curl --noproxy '' --proxy "$PROXY" "$@"; }; else c() { curl "$@"; }; fi ;;
 esac
 
 # ── signing ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -144,7 +146,24 @@ done
 # 1.3: on this phone, wake it first (an explicit broadcast thaws the process and starts the service), then try again.
 # 1.3 beta2: whether the connection itself was made is kept (time_connect): no connection = the phone is not
 # reachable (Tailscale node offline, network), which is not the same as an app that accepted it and stays silent.
-alive() { ct=$(c -s -m 5 -o /dev/null -w '%{time_connect}' "$URL/v2/ping"); }
+alive() { ct=$(c -s -m 5 -o "$tmp/ping" -w '%{time_connect}' "$URL/v2/ping"); }
+pidof_app() { sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$1" 2>/dev/null | head -n1; }
+# 1.3 beta7: a command whose app dies on the way never gets an answer (the connection to a proxy or a userspace
+# Tailscale stays open). While it runs, look every 20 s: the app answering with another process id (it restarted), or
+# not answering three times in a row, ends the wait with a clear message instead of hanging for minutes.
+watch_post() {
+  wp0=$(pidof_app "$tmp/ping"); miss=0
+  while kill -0 "$1" 2>/dev/null; do
+    sleep 20; kill -0 "$1" 2>/dev/null || break
+    if c -s -m 8 -o "$tmp/ping2" "$URL/v2/ping" 2>/dev/null; then
+      miss=0; wp=$(pidof_app "$tmp/ping2")
+      if [ -n "$wp0" ] && [ -n "$wp" ] && [ "$wp" != "$wp0" ]; then echo restarted > "$tmp/lost"; break; fi
+    else
+      miss=$((miss + 1)); [ $miss -ge 3 ] && { echo silent > "$tmp/lost"; break; }
+    fi
+  done
+  if [ -s "$tmp/lost" ]; then command -v pkill >/dev/null 2>&1 && pkill -P "$1" 2>/dev/null; kill "$1" 2>/dev/null; fi
+}
 # One request id for this command: if the connection breaks mid-way, the retry gets the result of the first run
 # instead of running the command a second time.
 rid="c$$-$(date +%s)-$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
@@ -181,7 +200,14 @@ post() { req POST "$target" "$tmp/body" "$tmp/${1:-h}" "$tmp/${2:-b}" --connect-
 # again with the same request id (it runs once).
 post & ppid=$!
 alive; pr=$?
-if [ $pr -ne 28 ]; then wait $ppid; rc=$?; sent=1
+if [ $pr -ne 28 ]; then watch_post $ppid & wpid=$!; wait $ppid; rc=$?; kill $wpid 2>/dev/null; wait $wpid 2>/dev/null; sent=1
+  if [ -s "$tmp/lost" ]; then
+    case "$(cat "$tmp/lost")" in
+      restarted) echo "vscreen: APP_RESTARTED «这条命令执行中，手机上的 Agent-VScreen 重启了（可能被系统杀掉后又拉起），回复丢了。命令可能做了一部分：先 vscreen act 看一眼现在的画面再决定。|Agent-VScreen on the phone restarted while this command ran (likely killed by the system and started again); the reply was lost. The command may be partly done: look with vscreen act before going on.»" >&2 ;;
+      *) remote_probe 2>/dev/null; echo "vscreen: NOT_READY «这条命令执行中，手机连续 1 分钟没有回应，不再等了。命令可能做了一部分。$(remote_why)|The phone stopped answering for a minute while this command ran; stopped waiting. The command may be partly done. $(remote_why en)»" >&2 ;;
+    esac
+    exit 3
+  fi
 else command -v pkill >/dev/null 2>&1 && pkill -P $ppid 2>/dev/null; kill $ppid 2>/dev/null; wait $ppid 2>/dev/null; sent=; fi
 if [ $pr -eq 28 ]; then
   case "$URL" in
@@ -224,7 +250,9 @@ fi
 if [ $rc -ne 0 ]; then
   case "$URL" in
     http://127.0.0.1:*|http://localhost:*) echo "vscreen: «连不上 Agent-VScreen（$URL，curl $rc）：打开 Agent-VScreen，确认“服务”已启动；手机重启后要先启动 Shizuku 再打开它。|cannot reach Agent-VScreen ($URL, curl $rc): open Agent-VScreen and check the service is on; after a phone restart, start Shizuku first, then open it.»" >&2 ;;
-    *) remote_probe; echo "vscreen: «连不上手机上的 Agent-VScreen（$URL，curl $rc）。$(remote_why)|cannot reach Agent-VScreen on the phone ($URL, curl $rc). $(remote_why en)»" >&2 ;;
+    *) if [ -n "$PROXY" ]; then case $rc in 5|7|97)
+         echo "vscreen: «连不上本机的代理 $PROXY（curl $rc），请求没有发出去：检查代理是否在运行（例如 userspace tailscaled 的 SOCKS5 端口）。|cannot reach the local proxy $PROXY (curl $rc); the request never left this machine: check the proxy is running (e.g. the SOCKS5 port of a userspace tailscaled).»" >&2; exit 3 ;; esac; fi
+       remote_probe; echo "vscreen: «连不上手机上的 Agent-VScreen（$URL，curl $rc）。$(remote_why)|cannot reach Agent-VScreen on the phone ($URL, curl $rc). $(remote_why en)»" >&2 ;;
   esac
   exit 3
 fi

@@ -110,6 +110,7 @@ object Liveness {
         .put("frozen_unresolved", frozenUnresolved())
         .put("keep_alive_window", Presence.up)
         .put("pid", android.os.Process.myPid())
+        .put("previous_exit", ExitInfo.last ?: JSONObject.NULL)
 
     /**
      * Open the vendor page where an app is allowed to keep running in the background (launch manager / autostart);

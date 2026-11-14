@@ -12,6 +12,7 @@ class VScreenApp : Application() {
         super.onCreate()
         AppLogger.init(this)
         AppFront.init(this)
+        ExitInfo.init(this)
         com.kilon.agentvscreen.I18n.init(this)
         ApiConfig.init(this)
         com.kilon.agentvscreen.api.Tokens.init(this)

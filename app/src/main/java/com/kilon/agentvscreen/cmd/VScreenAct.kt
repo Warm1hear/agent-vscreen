@@ -525,7 +525,10 @@ private fun VScreenOffloadHandler.target(sid: String, d: VScreenDisplay, t: Step
     is StepTarget.At -> {
         if (t.x !in 0 until d.width || t.y !in 0 until d.height)
             throw StepRefused("OUT_OF_BOUNDS", tr("(${t.x},${t.y}) 在副屏 ${d.width}x${d.height} 外面", "(${t.x},${t.y}) is outside the ${d.width}x${d.height} screen"))
-        val label = synchronized(VScreenOffloadHandler.lastElements) { VScreenOffloadHandler.lastElements[sid] }?.list
+        // 1.3 beta8: the words at a point come from the list of the page that is on the screen now; a list from an
+        // earlier page named what used to be there ("which is …" from the previous page).
+        val label = synchronized(VScreenOffloadHandler.lastElements) { VScreenOffloadHandler.lastElements[sid] }
+            ?.takeIf { set -> set.generation == d.generation && !pageChangedSince(d, set, runCatching { com.kilon.agentvscreen.core.VScreenShell.topActivity(d.displayId) }.getOrNull()) }?.list
             ?.filter { it.box.contains(t.x, t.y) }?.minByOrNull { it.box.width().toLong() * it.box.height() }?.label
         Target(t.x, t.y, label)
     }

@@ -520,7 +520,8 @@ internal fun VScreenOffloadHandler.fourBlocks(sid: String, d: VScreenDisplay, li
     val words = wordFacts(d, from, System.currentTimeMillis())
     val sheet = changed || touched
     val sinceLines = ArrayList<String>().apply { add(sinceHeader(from, now, actionMs, received)); addAll(words); addAll(picLines); if (size == 1) add(tr("文字和画面都没有明显变化（光标、细小动画这类小变动不算）", "no clear change in text or picture (cursors and tiny animations don't count)"))
-        if (sheet && cells.isNotEmpty()) add(tr("拼图 ${cells.size} 张：每个动作前一张，圈和编号是它点的位置（拖动是线），它带来的结果看下一张或【现在】", "Sheet of ${cells.size}: one frame before each action, the ring and number where it touched (a line for a drag); what it led to is the next frame or [Now]") +
+        if (sheet && cells.isNotEmpty()) add(run { val before = cells.count { it.marks.isNotEmpty() }
+            tr("拼图 ${cells.size} 张：${before} 张是动作之前（圈和编号是点的位置，拖动是线），其余是开头和动作之后的结果，每张下面写着是哪一种", "Sheet of ${cells.size}: $before before actions (ring and number where it touched, a line for a drag), the others the start and what actions led to; each says which under it") } +
             (if (picked.leftOut > 0) tr("；前 ${picked.leftOut} 个动作没放进来", "; the first ${picked.leftOut} actions are not in it") else "") +
             tr("。要更密、更长或别的时间段：vscreen frames（默认就是这段，--every 0.3s / --last 2m / --from 14:03:10）", ". Denser, longer or another stretch: vscreen frames (this stretch by default; --every 0.3s / --last 2m / --from 14:03:10)")) }
     val since = Since(sinceLines, sheet, from, now)

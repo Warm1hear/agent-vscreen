@@ -28,8 +28,10 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -84,6 +86,32 @@ func normalizeControlURL(v string) string {
 		v = "https://" + v
 	}
 	return v
+}
+
+// stopStale ends a bridge an earlier app process left behind: the pid in [path], if it is still a tsbridge and not
+// this process. SIGTERM first (it closes the node cleanly), SIGKILL after 3 s.
+func stopStale(path string) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || pid <= 1 || pid == os.Getpid() {
+		return
+	}
+	cmd, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil || !strings.Contains(string(cmd), "tsbridge") {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "ending the bridge left behind by an earlier app process (pid %d)\n", pid)
+	_ = syscall.Kill(pid, syscall.SIGTERM)
+	for i := 0; i < 30; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if syscall.Kill(pid, 0) != nil {
+			return
+		}
+	}
+	_ = syscall.Kill(pid, syscall.SIGKILL)
 }
 
 // hasSavedLogin: this node has logged in before (a profile is stored), whatever the backend says right now.
@@ -292,6 +320,16 @@ func setupInterfaces() {
 }
 
 func main() {
+	// 1.3 beta8: this node lives and dies with the app. When the app's process is gone (killed by the system,
+	// crashed, updated), the bridge must not stay behind holding the node: a new app process starts a new bridge
+	// with the same node key, and two clients of one key throw each other off the relay for minutes. The kernel
+	// sends SIGTERM when the parent goes; the parent id is also watched in case that signal is lost.
+	ppid := os.Getppid()
+	_, _, _ = syscall.RawSyscall(syscall.SYS_PRCTL, syscall.PR_SET_PDEATHSIG, uintptr(syscall.SIGTERM), 0)
+	if os.Getppid() != ppid || ppid == 1 {
+		fmt.Fprintln(os.Stderr, "quit: the app was already gone at start")
+		os.Exit(4)
+	}
 	setupDNS()
 	setupInterfaces()
 	os.Setenv("TS_NO_LOGS_NO_SUPPORT", "true") // no log upload to Tailscale
@@ -316,6 +354,8 @@ func main() {
 	// 1.3 beta6: one node per identity. Two bridges on one state directory (the same node key) take turns on the
 	// control server and the relay, so each is online for a while and then gone. The second one waits here until the
 	// first has exited, and gives up after 20 s rather than fight it.
+	// 1.3 beta8: a bridge left behind by an earlier app process (its parent gone) is ended first, not waited for.
+	stopStale(filepath.Join(srv.Dir, ".bridge.pid"))
 	if f, err := os.OpenFile(filepath.Join(srv.Dir, ".bridge.lock"), os.O_CREATE|os.O_RDWR, 0o600); err == nil {
 		deadline := time.Now().Add(20 * time.Second)
 		for {
@@ -329,6 +369,7 @@ func main() {
 			time.Sleep(500 * time.Millisecond)
 		}
 		lockFile = f // kept referenced: the lock lasts as long as this process
+		_ = os.WriteFile(filepath.Join(srv.Dir, ".bridge.pid"), []byte(strconv.Itoa(os.Getpid())), 0o600)
 	}
 
 	emit(status{State: "Starting"})
@@ -387,6 +428,19 @@ func main() {
 
 	// Commands from the app; EOF = the app is gone.
 	quit := make(chan struct{})
+	var quitOnce sync.Once
+	stop := func(why string) { quitOnce.Do(func() { fmt.Fprintln(os.Stderr, "quit:", why); close(quit) }) }
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	go func() { s := <-sigs; stop("signal " + s.String()) }()
+	go func() {
+		for range time.Tick(2 * time.Second) {
+			if os.Getppid() != ppid {
+				stop("the app process is gone")
+				return
+			}
+		}
+	}()
 	// 1.1.7: tsnet asks the control server for a login link only once, and only if the backend is already in NeedsLogin
 	// at that instant. When it is still NoState then (slow storage, an old state file, an expired node) or after a
 	// logout or an expired link, the node sits in NeedsLogin with no link forever. So we ask ourselves: whenever the
@@ -420,13 +474,11 @@ func main() {
 			case "login":
 				kick(true)
 			case "quit":
-				fmt.Fprintln(os.Stderr, "quit: asked by the app")
-				close(quit)
+				stop("asked by the app")
 				return
 			}
 		}
-		fmt.Fprintln(os.Stderr, "quit: the app closed our input", sc.Err())
-		close(quit)
+		stop(fmt.Sprint("the app closed our input ", sc.Err()))
 	}()
 
 	var needSince time.Time

@@ -57,6 +57,13 @@ object AgentNews {
             "New command vscreen teach \"what to show\": the user does it once on the background screen, reviews it and saves it as a segment of the app; you get its name and steps, then act \"use <name> <values>…\" runs it. Words the user typed become blanks {1} {2}…, filled in order by use (quote values with spaces). Segments the user recorded on their own can be used the same way.",
             "status.remote has bridge_silent, bridge_silent_in_background and app_in_front: how often the phone's Tailscale node was stopped by the system, and how many of those while the user was out of the app.",
         )),
+        Entry(21, "1.3.0-beta8", listOf(
+            "命令执行中手机上的 App 重启了，命令行不再一直挂着：返回 APP_RESTARTED（命令可能做了一部分，先 act 看一眼）；手机连续 1 分钟不回应时返回 NOT_READY。status 的 liveness 多了 previous_exit（上一个进程为什么结束）。",
+            "VSCREEN_PROXY 现在优先于环境里的 no_proxy；连不上这个代理时直接说是代理的问题。",
+        ), listOf(
+            "A command no longer hangs when the app on the phone restarts while it runs: you get APP_RESTARTED (the command may be partly done: look with act first); NOT_READY when the phone stops answering for a minute. status.liveness has previous_exit (why the previous app process ended).",
+            "VSCREEN_PROXY now wins over no_proxy in the environment; when that proxy cannot be reached, the message says so.",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */

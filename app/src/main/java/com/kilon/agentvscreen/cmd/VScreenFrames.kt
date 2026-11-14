@@ -65,7 +65,15 @@ internal fun pickCells(displayId: Int, from: Long, to: Long, max: Int, maxSide: 
             val n = acts.indexOf(a) + 1
             p.marks += a; p.nums += n
             if (p.tag.isNotEmpty()) p.tag.append(" · ")
-            p.tag.append(tr("动作$n 前 ", "before action $n ")).append(a.label.take(24))
+            p.tag.append(tr("动作$n 前 ", "before action $n ")).append(caption(a.label))
+        }
+        // 1.3 beta8: the rest of the room goes first to what each action led to (the last frame before the next
+        // action, or the end), not to frames spread evenly (a blinking cursor took those places).
+        kept.forEachIndexed { k, a ->
+            if (picks.size >= max) return@forEachIndexed
+            val until = kept.getOrNull(k + 1)?.atMs?.minus(1) ?: to
+            val r = idxAt(until)
+            if (all[r].atMs > a.atMs) pick(r)
         }
         val rest = inside.filter { it !in picks }
         val free = max - picks.size
@@ -79,6 +87,10 @@ internal fun pickCells(displayId: Int, from: Long, to: Long, max: Int, maxSide: 
     return Picked(cells, leftOut, inside.size + 1, acts.size)
 }
 
+private fun spoken(ms: Long) = if (ms >= 60_000 && ms % 60_000 == 0L) "${ms / 60_000} 分钟" else "${(ms + 500) / 1000} 秒"
+private fun spokenEn(ms: Long) = if (ms >= 60_000 && ms % 60_000 == 0L) "${ms / 60_000} min" else "${(ms + 500) / 1000} s"
+/** An action as a caption: the step without its until (what it waits for is not where it touched). */
+private fun caption(label: String) = label.substringBefore(" until ").take(28)
 private fun s1(ms: Long) = "${(maxOf(0L, ms) / 100) / 10.0}s"
 private fun clock(t: Long) = SimpleDateFormat("HH:mm:ss.S", Locale.ROOT).format(Date(t))
 
@@ -148,7 +160,7 @@ internal fun VScreenOffloadHandler.framesCmd(sid: String?, args: OffloadArgs): N
     val every = args.get("every")?.let { parseDuration(it, 0L).coerceAtLeast(100L) }
     val win = synchronized(lastWindows) { lastWindows[s] }
     val (from, to, said) = when {
-        args.get("last") != null -> Triple(now - parseDuration(args.get("last"), 30_000L), now, tr("最近 ${args.get("last")}", "the last ${args.get("last")}"))
+        args.get("last") != null -> parseDuration(args.get("last"), 30_000L).let { ms -> Triple(now - ms, now, tr("最近 ${spoken(ms)}", "the last ${spokenEn(ms)}")) }
         args.get("from") != null -> Triple(at(args.get("from")!!, "from"), args.get("to")?.let { at(it, "to") } ?: now, tr("指定的时间段", "the stretch asked for"))
         win != null -> Triple(win[0], win[1], tr("上一次返回的【这段时间】", "the [Meanwhile] of the last reply"))
         else -> Triple(now - 30_000L, now, tr("最近 30 秒（还没有上一次返回）", "the last 30 s (no earlier reply yet)"))
