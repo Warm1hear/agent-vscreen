@@ -180,7 +180,7 @@ class HostService : Service() {
 
     override fun onDestroy() {
         watch?.cancel(); sleeper?.cancel()
-        Tailnet.stop()
+        Tailnet.stop("service destroyed")
         com.kilon.agentvscreen.host.quiet("HostService:167") { getSystemService(NotificationManager::class.java)?.cancel(STOP_NOTE_ID) }
         Overlay.detach()
         Presence.stop()

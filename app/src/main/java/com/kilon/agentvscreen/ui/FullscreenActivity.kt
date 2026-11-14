@@ -41,6 +41,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.CloseFullscreen
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Keyboard
@@ -86,6 +87,8 @@ import com.kilon.agentvscreen.api.Turns
 import com.kilon.agentvscreen.core.BackgroundOperation
 import com.kilon.agentvscreen.core.VScreenHandoff
 import com.kilon.agentvscreen.core.VScreenShell
+import com.kilon.agentvscreen.cmd.Teach
+import com.kilon.agentvscreen.host.UserAsk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -103,8 +106,13 @@ class FullscreenActivity : ComponentActivity() {
     override fun onStart() { super.onStart(); Overlay.fullscreenShown(true) }
     override fun onStop() { Overlay.fullscreenShown(false); super.onStop() }
 
+    /** 1.3 示教: opened from an agent's "show me how" (UserAsk TEACH): take over and record at once. */
+    private val teachAsk = mutableStateOf(-1)
+    override fun onNewIntent(intent: android.content.Intent) { super.onNewIntent(intent); teachAsk.value = intent.getIntExtra("teach_ask", -1) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        teachAsk.value = intent.getIntExtra("teach_ask", -1)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowInsetsControllerCompat(window, window.decorView).apply {
@@ -144,7 +152,17 @@ class FullscreenActivity : ComponentActivity() {
             }
         }
         LaunchedEffect(session) { while (true) { left = Turns.leftMs(session) ?: -1L; delay(1000) } }
-        LaunchedEffect(takenOver) { if (!takenOver) typing = false }
+        LaunchedEffect(takenOver) { if (!takenOver) { typing = false; if (Teach.recordingFor(session)) Teach.stop(applicationContext) } }
+        val teachN by Teach.count.collectAsState()
+        val recording = teachN != null
+        val askId by teachAsk
+        LaunchedEffect(askId) {
+            val a = UserAsk.byId(askId)?.takeIf { it.live && it.kind == UserAsk.Kind.TEACH } ?: return@LaunchedEffect
+            teachAsk.value = -1
+            if (s.userStopped) BackgroundOperation.userResume()
+            if (BackgroundOperation.beginTakeover(session) || BackgroundOperation.state.value.takeoverSessionId == session)
+                Teach.start(session, a.title, a.id, a.options.firstOrNull())
+        }
 
         Box(Modifier.fillMaxSize().background(Color(0xFF07080D))) {
             // The picture, fitted, with its border.
@@ -208,14 +226,14 @@ class FullscreenActivity : ComponentActivity() {
 
             // Top bar.
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Circle(Icons.Filled.CloseFullscreen, tr("退出全屏", "Exit full screen"), Color(0x33FFFFFF)) { finish() }
+                Circle(Icons.Filled.CloseFullscreen, tr("退出全屏", "Exit full screen"), Color(0x33FFFFFF)) { if (Teach.recordingFor(session)) Teach.stop(applicationContext); finish() }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(appLabel ?: tr("后台副屏", "Background screen"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(7.dp).clip(CircleShape).background(if (mode == Mode.ACTING) Brush.sweepGradient(Palette.rainbow) else SolidColor(Palette.of(mode))))
                         Spacer(Modifier.width(5.dp))
-                        val word = s.agentTitle ?: (Palette.word(mode) + if (mode == Mode.STANDBY && left >= 0) (" · " + tr("${left / 60000}:${"%02d".format((left / 1000) % 60)} 后省电", "power save in ${left / 60000}:${"%02d".format((left / 1000) % 60)}")) else "")
+                        val word = if (recording) tr("示教录制中 · 已记 $teachN 步", "Recording a lesson · $teachN steps") else s.agentTitle ?: (Palette.word(mode) + if (mode == Mode.STANDBY && left >= 0) (" · " + tr("${left / 60000}:${"%02d".format((left / 1000) % 60)} 后省电", "power save in ${left / 60000}:${"%02d".format((left / 1000) % 60)}")) else "")
                         Text(word, color = Color(0xCCFFFFFF), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
@@ -239,7 +257,7 @@ class FullscreenActivity : ComponentActivity() {
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding().navigationBarsPadding().padding(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 // 1.3 beta2: an agent's question, answered without leaving the full screen.
-                val waiting = pendingAsks()
+                val waiting = pendingAsks().filter { !(recording && it.kind == UserAsk.Kind.TEACH) }
                 waiting.firstOrNull()?.let { a -> AskQuick(a, waiting.size, 1.15f, inOverlay = false, modifier = Modifier.fillMaxWidth()) }
                 if (typing) {
                     val fr = remember { FocusRequester() }
@@ -249,6 +267,7 @@ class FullscreenActivity : ComponentActivity() {
                         text = ""
                         vscreenUserInput(session) { id ->
                             val r = runCatching { com.kilon.agentvscreen.core.VScreenTyping.typeText(id, t, append = true) }
+                            if (r.isSuccess) Teach.typed(t)
                             r.exceptionOrNull()?.let { toast(tr("没输进去：${it.message?.take(60)}", "Not typed: ${it.message?.take(60)}")) }
                         }
                     }
@@ -266,10 +285,17 @@ class FullscreenActivity : ComponentActivity() {
                 Row(Modifier.clip(RoundedCornerShape(30.dp)).background(Color(0xE612141C)).padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (takenOver) {
-                        Circle(Icons.AutoMirrored.Filled.ArrowBack, tr("返回", "Back"), Color(0x22FFFFFF)) { vscreenUserInput(session) { VScreenShell.key(it, "back") } }
+                        Circle(Icons.AutoMirrored.Filled.ArrowBack, tr("返回", "Back"), Color(0x22FFFFFF)) { vscreenUserInput(session) { Teach.key("back"); VScreenShell.key(it, "back") } }
                         Circle(Icons.Filled.Keyboard, tr("打字", "Type"), if (typing) Palette.brandA else Color(0x22FFFFFF)) { typing = !typing }
-                        Circle(Icons.AutoMirrored.Filled.KeyboardReturn, tr("回车", "Enter"), Color(0x22FFFFFF)) { vscreenUserInput(session) { VScreenShell.key(it, "enter") } }
-                        Pill(tr("交还 AI", "Hand back"), Icons.Filled.SmartToy, Palette.takeover, Color(0xFF052E1C)) { BackgroundOperation.userResume() }
+                        Circle(Icons.AutoMirrored.Filled.KeyboardReturn, tr("回车", "Enter"), Color(0x22FFFFFF)) { vscreenUserInput(session) { Teach.key("enter"); VScreenShell.key(it, "enter") } }
+                        // 示教: record what you do here as steps an agent can run again.
+                        if (recording) Pill(tr("完成", "Done") + " · $teachN", Icons.Filled.Stop, Palette.asking, Color.White) { Teach.stop(applicationContext) }
+                        else {
+                            Circle(Icons.Filled.FiberManualRecord, tr("示教：录下接下来的操作", "Teach: record what you do next"), Color(0x22FFFFFF)) {
+                                if (Teach.start(session, null, null)) toast(tr("开始录制：照常操作，做完点“完成”", "Recording: do it as usual, then tap Done"))
+                            }
+                            Pill(tr("交还 AI", "Hand back"), Icons.Filled.SmartToy, Palette.takeover, Color(0xFF052E1C)) { BackgroundOperation.userResume() }
+                        }
                     } else {
                         if (mode == Mode.STOPPED) Pill(tr("交还 AI", "Hand back"), Icons.Filled.SmartToy, Palette.takeover, Color(0xFF052E1C)) { BackgroundOperation.userResume() }
                         Pill(tr("接管", "Take over"), Icons.Filled.TouchApp, Color(0x22FFFFFF), Color.White) {

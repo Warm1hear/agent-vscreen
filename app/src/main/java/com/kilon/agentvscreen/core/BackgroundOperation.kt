@@ -588,7 +588,7 @@ object BackgroundOperation {
     fun userSwipe(sessionId: String, x1: Int, y1: Int, x2: Int, y2: Int, ms: Int) =
         userInput(sessionId) { VScreenShell.swipe(it, x1, y1, x2, y2, ms) }
 
-    fun userBack(sessionId: String) = userInput(sessionId) { VScreenShell.key(it, "back") }
+    fun userBack(sessionId: String) = userInput(sessionId) { com.kilon.agentvscreen.cmd.Teach.key("back"); VScreenShell.key(it, "back") }
 
     private fun userInput(sessionId: String, op: (Int) -> VScreenShell.Outcome) {
         val s = _state.value

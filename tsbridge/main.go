@@ -28,11 +28,12 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
-	"path/filepath"
 	"sync"
 	"syscall"
+	"tailscale.com/ipn"
 	"time"
 
 	"tailscale.com/net/netmon"
@@ -69,7 +70,7 @@ type status struct {
 	Flaps     int    `json:"flaps,omitempty"`
 	Problem   string `json:"problem,omitempty"`
 	DownS     int    `json:"down_s,omitempty"`
-	LinkAgeS  int   `json:"link_age_s,omitempty"`
+	LinkAgeS  int    `json:"link_age_s,omitempty"`
 }
 
 // normalizeControlURL turns what a person types ("hs.example.com", "https://hs.example.com/") into the URL tsnet needs.
@@ -83,6 +84,29 @@ func normalizeControlURL(v string) string {
 		v = "https://" + v
 	}
 	return v
+}
+
+// hasSavedLogin: this node has logged in before (a profile is stored), whatever the backend says right now.
+func hasSavedLogin(lc interface {
+	ProfileStatus(context.Context) (ipn.LoginProfile, []ipn.LoginProfile, error)
+}) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cur, _, err := lc.ProfileStatus(ctx)
+	return err == nil && cur.ID != "" && cur.UserProfile.LoginName != ""
+}
+
+// controlUnreachable: the health notes say the control server could not be reached (not that it refused the login).
+func controlUnreachable(health []string) bool {
+	for _, h := range health {
+		l := strings.ToLower(h)
+		for _, w := range []string{"deadline exceeded", "fetch control key", "unable to connect", "coordination server", "timeout", "timed out", "connection refused", "no route", "network is unreachable", "dial tcp", "eof", "tls handshake"} {
+			if strings.Contains(l, w) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // loginError pulls "The last login error was: X" out of the backend's health messages.
@@ -396,10 +420,12 @@ func main() {
 			case "login":
 				kick(true)
 			case "quit":
+				fmt.Fprintln(os.Stderr, "quit: asked by the app")
 				close(quit)
 				return
 			}
 		}
+		fmt.Fprintln(os.Stderr, "quit: the app closed our input", sc.Err())
 		close(quit)
 	}()
 
@@ -412,6 +438,7 @@ func main() {
 	// was lost) is replaced with a fresh one, so the button in the app never opens a dead page.
 	var link string
 	var linkSince time.Time
+	var keptLogin bool
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	for {
@@ -431,11 +458,28 @@ func main() {
 				}
 				s.WaitingS = int(time.Since(needSince) / time.Second)
 				s.Health = strings.Join(st.Health, "; ")
-				if srv.AuthKey == "" {
+				// 1.3 beta7: a node that has a saved login and lost the control server (slow or blocked network, a
+				// proxy, the first seconds after a start) also reports NeedsLogin without a link. Starting an
+				// interactive login then threw the saved login away, and the user was asked to log in again although
+				// nothing had expired. Keep it: say "reconnecting" and wait for the server; ask for a new login only
+				// when the server is answering and the node still wants one after a minute.
+				saved := hasSavedLogin(lc)
+				if saved && (controlUnreachable(st.Health) || time.Since(needSince) < time.Minute) {
+					s.State = "Reconnecting"
+					s.Problem = strings.Join(st.Health, "; ")
+					if !keptLogin {
+						keptLogin = true
+						fmt.Fprintf(os.Stderr, "needs login but has a saved login: keeping it, waiting for the server (%s)\n", s.Problem)
+					}
+				} else if srv.AuthKey == "" {
+					if saved {
+						fmt.Fprintf(os.Stderr, "saved login refused by the server after %ds: asking for a new login\n", s.WaitingS)
+					}
 					kick(false)
 				}
 			} else {
 				needSince = time.Time{}
+				keptLogin = false
 			}
 			if st.BackendState == "NeedsLogin" && st.AuthURL != "" {
 				if st.AuthURL != link {

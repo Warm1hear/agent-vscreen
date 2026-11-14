@@ -26,12 +26,13 @@ import java.io.File
  *  - POINT    tap one place on a picture of the background screen;
  *  - AREA     drag a box on it;
  *  - CHOOSE   one of a few given options;
- *  - TEXT     a short line.
+ *  - TEXT     a short line;
+ *  - TEACH    show it once on the background screen (1.3 示教): the answer is the steps recorded.
  * One list of open questions (the app's cards and the notifications show it), one notification channel, one way to
  * answer, one wait that stops when the caller goes away. Every answer is written to the audit log.
  */
 object UserAsk {
-    enum class Kind(val key: String) { CONFIRM("confirm"), POINT("point"), AREA("area"), CHOOSE("choose"), TEXT("text");
+    enum class Kind(val key: String) { CONFIRM("confirm"), POINT("point"), AREA("area"), CHOOSE("choose"), TEXT("text"), TEACH("teach");
         companion object { fun of(k: String?) = entries.firstOrNull { it.key == k } } }
 
     const val VALID_MS = 10 * 60_000L
@@ -148,6 +149,7 @@ object UserAsk {
                     Kind.POINT -> tr("点开，在画面上点一下回答", "Open it and tap the picture to answer")
                     Kind.AREA -> tr("点开，在画面上框出一块回答", "Open it and drag a box on the picture to answer")
                     Kind.CHOOSE -> tr("点开选一个", "Open it to choose")
+                    Kind.TEACH -> tr("点开，在副屏上做一遍给它看", "Open it and do it once on the background screen")
                     else -> tr("点开回答", "Open it to answer")
                 }
                 b.setContentTitle(tr("AI 在问你：${a.title}", "The AI asks you: ${a.title}"))
@@ -158,8 +160,11 @@ object UserAsk {
         }
     }
 
-    fun answerIntent(ctx: Context, id: Int): Intent = Intent(ctx, com.kilon.agentvscreen.ui.AskActivity::class.java)
-        .putExtra("id", id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    fun answerIntent(ctx: Context, id: Int): Intent =
+        if (byId(id)?.kind == Kind.TEACH) Intent(ctx, com.kilon.agentvscreen.ui.FullscreenActivity::class.java)
+            .putExtra("teach_ask", id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        else Intent(ctx, com.kilon.agentvscreen.ui.AskActivity::class.java)
+            .putExtra("id", id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
 
     /** For tests. */
     internal fun reset() = synchronized(lock) { asks.clear(); publish() }

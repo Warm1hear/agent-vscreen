@@ -202,6 +202,7 @@ HTTP / MCP 的回复里同样的内容是结构化的：ok、code、next、steps
 - 等一件以后才发生的事：`vscreen act --stop "text:到货" --keep notify`（看到就通知用户），或 `--keep wake` 之后 `vscreen events --wait 60s` 取。告诉用户你在盯什么、盯多久。
 - 每段前后都要做的固定动作（游戏的继续 / 暂停、反复弹出的窗口）：`vscreen note before "<步骤>"`、`vscreen note after "<步骤>"` 记一次，之后每段 act 自动做。
 - 这个应用的经验（哪个入口、哪里容易点错）：`vscreen note <一句话>`，下次 launch 会列给你。重复用的一段：act 加 `--save 名字`，之后 `use 名字`。
+- 一个流程说不清、试了几次都不对，或者用户更清楚怎么做：`vscreen teach "要演示什么"`，用户在副屏上亲手做一遍、审阅后存成这个应用的一段，你拿到段名；之后 `act "use 段名 参数…"` 照做（用户输入的字是参数 {1} {2}…，按顺序填）。用户自己录的段也在 launch 列出的段里。
 - 说不清用户指的是哪个（哪个商品、哪个按钮）：`vscreen ask "你说的是哪一个？"`，用户在手机上的副屏画面里点一下，你拿到坐标和那里的 #N。也可以 `--choose "甲|乙"`、`--text`。等不到（ASK_PENDING）就告诉用户去手机上回答，然后重发同一条。
 - 你是定时任务（每天几点、每隔几小时）：先 `vscreen schedule "07:00"` 预约，到点前手机会拉起服务并检查；开始时先看 `vscreen status` 的 ready，false 就把 readiness.blocking 告诉用户。
 - 让用户知道你在做什么：`vscreen title "在搜耳机"`。做完：`vscreen done`（副屏让出，页面保留）。
@@ -249,6 +250,7 @@ When a tap did nothing or the result is wrong, first check where the ring on the
 - Wait for something that happens later: `vscreen act --stop "text:In stock" --keep notify` (the user is notified when seen), or `--keep wake` and collect with `vscreen events --wait 60s`. Tell the user what you watch and for how long.
 - Fixed actions around every stretch (resume / pause a game, a popup that keeps coming back): keep them once with `vscreen note before "<steps>"` and `vscreen note after "<steps>"`; every act then runs them.
 - What you learned about this app (which entry to use, where taps go wrong): `vscreen note <one sentence>`; the next launch lists it. A stretch you repeat: add `--save name` to act, then `use name`.
+- A flow that is hard to describe, keeps failing, or the user knows better: `vscreen teach "what to show"`; the user does it once on the background screen, reviews it and saves it as a segment of the app, and you get its name; then `act "use <name> <values>…"` runs it (words the user typed are blanks {1} {2}…, filled in order). Segments the user recorded on their own are listed with the others at launch.
 - You can't tell which one the user means (which item, which button): `vscreen ask "Which one do you mean?"`; the user taps it on the screen's picture on the phone and you get the point and the #N there. Also `--choose "A|B"`, `--text`. No answer yet (ASK_PENDING): tell the user to answer on the phone, then send the same ask again.
 - You run on a timer (daily at a time, every few hours): book it first with `vscreen schedule "07:00"`; before each time the phone starts the service and checks it. At the start, read `ready` in `vscreen status`; if false, pass readiness.blocking on to the user.
 - Let the user see what you are doing: `vscreen title "searching headphones"`. When finished: `vscreen done` (the screen is freed, the page kept).

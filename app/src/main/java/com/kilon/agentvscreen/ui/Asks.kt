@@ -63,6 +63,7 @@ internal object AskWords {
     fun go(k: UserAsk.Kind) = when (k) {
         UserAsk.Kind.POINT -> tr("去点一下", "Point it out")
         UserAsk.Kind.AREA -> tr("去框一块", "Mark an area")
+        UserAsk.Kind.TEACH -> tr("去演示", "Show it")
         else -> tr("去回答", "Answer")
     }
     fun left(a: UserAsk.Ask): String {

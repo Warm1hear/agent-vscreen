@@ -50,6 +50,13 @@ object AgentNews {
         ), listOf(
             "status.remote.phase can now be unstable: still logged in, but the phone cannot reach the Tailscale server or relay right now; remote has control_ok, relay_ok, relay, flaps_10m and problem. When it cannot be reached, tell the user what user_action says.",
         )),
+        Entry(20, "1.3.0-beta7", listOf(
+            "新命令 vscreen teach \"要演示什么\"：请用户在副屏上亲手做一遍，审阅后存成这个应用的一段，返回段名和步骤；之后 act \"use 段名 参数…\" 照做。用户输入的字变成参数 {1} {2}…，use 时按顺序填（有空格用引号）。用户自己录的段同样能 use。",
+            "status.remote 多了 bridge_silent、bridge_silent_in_background、app_in_front：手机上的 Tailscale 节点被系统停过几次、其中几次是用户离开了 App。",
+        ), listOf(
+            "New command vscreen teach \"what to show\": the user does it once on the background screen, reviews it and saves it as a segment of the app; you get its name and steps, then act \"use <name> <values>…\" runs it. Words the user typed become blanks {1} {2}…, filled in order by use (quote values with spaces). Segments the user recorded on their own can be used the same way.",
+            "status.remote has bridge_silent, bridge_silent_in_background and app_in_front: how often the phone's Tailscale node was stopped by the system, and how many of those while the user was out of the app.",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */

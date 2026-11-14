@@ -181,6 +181,14 @@ internal object CommandSpec {
                 Opt("text", Kind.SWITCH, null, null, "写一句话回答", "answer with a line of text"),
                 Opt("wait", Kind.DURATION, "时长", "duration", "最多等多久（默认 60s，最长 5m；没答复是 ASK_PENDING，之后重发同一条 ask 取答案）", "how long to wait (default 60s, at most 5m; no answer is ASK_PENDING, send the same ask again later for the answer)")),
             screen = false, long = true, sumZh = "在手机上问用户，让用户在副屏画面上点出你要找的东西", sumEn = "ask the user on the phone; the user can tap what you mean on the screen's picture"),
+        Cmd("teach", "\"<要演示什么>\"", "\"<what to show>\"",
+            listOf("请用户在副屏上亲手做一遍（示教）：手机上弹出请求，用户接管副屏操作、做完审阅，存成这个应用的一段。返回段名和步骤；之后 act \"use 段名 参数…\" 照做。用户输入的字默认变成参数 {1} {2}…，用的时候按顺序填。",
+                "适合说不清、反复失败、或用户自己更清楚怎么做的流程。先 launch 到要演示的应用。"),
+            listOf("ask the user to do it once on the background screen (a lesson): a request appears on the phone, the user takes over the screen, does it, reviews it, and it is saved as a segment of the app. Returns the segment name and steps; then act \"use <name> <values>…\" runs it. Words the user typed become blanks {1} {2}… by default, filled in order when used.",
+                "For flows that are hard to describe, keep failing, or the user knows better. launch the app to show first."),
+            listOf(Opt("name", Kind.VALUE, "名字", "name", "建议的段名（用户可以改）", "suggested segment name (the user may change it)"),
+                Opt("wait", Kind.DURATION, "时长", "duration", "最多等多久（默认 120s，最长 5m；没做完是 ASK_PENDING，之后重发同一条 teach 取结果）", "how long to wait (default 120s, at most 5m; not done yet is ASK_PENDING, send the same teach again later for the result)")),
+            screen = false, long = true, sumZh = "请用户在副屏上亲手演示一遍，存成可重放的一段", sumEn = "ask the user to show it once on the screen; saved as a segment you can replay"),
         Cmd("schedule", "[\"时间\"] | off <名字|all>", "[\"when\"] | off <name|all>",
             listOf("预约你会来用手机的时间（定时任务用）：每个窗口开始前 3 分钟拉起服务、检查 Shizuku 和连接，没准备好就通知用户，结果作为事件发给本会话。不带参数列出预约和现在是否就绪。",
                 "时间写法：\"07:00\"、\"07:00,19:30\"、\"weekdays 08:30\"、\"mon,wed,fri 21:00\"、\"every 2h from 08:00 to 22:00\"（间隔至少 30 分钟，最多 8 条）。"),
@@ -312,6 +320,7 @@ internal object CommandSpec {
             "  events [--wait 30s]       取盯守（--keep wake）发来的事件\n" +
             "  task [任务号]             查看 --async 开始的任务\n" +
             "  ask \"问题\" [--area|--choose \"甲|乙\"|--text]  在手机上问用户；默认让用户在副屏画面上点出你要找的东西\n" +
+            "  teach \"要演示什么\" [--name 名字]  请用户在副屏上亲手做一遍，存成段，之后 use 名字 照做\n" +
             "  schedule \"07:00\" | schedule off 名字  预约定时任务要用手机的时间（到点前拉起并检查）\n" +
             "  title 文字 | done         告诉用户你在做什么（悬浮窗上显示）| 这一轮做完了（副屏让出，页面保留）\n" +
             "  frames [--last 30s | --from 14:03:10] [--every 0.5s]  回看录像：每个动作前一张，圈出点的位置\n" +
@@ -330,6 +339,7 @@ internal object CommandSpec {
             "  events [--wait 30s]       fetch events sent by watches (--keep wake)\n" +
             "  task [id]                 look at tasks started with --async\n" +
             "  ask \"question\" [--area|--choose \"A|B\"|--text]  ask the user on the phone; by default the user taps what you mean on the screen's picture\n" +
+            "  teach \"what to show\" [--name name]  the user does it once on the screen; saved as a segment you run with use <name>\n" +
             "  schedule \"07:00\" | schedule off <name>  book when a timed task will use the phone (started and checked before)\n" +
             "  title <text> | done       tell the user what you are doing (shown on the floating window) | this turn is finished (screen freed, page kept)\n" +
             "  frames [--last 30s | --from 14:03:10] [--every 0.5s]  look back at the recording: a frame before each action, where it touched circled\n" +

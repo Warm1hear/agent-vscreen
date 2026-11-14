@@ -704,6 +704,17 @@ class MainActivity : ComponentActivity() {
                             val days = if (ts.keyExpiry > 0) ((ts.keyExpiry - System.currentTimeMillis()) / 86_400_000L).toInt() else -1
                             if (days in 0..14) Note(tr("登录 $days 天后过期，到时要重新登录。可以在 Tailscale 控制台给这台设备关掉“密钥过期”。",
                                 "The login expires in $days days; then it needs logging in again. You can turn off key expiry for this device in the Tailscale console."), Palette.stopped)
+                            // 1.3 beta7: online while this page is open says little: the system may stop the app (and the
+                            // node with it) as soon as the user leaves. Say so when it was measured.
+                            val frozen = com.kilon.agentvscreen.host.Liveness.frozenUnresolved()
+                            if (frozen || T.silencesAway > 0) {
+                                Note(tr("离开 App 后，系统停过它（冻结 ${com.kilon.agentvscreen.host.Liveness.screenOnFreezesSinceVisit} 次，内置 Tailscale 停 ${T.silencesAway} 次），这期间其它设备连不上。把 Agent-VScreen 设成允许后台活动。",
+                                    "After you left the app, the system stopped it (frozen ${com.kilon.agentvscreen.host.Liveness.screenOnFreezesSinceVisit}×, built-in Tailscale stopped ${T.silencesAway}×); other devices could not connect meanwhile. Allow Agent-VScreen to run in the background."), Palette.stopped)
+                                SecondaryAction(tr("去允许后台活动", "Allow background activity")) {
+                                    val opened = com.kilon.agentvscreen.host.Liveness.openBackgroundSettings(this@MainActivity)
+                                    Toast.makeText(this@MainActivity, tr("已打开：$opened。把 Agent-VScreen 设为允许自启动、关联启动和后台活动", "Opened: $opened. Allow Agent-VScreen to auto-start, be started by other apps and run in the background"), Toast.LENGTH_LONG).show()
+                                }
+                            }
                             SecondaryAction(tr("退出 Tailscale 登录", "Log out of Tailscale")) { T.logout(this@MainActivity) }
                         }
                         TsPhase.NEEDS_APPROVAL -> StatusCard(Palette.standby, tr("等待批准这台设备", "Waiting for this device to be approved"),

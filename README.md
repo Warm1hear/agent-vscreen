@@ -122,6 +122,12 @@ The app speaks Chinese or English (the **Language** card on the home page: Syste
 
 The token equals control of the phone, so the app never offers a public link.
 
+## 1.3.0-beta7 (pre-release)
+
+- **Teach it by doing it**: do it once on the background screen and it is saved as a segment agents can replay. Take over the screen, tap the record key in the bottom bar, work as usual, tap Done; the review page says where each step came from, lets you untick slips and name it. A tap on words on the screen becomes `tap <words>` (found again when the layout moves); only when no words name the place is it a point. Words that appear or the app that comes up after a step become its `until`, so the replay waits for the same result and stops when it does not come. Typed words become a blank `{1}` that agents fill with `use <name> <values>…`; passwords are never kept.
+- **Agents can ask you to show them**: `vscreen teach "what to show"` puts a request on the phone; "Show it" goes straight into takeover and recording, and the agent gets the segment's name and steps once you save.
+- **Built-in Tailscale drops are on record**: the log notes when the app goes to the background, when the system freezes it and when the built-in Tailscale stalls; the Connect page says so when it was stopped after you left the app, with a shortcut to allow background activity.
+
 ## 1.3.0-beta6 (pre-release)
 
 - **Built-in Tailscale no longer drops in and out**: when the service or the built-in Tailscale was stopped and started again quickly (more common since 1.3: hide, wake, the switch), the old node could stay alive next to the new one. Two nodes with one identity took turns on the server and the relay, so the phone was online for a while and then gone. Now one node runs at a time: the app waits for the old one to exit, and the node itself refuses to start while another holds its state.

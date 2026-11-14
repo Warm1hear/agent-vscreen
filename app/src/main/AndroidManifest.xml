@@ -66,6 +66,15 @@
             android:taskAffinity="com.kilon.agentvscreen.ask"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />
 
+        <!-- 1.3 示教: review what the user showed on the background screen and save it as a segment. -->
+        <activity
+            android:name=".ui.TeachActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.kilon.agentvscreen.teach"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
         <service
             android:name=".host.HostService"
             android:exported="false"

@@ -71,7 +71,8 @@ object Liveness {
                     // On before and after the gap: the user was using the phone while we were frozen.
                     val screenOn = wasOn && on
                     if (screenOn) { screenOnFreezes++; screenOnFreezesSinceVisit++; lastScreenOnFreezeMs = gap; lastScreenOnFreezeWall = lastFreezeWall }
-                    AppLogger.warning("Liveness", "process was frozen for ${gap / 1000}s (${if (screenOn) "screen on" else "screen off: ignored for setup"})")
+                    AppLogger.warning("Liveness", "process was frozen for ${gap / 1000}s (${if (screenOn) "screen on" else "screen off: ignored for setup"}, " +
+                        (if (AppFront.visible) "app in front" else "app in background") + ")")
                 }
                 wasOn = on
             }
@@ -141,6 +142,7 @@ object Liveness {
     fun openBackgroundSettings(ctx: Context): String {
         prefs(ctx).edit().putLong("vendor_bg_visited", System.currentTimeMillis()).commit()
         screenOnFreezesSinceVisit = 0
+        Tailnet.resetSilences()
         for ((label, cn) in PAGES) {
             val i = Intent().setComponent(cn).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             if (runCatching { ctx.startActivity(i) }.isSuccess) return label
