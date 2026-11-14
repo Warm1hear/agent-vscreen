@@ -122,6 +122,13 @@ The app speaks Chinese or English (the **Language** card on the home page: Syste
 
 The token equals control of the phone, so the app never offers a public link.
 
+## 1.3.0-beta5 (pre-release)
+
+- **Seeing your own taps**: the [Meanwhile] sheet now has one frame just before each action, with a ring and number where it touched (a line for a drag) and the step written under it; the next frame, or [Now], is what it led to. Before, the dot was drawn on the frame after the action, and no sheet came when nothing changed, which is exactly when a wrong tap needs checking. Now a stretch that touched the screen always comes with its sheet.
+- **`vscreen frames`**: look back at the recording. By default the stretch of the last reply; `--last 2m` for longer, `--every 0.3s` for denser, `--from 14:03:10 --to 14:03:30` for a given stretch, `--count` up to 36 and `--big` for larger frames. Many frames come as several pictures of 12, each listed with its clock time, how long ago, and the action before or after it. It says how much the recording still holds (every frame for 3 minutes, one a second up to 10).
+- **Home**: "Block" is a small button at the end of the status line instead of a line of its own. The Connect tile lists each way agents come in with its own state: this phone (ready / woken on use) and, when turned on, Tailscale (connected, offline while hidden, log in…); the way the last call came by is marked "in use". The Connect page opens on that way.
+- **A phone elsewhere that does not answer is no longer called "frozen"**: through a proxy or a userspace Tailscale the connection reaches the proxy, so the shell now gives the remote causes (hidden, blocked, offline, logged out) and narrows them with a ping when it can.
+
 ## 1.3.0-beta4 (pre-release)
 
 - **Agents learn about app updates**: each agent confirms with `remembered` which version its note is for. After an app update, its next use of vscreen starts with what changed for agents since then, and asks it to read `guide` again, refresh its long-term memory or skill, and run `remembered`; until it does, the notice comes back about every 20 minutes or at a new conversation. The same for the shell, MCP and HTTP. `guide` and `status` show the app version and the note's version, and so does the Connect page in the app.

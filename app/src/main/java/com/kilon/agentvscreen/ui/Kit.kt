@@ -179,7 +179,7 @@ fun Tile(icon: ImageVector, title: String, value: String, color: Color, modifier
         }
         Column {
             Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(value, fontSize = 12.sp, color = if (alert) Palette.stopped else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(value, fontSize = 12.sp, color = if (alert) Palette.stopped else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

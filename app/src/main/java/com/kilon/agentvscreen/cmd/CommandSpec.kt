@@ -197,6 +197,15 @@ internal object CommandSpec {
         Cmd("spots", "[x1,y1,x2,y2]", "[x1,y1,x2,y2]",
             listOf("本地按颜色找色块（不调模型），列出中心坐标和标注图。"), listOf("find color spots locally (no model), listing centers and a marked picture."),
             listOf(Opt("color", Kind.VALUE, "#RRGGBB", "#RRGGBB", "只找这种颜色", "only this color")), scope = Scope.LOOK),
+        Cmd("frames", "", "",
+            listOf("回看录像：默认是上一次返回的【这段时间】，每个动作前一张、圈出它点的位置，帧多时分成几张图。可以要更长、更密或指定的时间段。"),
+            listOf("look back at the recording: by default the [Meanwhile] of the last reply, one frame before each action with where it touched circled, split over several pictures when there are many. Ask for a longer, denser or given stretch."),
+            listOf(Opt("last", Kind.DURATION, "时长", "duration", "最近这么久（如 30s、2m）", "this long up to now (e.g. 30s, 2m)"),
+                Opt("from", Kind.VALUE, "时间", "time", "从多久以前（20s）或钟点（14:03:10）开始", "start this long ago (20s) or at a clock time (14:03:10)"),
+                Opt("to", Kind.VALUE, "时间", "time", "到多久以前或钟点为止（默认现在）", "end this long ago or at a clock time (default now)"),
+                Opt("count", Kind.VALUE, "张数", "count", "最多几张（默认 12，最多 36；每张图 12 张，--big 时 6 张）", "at most this many frames (default 12, at most 36; 12 per picture, 6 with --big)"),
+                Opt("every", Kind.DURATION, "间隔", "interval", "按固定间隔取（如 0.5s），和上一张一样的不重复", "take one every interval (e.g. 0.5s), repeats left out"),
+                Opt("big", Kind.SWITCH, null, null, "每张画面放大", "larger frames")), scope = Scope.LOOK),
         Cmd("zoom", "x1,y1,x2,y2", "x1,y1,x2,y2",
             listOf("放大看一块区域（图边上标着副屏坐标）。"), listOf("zoom into a region (screen coordinates on the picture's edges)."),
             listOf(Opt("scale", Kind.VALUE, "倍数", "factor", "放大倍数（默认按区域大小定）", "zoom factor (default follows the region size)")), scope = Scope.LOOK),
@@ -305,6 +314,7 @@ internal object CommandSpec {
             "  ask \"问题\" [--area|--choose \"甲|乙\"|--text]  在手机上问用户；默认让用户在副屏画面上点出你要找的东西\n" +
             "  schedule \"07:00\" | schedule off 名字  预约定时任务要用手机的时间（到点前拉起并检查）\n" +
             "  title 文字 | done         告诉用户你在做什么（悬浮窗上显示）| 这一轮做完了（副屏让出，页面保留）\n" +
+            "  frames [--last 30s | --from 14:03:10] [--every 0.5s]  回看录像：每个动作前一张，圈出点的位置\n" +
             "  stop | release | handoff in|out | status | apps 关键词 | spots | zoom 区域 | collect | fix | diag\n" +
             "成功与否看退出码 / ok：0 整段按预期做完；1 停在某一步或被拒绝（【注意】里的代码说明原因，help codes 查怎么办）；2 命令写错。\n" +
             "一步没达到预期（until 没等到、字没输进去、找不到或有歧义）这段就停在那一步，后面的不做，【注意】里写明现在的画面。\n" +
@@ -322,6 +332,7 @@ internal object CommandSpec {
             "  ask \"question\" [--area|--choose \"A|B\"|--text]  ask the user on the phone; by default the user taps what you mean on the screen's picture\n" +
             "  schedule \"07:00\" | schedule off <name>  book when a timed task will use the phone (started and checked before)\n" +
             "  title <text> | done       tell the user what you are doing (shown on the floating window) | this turn is finished (screen freed, page kept)\n" +
+            "  frames [--last 30s | --from 14:03:10] [--every 0.5s]  look back at the recording: a frame before each action, where it touched circled\n" +
             "  stop | release | handoff in|out | status | apps <keyword> | spots | zoom <region> | collect | fix | diag\n" +
             "Success is in the exit code / ok: 0 the whole stretch went as expected; 1 it stopped at a step or was refused (the code in [Notes] says why, help codes says what to do); 2 the command was written wrong.\n" +
             "If a step does not reach what it expects (until never came, text was not typed in, not found or ambiguous), the stretch stops at that step, skips the rest, and [Notes] describes the screen now.\n" +

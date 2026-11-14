@@ -38,6 +38,13 @@ object AgentNews {
             "status.remote has phase and user_action: when the built-in Tailscale needs a login or an approval, ask the user as user_action says.",
             "After an app update you get a notice like this; once your note is refreshed, run remembered and it stops.",
         )),
+        Entry(18, "1.3.0-beta5", listOf(
+            "【这段时间】的拼图改成每个动作前一张，圈和编号是你点的位置（拖动是线），结果看下一张或【现在】；点了没反应时也会给拼图，用来核对是不是点错了地方。",
+            "新命令 vscreen frames：回看录像。默认是上一次返回的那段；--last 2m 更长、--every 0.3s 更密、--from 14:03:10 --to 14:03:30 指定一段、--big 放大；帧多时分成几张图。",
+        ), listOf(
+            "The [Meanwhile] sheet now has one frame before each action, with a ring and number where you touched (a line for a drag); the result is the next frame or [Now]. It also comes when a tap changed nothing, to check whether you hit the wrong place.",
+            "New command vscreen frames: look back at the recording. By default the stretch of the last reply; --last 2m longer, --every 0.3s denser, --from 14:03:10 --to 14:03:30 a given stretch, --big larger; many frames come as several pictures.",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */

@@ -226,6 +226,7 @@ class VScreenOffloadHandler(internal val context: Context) : NativeOffloadHandle
         "title" -> titleCmd(sid, args)
         "spots" -> spotsCmd(sid, args)
         "zoom" -> zoomCmd(sid, args)
+        "frames" -> framesCmd(sid, args)
         "collect" -> collectCmd(sid, args)
         "fix" -> fix(sid, args)
         "diag" -> diagCmd(sid)

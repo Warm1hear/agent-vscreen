@@ -31,6 +31,9 @@ object AgentLedger {
         val lastCallAt: Long = 0L,
         val comebacks: Int = 0,
         val lastComebackAt: Long = 0L,
+        /** 1.3 beta5: the last call from an agent on this phone / from another device (the Connect tile says which is in use). */
+        val lastLocalAt: Long = 0L,
+        val lastRemoteAt: Long = 0L,
     ) {
         val installed get() = installAt > 0
         val remembered get() = rememberedAt >= installAt && rememberedAt > 0
@@ -45,6 +48,7 @@ object AgentLedger {
         _snap.value = Snapshot(
             prefs.getLong("install_at", 0L), prefs.getLong("remembered_at", 0L), prefs.getString("remembered_where", null),
             prefs.getLong("last_call_at", 0L), prefs.getInt("comebacks", 0), prefs.getLong("last_comeback_at", 0L),
+            prefs.getLong("last_local_at", 0L), prefs.getLong("last_remote_at", 0L),
         )
     }
 
@@ -53,7 +57,8 @@ object AgentLedger {
         if (!::prefs.isInitialized) return
         prefs.edit().putLong("install_at", s.installAt).putLong("remembered_at", s.rememberedAt)
             .putString("remembered_where", s.rememberedWhere).putLong("last_call_at", s.lastCallAt)
-            .putInt("comebacks", s.comebacks).putLong("last_comeback_at", s.lastComebackAt).apply()
+            .putInt("comebacks", s.comebacks).putLong("last_comeback_at", s.lastComebackAt)
+            .putLong("last_local_at", s.lastLocalAt).putLong("last_remote_at", s.lastRemoteAt).apply()
     }
 
     fun installed() {
@@ -97,7 +102,8 @@ object AgentLedger {
         val s = _snap.value
         val fresh = s.lastCallAt == 0L || now - s.lastCallAt >= GAP_MS
         val comeback = fresh && s.installed && s.lastCallAt > 0
-        save(s.copy(lastCallAt = now, comebacks = s.comebacks + if (comeback) 1 else 0, lastComebackAt = if (comeback) now else s.lastComebackAt))
+        val remote = com.kilon.agentvscreen.cmd.Call.current()?.peer != null
+        save(s.copy(lastCallAt = now, lastLocalAt = if (remote) s.lastLocalAt else now, lastRemoteAt = if (remote) now else s.lastRemoteAt, comebacks = s.comebacks + if (comeback) 1 else 0, lastComebackAt = if (comeback) now else s.lastComebackAt))
         return fresh
     }
 }

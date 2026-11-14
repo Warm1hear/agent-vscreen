@@ -406,17 +406,16 @@ private fun list(ws: List<String>, max: Int): String =
  * ago, the actions done before it drawn as a red dot / line). Saved in the chat's attachments and offered inline.
  */
 internal fun VScreenOffloadHandler.picture(sid: String, d: VScreenDisplay, frame: Bitmap, since: Since?, tag: String,
-                                           cells0: List<Pair<Long, Bitmap>>? = null): String? = runCatching {
+                                           cells0: List<Cell>? = null): String? = runCatching {
     val k = minOf(1.0, Report.NOW_SIDE.toDouble() / maxOf(frame.width, frame.height))
     val nw = (frame.width * k).roundToInt().coerceAtLeast(1); val nh = (frame.height * k).roundToInt().coerceAtLeast(1)
     val margin = 30; val title = 26
     // The sheet.
-    val cells: List<Pair<Long, Bitmap>> = cells0 ?: if (since?.changed == true) pickTrack(d.displayId, since.from, since.to, Report.MAX_CELLS) else emptyList()
-    val marks = if (cells.isNotEmpty()) VScreenRecorder.marks(d.displayId, since!!.from - 1, since.to).filter { it.kind == "action" } else emptyList()
+    val cells: List<Cell> = cells0 ?: if (since?.changed == true) pickCells(d.displayId, since.from, since.to, Report.MAX_CELLS, Report.CELL_SIDE).cells else emptyList()
     val (fw, fh) = VScreenRecorder.frameSize(d.displayId) ?: (d.width to d.height)
     val landscape = frame.width > frame.height
-    val cw = cells.maxOfOrNull { it.second.width } ?: 0; val ch = cells.maxOfOrNull { it.second.height } ?: 0
-    val cap = 22; val pad = 6
+    val cw = cells.maxOfOrNull { it.bmp.width } ?: 0; val ch = cells.maxOfOrNull { it.bmp.height } ?: 0
+    val cap = CAPTION; val pad = CELL_PAD
     val cols = when { cells.isEmpty() -> 0; landscape -> minOf(4, cells.size); cells.size <= 4 -> 1; else -> 2 }
     val rows = if (cols == 0) 0 else (cells.size + cols - 1) / cols
     val sheetW = if (cols == 0) 0 else cols * (cw + pad) + pad
@@ -454,54 +453,15 @@ internal fun VScreenOffloadHandler.picture(sid: String, d: VScreenDisplay, frame
     }
     if (cells.isNotEmpty()) {
         val sx = if (landscape) 0 else nowW; val sy = if (landscape) nowH else 0
-        c.drawText(tr("这段时间（${Report.ago(since!!.from, since.to)} 到现在，红点=点击 红线=拖动）", "Meanwhile (${Report.ago(since!!.from, since.to)} to now; red dot = tap, red line = drag)"), (sx + pad).toFloat(), (sy + 20).toFloat(), head)
-        val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 15f; color = Color.BLACK }
-        val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 30, 60); style = Paint.Style.STROKE; strokeWidth = 3f }
-        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(150, 255, 30, 60) }
-        var prevT = Long.MIN_VALUE
-        cells.forEachIndexed { i, (t, b) ->
-            val x = sx + pad + (i % cols) * (cw + pad); val y = sy + title + pad + (i / cols) * (ch + cap + pad)
-            c.drawBitmap(b, null, Rect(x, y, x + b.width, y + b.height), null)
-            val kx = b.width.toFloat() / maxOf(1, fw); val ky = b.height.toFloat() / maxOf(1, fh)
-            val here = marks.filter { it.atMs > prevT && it.atMs <= t }
-            for (m in here) {
-                val pts = m.pts.map { (x + it[0] * kx) to (y + it[1] * ky) }
-                if (pts.size == 1) { c.drawCircle(pts[0].first, pts[0].second, 7f, fill); c.drawCircle(pts[0].first, pts[0].second, 11f, dot) }
-                else for ((a, bb) in pts.zipWithNext()) c.drawLine(a.first, a.second, bb.first, bb.second, dot)
-            }
-            c.drawText("${i + 1}  ${Report.ago(t, since.to)}" + if (here.isNotEmpty()) "  ${here.joinToString(" ") { it.label.take(14) }}".take(34) else "",
-                (x + 2).toFloat(), (y + ch + 16).toFloat(), tp)
-            prevT = t
-        }
+        c.drawText(tr("这段时间（${Report.ago(since!!.from, since.to)} 到现在；圈=动作的位置，画在动作前那张上）", "Meanwhile (${Report.ago(since!!.from, since.to)} to now; ring = where an action touched, on the frame before it)"), (sx + pad).toFloat(), (sy + 20).toFloat(), head)
+        drawCells(c, sx, sy + title, cells, cols, cw, ch, fw, fh, since.to)
     }
-    cells.forEach { it.second.recycle() }
+    cells.forEach { it.bmp.recycle() }
     savePic(sid, out, tag).also { out.recycle() }
 }.getOrNull()
 
 /** Save [bmp] as a JPEG in the shot store and return its reference (the API layer turns it into a URL, a local file or an inline image). */
 internal fun VScreenOffloadHandler.savePic(sid: String, bmp: Bitmap, tag: String): String? = ShotStore.save(context, bmp, tag)
-
-/**
- * Frames from the track for a sheet: the one showing at [from], the first after every action, then evenly spread,
- * at most [max] (caller recycles).
- */
-internal fun pickTrack(displayId: Int, from: Long, to: Long, max: Int, maxSide: Int = Report.CELL_SIDE): List<Pair<Long, Bitmap>> {
-    val all = VScreenRecorder.frames(displayId, from - 120_000L, to)
-    if (all.isEmpty()) return emptyList()
-    val times = all.map { it.atMs }
-    val acts = VScreenRecorder.marks(displayId, from, to).filter { it.kind == "action" }.map { it.atMs }
-    val first = times.indices.lastOrNull { times[it] <= from } ?: 0
-    val inside = times.indices.filter { times[it] in (from + 1)..to }
-    val chosen = sortedSetOf(first)
-    for (a in acts) inside.firstOrNull { times[it] >= a }?.let { if (chosen.size < max) chosen += it }
-    val room = max - chosen.size
-    if (room > 0 && inside.isNotEmpty()) {
-        val rest = inside.filter { it !in chosen }
-        val spread = if (rest.size <= room) rest else (0 until room).map { kk -> rest[(kk * (rest.size - 1)) / maxOf(1, room - 1)] }
-        chosen.addAll(spread)
-    }
-    return chosen.toList().take(max).mapNotNull { i -> VScreenRecorder.decode(all[i], maxSide)?.let { all[i].atMs to it } }
-}
 
 // ── the four blocks ──────────────────────────────────────────────────
 
@@ -546,22 +506,31 @@ internal fun VScreenOffloadHandler.fourBlocks(sid: String, d: VScreenDisplay, li
     // v0.5: the recording-track work (decoding frames for 【这段时间】 and the sheet) runs while the screen is read.
     val tTrack = SystemClock.elapsedRealtime()
     val picF = REPORT_POOL.submit<Pair<List<String>, Boolean>>(com.kilon.agentvscreen.I18n.carry { runCatching { pictureFacts(d, from, now) }.getOrElse { listOf(tr("（读不到录屏：${it.message}）", "(recording unreadable: ${it.message})")) to false } })
-    val cellsF = REPORT_POOL.submit<List<Pair<Long, Bitmap>>> { runCatching { pickTrack(d.displayId, from, now, Report.MAX_CELLS) }.getOrDefault(emptyList()) }
+    val cellsF = REPORT_POOL.submit<Picked> { runCatching { pickCells(d.displayId, from, now, Report.MAX_CELLS, Report.CELL_SIDE) }.getOrDefault(Picked(emptyList(), 0, 0, 0)) }
     val snapAt = SystemClock.elapsedRealtime()
     val snap = snapshot(d)
     timing.lookMs = SystemClock.elapsedRealtime() - snapAt
     val (picLines, changed) = runCatching { picF.get(5, java.util.concurrent.TimeUnit.SECONDS) }.getOrDefault(emptyList<String>() to false)
-    val cells = runCatching { cellsF.get(5, java.util.concurrent.TimeUnit.SECONDS) }.getOrDefault(emptyList())
+    val picked = runCatching { cellsF.get(5, java.util.concurrent.TimeUnit.SECONDS) }.getOrDefault(Picked(emptyList(), 0, 0, 0))
+    val cells = picked.cells
+    // 1.3 beta5: the sheet also comes when the picture did not change but the stretch touched the screen: a tap that
+    // hit nothing is exactly when the agent needs to see where it landed.
+    val touched = cells.any { c -> c.marks.any { it.pts.isNotEmpty() } }
     timing.trackMs = maxOf(0L, SystemClock.elapsedRealtime() - tTrack - timing.lookMs)
     val words = wordFacts(d, from, System.currentTimeMillis())
-    val sinceLines = ArrayList<String>().apply { add(sinceHeader(from, now, actionMs, received)); addAll(words); addAll(picLines); if (size == 1) add(tr("文字和画面都没有明显变化（光标、细小动画这类小变动不算）", "no clear change in text or picture (cursors and tiny animations don't count)")) }
-    val since = Since(sinceLines, changed, from, now)
+    val sheet = changed || touched
+    val sinceLines = ArrayList<String>().apply { add(sinceHeader(from, now, actionMs, received)); addAll(words); addAll(picLines); if (size == 1) add(tr("文字和画面都没有明显变化（光标、细小动画这类小变动不算）", "no clear change in text or picture (cursors and tiny animations don't count)"))
+        if (sheet && cells.isNotEmpty()) add(tr("拼图 ${cells.size} 张：每个动作前一张，圈和编号是它点的位置（拖动是线），它带来的结果看下一张或【现在】", "Sheet of ${cells.size}: one frame before each action, the ring and number where it touched (a line for a drag); what it led to is the next frame or [Now]") +
+            (if (picked.leftOut > 0) tr("；前 ${picked.leftOut} 个动作没放进来", "; the first ${picked.leftOut} actions are not in it") else "") +
+            tr("。要更密、更长或别的时间段：vscreen frames（默认就是这段，--every 0.3s / --last 2m / --from 14:03:10）", ". Denser, longer or another stretch: vscreen frames (this stretch by default; --every 0.3s / --last 2m / --from 14:03:10)")) }
+    val since = Since(sinceLines, sheet, from, now)
+    synchronized(lastWindows) { lastWindows[sid] = longArrayOf(from, now) }
     val els = numbered(sid, d, snap.els, snap.activity)
     val prev = synchronized(VScreenOffloadHandler.lastElements) { VScreenOffloadHandler.lastElements[sid] }
     synchronized(VScreenOffloadHandler.lastElements) { VScreenOffloadHandler.lastElements[sid] = ElSet(d.generation, now, els, snap.activity, snapAt) }
-    val shownCells = if (changed) cells else { cells.forEach { it.second.recycle() }; emptyList() }
+    val shownCells = if (sheet) cells else { cells.forEach { it.bmp.recycle() }; emptyList() }
     val tPic = SystemClock.elapsedRealtime()
-    val pic = snap.frame?.let { picture(sid, d, it, since, tag, shownCells) } ?: run { shownCells.forEach { it.second.recycle() }; null }
+    val pic = snap.frame?.let { picture(sid, d, it, since, tag, shownCells) } ?: run { shownCells.forEach { it.bmp.recycle() }; null }
     timing.pictureMs = SystemClock.elapsedRealtime() - tPic
     if (snap.activity == null) notes.add("NO_APP", tr("副屏上没有应用（副屏没有桌面，back 回不到桌面）：launch <应用名> 打开一个", "No app on the screen (the screen has no launcher; back can't reach one): open one with launch <app name>"))
     VScreenPerception.blankFor(d.displayId)?.let { ms -> notes += tr("画面已连续 ${(ms / 100) / 10.0} 秒是一整片纯色（黑屏/白屏）", "The picture has been one solid color for ${(ms / 100) / 10.0} s (black / white screen)") }
@@ -581,7 +550,7 @@ internal fun VScreenOffloadHandler.fourBlocks(sid: String, d: VScreenDisplay, li
         .put("generation", d.generation).put("image", pic ?: org.json.JSONObject.NULL).put("image_has_strip", since.changed && pic != null)
         .put("elements", org.json.JSONArray(els.take(Report.MAX_JSON_ELEMENTS).map { e -> e.json().also { o -> if (e !in shown) o.put("unchanged", true) } }))
         .put("elements_total", els.size)
-    return finish(sb, org.json.JSONObject().put("meanwhile", org.json.JSONArray(since.lines)).put("picture_changed", since.changed).put("screen", screen), outcome)
+    return finish(sb, org.json.JSONObject().put("meanwhile", org.json.JSONArray(since.lines)).put("picture_changed", changed).put("screen", screen), outcome)
 }
 private const val TIMING_MARK = "\u0000timing\u0000"
 private val REPORT_POOL = java.util.concurrent.Executors.newCachedThreadPool { r -> Thread(r, "vscreen-report").apply { isDaemon = true } }

@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -285,7 +286,7 @@ class MainActivity : ComponentActivity() {
         val mode = ApiConfig.tailnetMode
         val tiles = listOf(
             Triple(Page.CONNECT, Icons.Filled.Link, tr("接入 agent", "Connect") to
-                (if (mode == com.kilon.agentvscreen.host.Tailnet.Mode.SYSTEM) tr("Tailscale App", "Tailscale app") else remember(ts, serviceOn) { com.kilon.agentvscreen.host.Tailnet.line(this@MainActivity) })),
+                remember(ts, serviceOn, tick, mode) { com.kilon.agentvscreen.host.Access.tile(this@MainActivity) }),
             Triple(Page.PERMS, Icons.Filled.Shield, tr("权限", "Permissions") to
                 ((if (ApiConfig.autonomy == "careful") tr("谨慎", "Careful") else tr("放手跑", "Hands-off")) + if (rules.isNotEmpty()) tr(" · ${rules.size} 条限制", " · ${rules.size} rules") else "")),
             Triple(Page.SCREEN, Icons.Filled.PhoneAndroid, tr("副屏与悬浮窗", "Screen & window") to
@@ -298,11 +299,11 @@ class MainActivity : ComponentActivity() {
         )
         val colors = listOf(Color(0xFF6C5CE7), Color(0xFF0E9F6E), Color(0xFF0091C2), Color(0xFFB45CE0), Color(0xFF64748B), Color(0xFFE0803A))
         tiles.chunked(2).forEachIndexed { r, row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 row.forEachIndexed { c, (pg, icon, words) ->
                     val alert = (pg == Page.SETUP && items.isNotEmpty() && !allOk) ||
                         (pg == Page.CONNECT && remember(ts, serviceOn) { com.kilon.agentvscreen.host.Tailnet.needsUser(this@MainActivity) })
-                    Tile(icon, words.first, words.second, colors[r * 2 + c], Modifier.weight(1f), alert) { open(pg) }
+                    Tile(icon, words.first, words.second, colors[r * 2 + c], Modifier.weight(1f).fillMaxHeight(), alert) { open(pg) }
                 }
             }
         }
@@ -437,17 +438,21 @@ class MainActivity : ComponentActivity() {
                         Box(Modifier.size(8.dp).clip(CircleShape).background(if (st == ServiceControl.State.BLOCKED) Palette.stopped else Palette.standby))
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(ServiceControl.title(this@MainActivity), color = Color.White, fontSize = 13.sp)
-                            ServiceControl.sub(this@MainActivity)?.let { Text(it, color = Color(0xB3FFFFFF), fontSize = 11.sp) }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(ServiceControl.title(this@MainActivity), color = Color.White, fontSize = 13.sp)
+                                Help(tr("常驻、收起和禁止", "Always on, hidden and blocked"), ServiceControl.help(), Color(0x99FFFFFF))
+                            }
+                            ServiceControl.sub(this@MainActivity)?.let { Text(it, color = Color(0xB3FFFFFF), fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                         }
-                        Help(tr("常驻、收起和禁止", "Always on, hidden and blocked"), ServiceControl.help(), Color(0xB3FFFFFF))
-                    }
-                    Row {
-                        Spacer(Modifier.weight(1f))
-                        if (st == ServiceControl.State.BLOCKED) TextButton(onClick = { ServiceControl.allow(this@MainActivity, "home"); flip++ }) {
-                            Text(tr("改成收起（允许唤起）", "Hide instead (allow waking)"), color = Color.White, fontSize = 12.sp)
-                        } else TextButton(onClick = { ServiceControl.block(this@MainActivity, "home"); flip++ }) {
-                            Text(tr("禁止 agent 访问", "Block agent access"), color = Color(0xFFFFB4B4), fontSize = 12.sp)
+                        Spacer(Modifier.width(8.dp))
+                        // 1.3 beta5: the other kind of off is a small pill on the same line (it had a line of its own).
+                        val blocked = st == ServiceControl.State.BLOCKED
+                        Box(
+                            Modifier.clip(RoundedCornerShape(50)).background(if (blocked) Color(0x26FFFFFF) else Color(0x33FF6B81))
+                                .clickable { if (blocked) ServiceControl.allow(this@MainActivity, "home") else ServiceControl.block(this@MainActivity, "home"); flip++ }
+                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                        ) {
+                            Text(if (blocked) tr("允许唤起", "Allow waking") else tr("禁止访问", "Block"), color = if (blocked) Color.White else Color(0xFFFFC2CC), fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
                         }
                     }
                 }
@@ -533,7 +538,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Connect() {
         var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
-        var where by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
+        var where by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(com.kilon.agentvscreen.host.Access.lastWay()) }
         var token by remember { mutableStateOf(ApiConfig.token) }
         var showToken by remember { mutableStateOf(false) }
         var rawOpen by remember { mutableStateOf(false) }

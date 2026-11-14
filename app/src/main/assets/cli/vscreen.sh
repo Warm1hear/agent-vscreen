@@ -155,7 +155,9 @@ target="/v2/run?format=text&session=$SESSION&request_id=$rid"
 remote_probe() {
   _rh=$(printf '%s' "$URL" | sed 's#^[a-z]*://##; s#[:/].*##'); _rv=
   if command -v tailscale >/dev/null 2>&1; then
-    _ro=$(tailscale ping -c 1 --timeout 3s "$_rh" 2>&1); case "$_ro" in *pong*) _rv=up ;; *) _rv=down ;; esac
+    # Only a ping that went out and got nothing back says "offline"; a tailscale command that cannot reach its own
+    # daemon (userspace or another socket) knows nothing about the phone.
+    _ro=$(tailscale ping -c 1 --timeout 3s "$_rh" 2>&1); case "$_ro" in *pong*) _rv=up ;; *"timed out"*|*"no reply"*|*offline*) _rv=down ;; esac
   fi
 }
 remote_why() {
@@ -163,13 +165,13 @@ remote_why() {
     case $_rv in
       up) echo "The phone is online in Tailscale, but Agent-VScreen does not answer: the app may be frozen or restarting. Ask the user to open Agent-VScreen." ;;
       down) echo "The phone's Tailscale node is offline. Usually: the service is hidden (then devices elsewhere cannot wake it; it is online during a booked window or after an agent on the phone woke it), agent access is blocked, the phone is offline, or the built-in Tailscale needs logging in again. Ask the user to open Agent-VScreen: the status under the switch and the Connect tile say which; for access at any time it must be always on." ;;
-      *) echo "The service may be hidden (devices elsewhere cannot wake it; it is online during a booked window), agent access blocked, the phone offline, or its built-in Tailscale logged out. Ask the user to open Agent-VScreen: the status under the switch and the Connect tile say which; for access at any time it must be always on." ;;
+      *) echo "The phone did not answer. The service may be hidden (devices elsewhere cannot wake it; it is online during a booked window), agent access blocked, the phone offline, or its built-in Tailscale logged out. Ask the user to open Agent-VScreen: the status under the switch and the Connect tile say which; for access at any time it must be always on. Less often: the system froze the app." ;;
     esac
   else
     case $_rv in
       up) echo "手机在 Tailscale 上在线，但 Agent-VScreen 没有回应：可能被系统冻结或正在重启。请用户打开一次 Agent-VScreen。" ;;
       down) echo "手机的 Tailscale 节点不在线。通常是：服务收起了（收起时其它设备叫不醒它，只在预约时间里或手机上的 agent 叫醒后在线）、禁止了 agent 访问、手机没网，或内置 Tailscale 要重新登录。请用户打开 Agent-VScreen，开关下面的状态和“接入 agent”卡片会写是哪一种；要随时连得上，得打开常驻。" ;;
-      *) echo "可能是：服务收起了（其它设备叫不醒它，只在预约时间里在线）、禁止了 agent 访问、手机没网，或内置 Tailscale 掉了登录。请用户打开 Agent-VScreen，开关下面的状态和“接入 agent”卡片会写是哪一种；要随时连得上，得打开常驻。" ;;
+      *) echo "手机没有回应。可能是：服务收起了（其它设备叫不醒它，只在预约时间里在线）、禁止了 agent 访问、手机没网，或内置 Tailscale 掉了登录。请用户打开 Agent-VScreen，开关下面的状态和“接入 agent”卡片会写是哪一种；要随时连得上，得打开常驻。少数情况是系统把 App 冻结了。" ;;
     esac
   fi
 }
@@ -195,7 +197,10 @@ if [ $pr -eq 28 ]; then
       fi ;;
   esac
 fi
-if [ $pr -eq 28 ] && { [ -z "$ct" ] || [ "$(printf '%s' "$ct" | tr -d '0.')" = "" ]; }; then
+# 1.3 beta5: a phone elsewhere that does not answer is never called "frozen" from here. Through a proxy (a userspace
+# Tailscale, a SOCKS / HTTP proxy) the connection is made to the proxy, so a made connection says nothing about the
+# phone; the likely causes are the remote ones (hidden, blocked, offline, logged out), with a ping to narrow them.
+if [ $pr -eq 28 ]; then
   case "$URL" in
     http://127.0.0.1:*|http://localhost:*) ;;
     *) remote_probe; echo "vscreen: NOT_READY «5 秒内连不上手机（$URL）。$(remote_why)|could not reach the phone within 5 s ($URL). $(remote_why en)»" >&2

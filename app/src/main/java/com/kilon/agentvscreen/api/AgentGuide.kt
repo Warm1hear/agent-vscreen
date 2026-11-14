@@ -180,8 +180,9 @@ ${ApiConfig.mcpJson(base, token)}
 - 选项：`--fast` 动作之间不等画面（游戏、连点）；`--stop 条件` 整段盯着，出现就停；`--watch 3s` 做完再看一会儿；`--async` 长操作先返回任务号，之后 `vscreen task <号> --wait 60s` 取结果。
 
 ### 三、回复怎么读
-四块：【做了什么】每步的事实；【这段时间】你上次看之后画面上出现 / 消失了什么（包括你思考的时间）；【现在】前台界面、截图路径、编号元素；【注意】以代码开头的提示。
+四块：【做了什么】每步的事实；【这段时间】你上次看之后画面上出现 / 消失了什么（包括你思考的时间），拼图里每个动作前一张、圈出你点的位置；【现在】前台界面、截图路径、编号元素；【注意】以代码开头的提示。
 HTTP / MCP 的回复里同样的内容是结构化的：ok、code、next、steps[]、screen.elements[]、notes[]。
+点了没效果或结果不对时，先看拼图里圈的位置对不对；要看更多帧：`vscreen frames`（默认上一次那段；--every 0.3s 更密，--last 2m 更长，--from 14:03:10 指定一段）。
 
 ### 四、没成功时怎么办（看代码的“下一步”，完整的表：`vscreen help codes`）
 - 先看画面再决定（look）：STEP_MISSED 没等到期待的结果；NOT_FOUND 找不到字（回复里列了相近的字和坐标）；STALE_ELEMENT 编号对应的元素已经不在了（用新列表）；TYPE_FAILED / FOCUS_ELSEWHERE 字没进输入框（先点输入框）；REREAD_REQUIRED 用户刚接管过；NO_CHANGE 点了但画面没变（可能没点中）。同一种做法失败两次就换一种（换坐标、先滚动、返回上一页），不要原样重试。
@@ -226,8 +227,9 @@ No adb or wireless debugging is needed; don't set them up. With no screen, just 
 - Options: `--fast` no waiting between actions (games, rapid taps); `--stop <condition>` watched for the whole stretch, stops when seen; `--watch 3s` keep looking after the steps; `--async` for long work: returns a task id, fetch the result with `vscreen task <id> --wait 60s`.
 
 ### 3. Reading a reply
-Four blocks: [Done] the facts of each step; [Meanwhile] what appeared / disappeared since your last look (your thinking time included); [Now] the front screen, the screenshot path, numbered elements; [Notes] hints that start with a code.
+Four blocks: [Done] the facts of each step; [Meanwhile] what appeared / disappeared since your last look (your thinking time included), with a sheet of one frame before each action and where you touched circled; [Now] the front screen, the screenshot path, numbered elements; [Notes] hints that start with a code.
 Over HTTP / MCP the same content is structured: ok, code, next, steps[], screen.elements[], notes[].
+When a tap did nothing or the result is wrong, first check where the ring on the sheet is; for more frames: `vscreen frames` (the last stretch by default; --every 0.3s denser, --last 2m longer, --from 14:03:10 a given stretch).
 
 ### 4. When it did not work (follow the code's "next"; the full table: `vscreen help codes`)
 - Look at the screen before deciding (look): STEP_MISSED the expected result never came; NOT_FOUND the text is not there (the reply lists similar text with coordinates); STALE_ELEMENT the numbered element is gone (use the new list); TYPE_FAILED / FOCUS_ELSEWHERE the text did not go into an input box (tap the box first); REREAD_REQUIRED the user just had the screen; NO_CHANGE tapped but nothing changed (possibly missed). After two failures of the same approach, change it (coordinates, scroll first, go back) instead of repeating it.
