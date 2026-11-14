@@ -1,10 +1,11 @@
-# Agent-VScreen 1.2.0 接口说明
+# Agent-VScreen 1.3.0 接口说明
 
 Agent-VScreen 是一个独立的 Android 应用。它在一块看不见的副屏（虚拟屏）上打开和操作别的应用，用户的主屏不受打扰，屏幕上只有一个悬浮小窗显示进度。它不依赖任何特定的 agent 软件：任何 agent 都可以通过命令行、HTTP 或 MCP 调用它。
 
-- 包名 `com.kilon.agentvscreen`，版本 1.2.0（versionCode 11），可以覆盖安装之前的版本。
+- 包名 `com.kilon.agentvscreen`，版本 1.3.0（versionCode 22），可以覆盖安装之前的版本。
 - 需要 Android 11 及以上、arm64。
-- 1.2.0 改了返回格式和安全模型，旧接口 `/v1` 再保留一个版本。升级要点见第 9 节。
+- 1.3.0 新增请用户指点（`ask`）、示教（`teach` / `use`）、定时预约（`schedule`）和回看录像（`frames`），见 3.7。返回格式和 1.2.0 相同。
+- 1.2.0 改了返回格式和安全模型，旧接口 `/v1` 在 1.3.0 仍可用。升级要点见第 9 节。
 - 每条命令的参数和每个结果代码的完整列表在 [docs/REFERENCE.md](docs/REFERENCE.md)，它由代码里的命令表和代码表生成，和 `vscreen help all`、`vscreen help codes` 的内容一致。
 
 ## 1. 安装和首次配置
@@ -198,7 +199,8 @@ ssh -p 8022 -L 18765:127.0.0.1:18765 <手机地址>
 完整列表、每个参数和权限范围见 [docs/REFERENCE.md](docs/REFERENCE.md) 或 `vscreen help all`。
 
 - **核心**：`launch`、`act`、`note`、`keep`、`events`、`task`、`title`、`done`、`stop`、`release`、`handoff`、`status`、`apps`。
-- **辅助**：`spots`、`zoom`、`collect`、`fix`、`diag`、`guide`、`help`。
+- **问用户**（1.3.0）：`ask`、`teach`。
+- **辅助**：`spots`、`zoom`、`collect`、`frames`、`schedule`、`fix`、`diag`、`guide`、`help`。
 
 `launch` 和 `act` 返回固定的四段：【做了什么】、【这段时间】（从上次返回到现在，包括 agent 思考的时间）、【现在】（编号元素和截图）、【注意】（每条以代码开头）。手机只报事实，画面是什么意思由调用方的模型看图判断。
 
@@ -244,6 +246,16 @@ ssh -p 8022 -L 18765:127.0.0.1:18765 <手机地址>
 ### 3.6 按键
 
 `key` 接受 back、enter、tab、del、space、esc、search、menu、方向键、paste、copy、cut、page_up、page_down，或数字 keycode。没有 home 和多任务键：副屏上没有桌面，这两个键会作用到用户的主屏。
+
+### 3.7 1.3.0 新增
+
+- **`ask "问题"`**：把问题放到手机上。默认让用户在副屏画面上点一下（`--point`），返回坐标和那里的元素；`--area` 框选，`--choose 甲|乙|丙` 选择题，`--text` 文字回答。默认等 60 秒（`--wait`，最长 5 分钟），没答复返回 `ASK_PENDING`，之后重发同一个问题接着等；`--async` 立刻返回任务，一直等到用户回答。用户拒绝时返回 `ASK_DECLINED`。
+- **`teach "要演示什么"`**：请用户在副屏上演示一遍。用户在审阅页保存后，返回名字、应用、步骤和空位数。用户也可以不经请求自己录。点在画面上的字记成 `tap 字`，每步之后的结果记成 `until`；输入的字变成空位 `{1}`、`{2}`，密码不保存。
+- **`act "use 名字 值1 值2"`**：重放存下的一段，按顺序填空位。和别的步骤一样，没达到 `until` 就停在那一步。
+- **`schedule "时间"`**：预约 agent 来用手机的时间。写法 `"07:00"`、`"07:00,19:30"`、`"weekdays 08:30"`、`"mon,wed,fri 21:00"`、`"every 2h from 08:00 to 22:00"`；只约一次写 `"today 10:30"`、`"tomorrow 07:00"`。`--name` 起名，`--for` 每次保持多久，`schedule off 名字` 取消。每个窗口开始前 3 分钟拉起服务、检查 Shizuku 和连接，没准备好就通知用户，结果作为事件发给本会话。
+- **`frames`**：回看录像。默认是上一次返回的【这段时间】，每个动作前一张、圈出点的位置；`--last 30s`、`--from 14:03:10 --to …`、`--every 0.5s`、`--count`、`--big`。
+- **`status`** 开头多了 `ready`（现在能不能用，不能时说原因）、`remote`（内置 Tailscale 的真实连接状态、中继、断开次数）；`host` 里多了 `previous_exit`（上一个 App 进程为什么结束）。
+- 命令行在命令执行中发现手机上的 App 重启了，返回 `APP_RESTARTED`；一分钟没回应返回 `NOT_READY`，不再一直等。
 
 ## 4. 会话和“回合”
 
@@ -357,7 +369,7 @@ X-VScreen-Sign:  sha256hex( K \n Time \n Nonce \n METHOD \n 路径和查询串 \
 - 被截获的请求不能重放（时间窗加 Nonce），不能改动（请求体和路径都在签名里）。
 - 对签名请求的回复带 `X-VScreen-Proof: sha256hex( K \n Nonce \n resp \n sha256hex(回复体) \n K )`，调用方可以确认回复来自这台手机、没被改过。事件流回复没有这个头。
 - 网址里的 `?token=` 不再接受：网址会留在日志和历史记录里。
-- 本机（127.0.0.1）仍然接受 `Authorization: Bearer <令牌>`。其它设备默认必须签名。
+- 本机（127.0.0.1）仍然接受 `Authorization: Bearer <令牌>`。经内置 Tailscale 进来的请求（1.3.0 起）也只要令牌：这条线路本身已经加密并认证了设备。其它网络默认必须签名。
 
 ### 7.3 需要用户确认的步骤
 
@@ -398,7 +410,7 @@ X-VScreen-Sign:  sha256hex( K \n Time \n Nonce \n METHOD \n 路径和查询串 \
 
 ## 8. 已知限制
 
-- **真机验证范围**：1.2.0 在荣耀 Magic 7（MagicOS 11、Android 17）上按 [docs/TASKS.md](docs/TASKS.md) 跑过两轮回归。还没跑过的：第二台设备的远程组（F 组）、息屏 10 分钟、停掉 Shizuku 后恢复、划掉 App 后盯守继续，以及别的厂商的手机。
+- **真机验证范围**：1.3.0 的 beta 版和 1.2.0 在荣耀 Magic 7（MagicOS 11、Android 17）上按 [docs/TASKS.md](docs/TASKS.md) 跑过两轮回归。还没跑过的：第二台设备的远程组（F 组）、息屏 10 分钟、停掉 Shizuku 后恢复、划掉 App 后盯守继续，以及别的厂商的手机。
 - 入口仍然在 App 进程里。把 HTTP 入口放进 shell 身份的副屏服务、让它不受厂商冻结影响，需要先在真机上做验证，这一版没有做，计划见 [docs/SPIKE-FRONT-DOOR.md](docs/SPIKE-FRONT-DOOR.md)。
 - 内置 Tailscale 节点仍然打包在 APK 里。按需下载做不到：Android 10 起不允许执行下载到应用数据目录里的程序。
 - 第一次安装命令行的 `curl … | sh` 没有校验（见 2.1）。

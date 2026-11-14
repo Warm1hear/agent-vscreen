@@ -27,7 +27,7 @@ Any agent on the phone can use it: agents with a terminal use the `vscreen` CLI,
 <p align="center"><img src="docs/app.en.png" width="760" alt="Agent-VScreen home, language, setup, agent connection, settings, app rules and diagnostics"></p>
 <p align="center"><sub>The app: language switch, first-time setup, connecting an agent (this phone / Tailscale, CLI / MCP / HTTP), settings, app rules and diagnostics.</sub></p>
 
-- Version: 1.2.0 (versionCode 13) · [Download APK](https://github.com/kilolonion/agent-vscreen/releases/latest)
+- Version: 1.3.0 (versionCode 22) · [Download APK](https://github.com/kilolonion/agent-vscreen/releases/latest)
 - Package: `com.kilon.agentvscreen`
 - Android 11+ (Android 14+ recommended), arm64
 - Privileges: [Shizuku](https://shizuku.rikka.app/) only, no root
@@ -122,79 +122,43 @@ The app speaks Chinese or English (the **Language** card on the home page: Syste
 
 The token equals control of the phone, so the app never offers a public link.
 
-## 1.3.0-beta8 (pre-release)
+## What's new in 1.3.0
 
-- **No more minutes offline after the system restarts the app**: the built-in Tailscale node lives and dies with the app's process, and a new process first ends a node an earlier one left behind. Before, the old and the new node were online at once with one identity and threw each other off the relay for minutes.
-- **Commands no longer hang**: when the app on the phone restarts during a command, the CLI says so (the command may be partly done); when the phone stops answering for a minute, it stops waiting and says why.
-- **Why it restarted**: the log and `status` record why the previous app process ended (killed by the system, low memory, crash …).
-- `VSCREEN_PROXY` wins over `no_proxy`; when the proxy itself cannot be reached, the message says so.
-- Sheet: spare places go to what each action led to, not to a blinking cursor, and the caption says how many are before actions; a tap by coordinates no longer names words from the previous page.
+**You teach it, it asks you**
 
-## 1.3.0-beta7 (pre-release)
+- **Teach it by doing it**: do it once on the background screen and it is saved as a segment agents can replay. Take over the screen, tap the record key in the bottom bar, work as usual and tap Done; the review page says where each step came from, lets you untick slips and name it. A tap on words becomes `tap <words>` (found again when the layout moves); only when no words name the place is it a point. Words that appear, or the app that comes up, after a step become its `until`, so the replay waits for the same result. Typed words become a blank `{1}` that agents fill with `use <name> <values>…`; passwords are never kept. Agents can ask for a lesson with `vscreen teach "what to show"`; "Show it" on the phone starts recording right away.
+- **Show me**: `vscreen ask "Which one do you mean?"` puts the question on the phone; you tap the place on a picture of the background screen and the agent gets the point and the element there. Boxes, choices and text answers work too; with `--async` it waits until you answer.
+- **The floating window tells you when it has a question**: the folded tab turns into a violet question mark; expand it or go full screen and answer yes/no and choices right there.
 
-- **Teach it by doing it**: do it once on the background screen and it is saved as a segment agents can replay. Take over the screen, tap the record key in the bottom bar, work as usual, tap Done; the review page says where each step came from, lets you untick slips and name it. A tap on words on the screen becomes `tap <words>` (found again when the layout moves); only when no words name the place is it a point. Words that appear or the app that comes up after a step become its `until`, so the replay waits for the same result and stops when it does not come. Typed words become a blank `{1}` that agents fill with `use <name> <values>…`; passwords are never kept.
-- **Agents can ask you to show them**: `vscreen teach "what to show"` puts a request on the phone; "Show it" goes straight into takeover and recording, and the agent gets the segment's name and steps once you save.
-- **Built-in Tailscale drops are on record**: the log notes when the app goes to the background, when the system freezes it and when the built-in Tailscale stalls; the Connect page says so when it was stopped after you left the app, with a shortcut to allow background activity.
+**Seeing clearly, tapping right**
 
-## 1.3.0-beta6 (pre-release)
+- **Checks judge only what came after the action**: `until text:…` counts words that appeared after the action, once the app reacted and the picture settled; when nothing changed, the reply says the app did not react.
+- **Numbers belong to one page**: on a new page an old `#N` is `STALE_ELEMENT` and never lands on the same words there.
+- **Areas that keep moving** (videos, live streams, carousels) are recognized: they no longer slow every step or list bullet comments as changes.
+- **Seeing your own taps**: the [Meanwhile] sheet has a frame before each action with where it touched circled, and spare places show what actions led to. `vscreen frames` looks back at the recording: longer, denser or a given stretch.
+- **One element per place**: OCR no longer repeats words the app's own elements carry; `collect` gathers by cards and keeps two columns apart.
+- **Time as it was spent**: every reply says how long the phone took and on what; the command and the liveness check go out together, and pictures are smaller.
 
-- **Built-in Tailscale no longer drops in and out**: when the service or the built-in Tailscale was stopped and started again quickly (more common since 1.3: hide, wake, the switch), the old node could stay alive next to the new one. Two nodes with one identity took turns on the server and the relay, so the phone was online for a while and then gone. Now one node runs at a time: the app waits for the old one to exit, and the node itself refuses to start while another holds its state.
-- **The Tailscale state is the real one**: "Connected" means the phone is in touch with the server and its relay, not only logged in. When either drops, the app and `status` say "dropped, reconnecting" with the cause, the relay in use and how often it dropped in the last 10 minutes; the relay and control events go to the diagnostics log.
+**On call, or fully out of the way**
 
-## 1.3.0-beta5 (pre-release)
+- **Schedules**: `vscreen schedule "weekdays 07:00"` books when an agent will use the phone; before each time the service is started and checked, and you are told in time if something blocks it. One-off bookings too (`today 10:30`). `ready` at the top of `status` says whether it can be used.
+- **Always on / hidden / blocked**: the switch on keeps it running; off hides it (no notification, nothing in the background) while a local agent or a booking can still wake it, and it hides again afterwards; "Block agent access" is really off.
+- **The background screen is muted**: its apps make no sound on the phone.
+- **Main-screen notes only when we disturbed it**: you switching apps on the main screen is no longer reported.
+- **Agents learn about app updates**: an agent's next use of vscreen shows what changed for it and asks it to refresh its note.
 
-- **Seeing your own taps**: the [Meanwhile] sheet now has one frame just before each action, with a ring and number where it touched (a line for a drag) and the step written under it; the next frame, or [Now], is what it led to. Before, the dot was drawn on the frame after the action, and no sheet came when nothing changed, which is exactly when a wrong tap needs checking. Now a stretch that touched the screen always comes with its sheet.
-- **`vscreen frames`**: look back at the recording. By default the stretch of the last reply; `--last 2m` for longer, `--every 0.3s` for denser, `--from 14:03:10 --to 14:03:30` for a given stretch, `--count` up to 36 and `--big` for larger frames. Many frames come as several pictures of 12, each listed with its clock time, how long ago, and the action before or after it. It says how much the recording still holds (every frame for 3 minutes, one a second up to 10).
-- **Home**: "Block" is a small button at the end of the status line instead of a line of its own. The Connect tile lists each way agents come in with its own state: this phone (ready / woken on use) and, when turned on, Tailscale (connected, offline while hidden, log in…); the way the last call came by is marked "in use". The Connect page opens on that way.
-- **A phone elsewhere that does not answer is no longer called "frozen"**: through a proxy or a userspace Tailscale the connection reaches the proxy, so the shell now gives the remote causes (hidden, blocked, offline, logged out) and narrows them with a ping when it can.
+**Remote access that holds**
 
-## 1.3.0-beta4 (pre-release)
+- **Built-in Tailscale**: one node at a time that lives and dies with the app's process, so a restart by the system no longer leaves the phone unreachable for minutes; the saved login is kept while the server cannot be reached ("dropped, reconnecting"), so you are not asked to log in again; "Connected" is the real link state, with the relay and how often it dropped.
+- **A token is enough over the built-in Tailscale**: no signing, and MCP clients connect remotely as they are.
+- **The CLI no longer hangs**: an unresponsive local app is woken and tried again; when the app restarts or stops answering for a minute during a command, the CLI stops and says why; a remote phone that does not answer is explained (hidden, blocked, offline, logged out). `VSCREEN_PROXY` sets a proxy.
+- The log and `status` record why the previous app process ended, and when the app went to the background, was frozen or the node stalled.
 
-- **Agents learn about app updates**: each agent confirms with `remembered` which version its note is for. After an app update, its next use of vscreen starts with what changed for agents since then, and asks it to read `guide` again, refresh its long-term memory or skill, and run `remembered`; until it does, the notice comes back about every 20 minutes or at a new conversation. The same for the shell, MCP and HTTP. `guide` and `status` show the app version and the note's version, and so does the Connect page in the app.
-- **Two kinds of off: hidden and blocked**: this replaces beta2's on / paused / off. The home switch now means *always on* (a notification and the service in the background). Turning it off **hides** the app: no notification, nothing left in the background, but agents may still use the phone. A local command (the shell on the phone) or a booked time wakes it; the notification then says it was woken by an agent, and it hides again after 5 minutes with no calls, no background screen, no open question, no booked window and no watch. Other devices over Tailscale reach the phone only while it is awake, because the node lives in the service; for remote use at any time keep it always on. **Block agent access** is a separate button: nothing wakes it, a booking only notifies you ("Turn on now" button), and the shell says the user blocked access. The state is one line under the switch; "?" explains the difference. UNVERIFIED on some phones: after a reboot without Shizuku only a booking can wake it, and some systems clear an app's alarms when it is swiped from recents.
-- **A booking while access is blocked says what it means**: the notification says the agent cannot use the phone this time and how to let it in, with a "Turn on now" button. Other problems open the app when tapped.
-- **Built-in Tailscale login**: the home tile and the Connect page show one state: service off, connecting, log in, login expired, waiting for approval, connected, error. A login that worked once is remembered, so a stopped or starting node no longer says "not logged in" and shows the last address. The login card is step by step, and coming back to the app after logging in shows "Connected". A login link left for 10 minutes is replaced with a fresh one; a login about to expire is flagged two weeks ahead. `status.remote` gains `phase`, `user_action` and `last_ip`. When the shell cannot reach the phone and a tailscale command is installed, it pings first to tell "the phone's node is offline" from "the node is up but the app does not answer", and tells the agent where the user should look.
+**The app**
 
-## 1.3.0-beta3 (pre-release)
+- The home page holds the switch, the screen, anything waiting for you and a set of tiles (Connect, Permissions, Screen & window, Schedules, Activity log, Setup), each with its one key fact; explanations sit behind "?". The app, the floating window and full screen share one violet glass look.
 
-- **The app, reorganised**: the home page holds the switch and the screen, anything waiting for you, and a set of tiles (Connect, Permissions, Screen & window, Schedules, Activity log, Setup), each showing its one key fact and opening its own page. Language and diagnostics sit at the bottom.
-- **Explanations behind a "?"**: each setting keeps one short line; the full explanation is one tap away.
-- **One glass look in the brand violet**: cards in the app, on the floating window and in full screen are translucent glass. While an agent waits for your answer, the question card on the window is dark glass over a blurred picture, and the folded tab is the same glass with a violet question mark or the number of open questions.
-- **Question card and answer page redone**: who asks, which session and how long it stays open. Choices are lettered options you pick, then send; pointing or marking an area happens on a framed picture with Redo; yes/no questions are Allow / Deny. Send and Decline stay in the same place at the bottom.
-
-## 1.3.0-beta2 (pre-release)
-
-- **Checks judge only what came after the action**: `tap … until text:…` starts judging once the app has reacted (the picture changed, or accessibility reported a change) and the change has settled. `text:` counts words that appeared after the action; on a new page, whatever the new page shows. Words in the field just typed into do not count. When nothing changed after the action, the reply says the app did not react.
-- **Numbers belong to one page**: on a new page (a new window, another front activity, or almost nothing in common with the last list), an old `#N` is `STALE_ELEMENT` and never lands on the same words on the new page. On the same page, numbers survive a scroll that moves everything together.
-- **Areas that keep moving**: videos, live streams and carousels are recognized. Settling ignores them, their words are not listed in [Meanwhile] or [Now], and they no longer make a look read the screen twice. The reply says where they are. On a moving page, each step no longer waits out 3 s, and the screen is read once.
-- **Time is reported as it was spent**: the last line of [Done] says how long the phone spent on this command: actions and waits, reading the screen, the track, the picture. [Meanwhile] splits time into outside the phone (the reply and picture in transit, you reading and thinking) and since this command reached the phone. A step over 1.5 s and getting ready over 1 s are said.
-- **Faster CLI**: the liveness check goes out together with the command instead of one round trip before it. Pictures are smaller.
-- **One element per place**: where the app's own element has words (text or description), those are the element; the OCR reading of the same place is no longer listed again. A wordless button is named by the words drawn inside it. Content hidden as "link / id" is no longer read out by OCR.
-- **collect by cards**: one card or list row is one item, with all its words; two columns are no longer merged. Bars that stay in place while scrolling are recorded on the first screen only. A cancelled or interrupted collection returns what it had and says where it stopped.
-- **Main-screen note only when we disturbed it**: `MAIN_SCREEN_CHANGED` is reported only when an app or task of ours came to the main screen. You switching apps on the main screen is no longer reported.
-- **Background screen is muted**: apps on the background screen make no sound on the phone. Their sound comes back when they move to the main screen, when the screen is released, or when you turn off "Mute the background screen" under Settings › Background screen. After a crash it is given back once the connection is up again.
-- **Smoother remote access**: requests through the built-in Tailscale come from a device Tailscale has identified, over its encrypted tunnel: a token is enough, no signing (MCP clients connect remotely as they are), and the Host is no longer checked. "Signed requests only" applies to requests through the external Tailscale app. The CLI skips proxies only for the phone's own address; a remote one follows `http_proxy` / `no_proxy`, or `VSCREEN_PROXY` (e.g. `socks5h://127.0.0.1:1055`). A request over 1 MB is refused from its declared length, and one not fully sent within 30 s is dropped.
-- **Schedules**: book once only (`today 10:30`, `tomorrow 07:00`, `once 10:30`, `11-15 10:30`), removed when over; the same booking from the same session is not added twice; a window in progress still shows as "next"; a window is checked and announced once, and changing other bookings no longer reopens it.
-- **On, paused, off**: the service has just these three states, and the home-page switch and the notification actions are the same thing. With a booking, turning the service off asks once: **Pause until HH:MM** (it turns itself on for the next booking, which works as usual) or **Turn off** (it stays off; the window only checks and notifies you, and the agent is told the service is off). The line under the switch says which one it is, and one tap changes it. With a booking, the notification gets "Pause until HH:MM" next to "Stop service". Swiping the app away from recents does not stop the service (agents must be able to reach the phone); the × on the floating window only closes the background screen.
-- **The floating window tells you when it has a question**: while an agent waits for your answer (`ask`), the tab folded at the screen edge turns into a pulsing violet question mark, with a question mark or the number of open questions, unlike standby and acting. Expand the window or open fullscreen and the question is right there: tap Allow / Deny for a yes/no, tap an option for a choice; for pointing, marking an area or a text answer, one tap opens the answer screen. You can always decline.
-- **`ask --async`** waits until you answer (within the question's 10 minutes); `task` returns the answer.
-- **`launch` and `apps` match the same way**: English names and words of the package (settings, calculator) are found, and the first app `apps` lists is the one `launch` opens.
-- **collect says where it started**: it says when there is more above; `--from-top` goes to the top first. A value below an option's minimum is `INVALID_ARGS`; above the maximum it is clamped and every command says "options adjusted".
-- **Events**: events given again after an app restart are marked as repeats, with the same number.
-- **The CLI tells two failures apart**: the phone cannot be reached (Tailscale offline) versus reached but the app does not answer (frozen).
-- **Other**: `launch` reconnects by itself after the connection dropped, instead of asking for `vscreen fix not_connected` first. `TIME_SKEW` says whether the request is ahead of or behind the phone. Diagnostics no longer repeat the built-in Tailscale's login prompt and link.
-
-Not verified on a phone yet: whether turning an app's sound off with `PLAY_AUDIO` works for every player on MagicOS; whether accessibility events carry their display (if not, a change on any screen counts as "the app reacted", and the result still rests on where the words were before and after the action).
-
-## 1.3.0-beta1 (pre-release)
-
-- **On call for timed agents**: `vscreen schedule "weekdays 07:00"` books the times an agent will use the phone. Three minutes before each one, an exact alarm starts the service, asks the system for a temporary power exemption (through Shizuku), re-checks the connection and records whether everything is ready. If something blocks it, for example Shizuku not running after a restart, you get a notification in time to fix it. The agent gets the result as an event. Booked times are listed under Settings › Scheduled times.
-- **One answer to "is it ready?"**: `vscreen status` starts with `ready` and `readiness` (what blocks, what only warns), and `/v2/ping` carries `ready` too. The schedule check uses the same rules.
-- **No more silent hangs on this phone**: when the app does not answer for 5 s, the CLI wakes it with an explicit broadcast and tries again. If that fails, it stops with `NOT_READY` and says why instead of waiting.
-- **Show me**: `vscreen ask "Which one do you mean?"` puts the question on the phone. You tap the place on a picture of the background screen, and the agent gets the point and the element there. `--area` (a box), `--choose "A|B"` and `--text` work too. Confirmations and questions now go through one channel and show as one list in the app.
-- **Long tasks keep their turn**: a command started with `--async` now counts as activity until it finishes, so the turn no longer ends under it.
-
-Not yet verified on a phone: whether vendor background managers (MagicOS, MIUI …) honour the exact alarm, the temporary exemption and the wake-up broadcast for an app they froze.
+Not verified on every phone: whether vendor background managers let exact alarms and the wake broadcast through for a frozen app; whether muting with `PLAY_AUDIO` works for every player on MagicOS.
 
 ## What's new in 1.2.0
 
