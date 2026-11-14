@@ -64,6 +64,13 @@ object AgentNews {
             "A command no longer hangs when the app on the phone restarts while it runs: you get APP_RESTARTED (the command may be partly done: look with act first); NOT_READY when the phone stops answering for a minute. status.liveness has previous_exit (why the previous app process ended).",
             "VSCREEN_PROXY now wins over no_proxy in the environment; when that proxy cannot be reached, the message says so.",
         )),
+        Entry(22, "1.3.0-beta9", listOf(
+            "内置 Tailscale 节点改在 App 进程里运行：用户离开 App 后，远程不再每隔两分钟断几分钟。status.remote 的 bridge_silent 现在只记节点自己卡住。",
+            "用管道读命令行输出（vscreen … | cat、\$(vscreen …)）时每条命令不再多等 20 秒。",
+        ), listOf(
+            "The built-in Tailscale node now runs inside the app's process: when the user leaves the app, remote access no longer drops for minutes every two minutes. status.remote.bridge_silent now only counts the node itself hanging.",
+            "Reading the CLI's output through a pipe (vscreen … | cat, \$(vscreen …)) no longer adds 20 s to every command.",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */

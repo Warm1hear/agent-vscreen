@@ -10,18 +10,18 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 import java.io.File
-import java.io.OutputStreamWriter
 import java.security.SecureRandom
 
 /**
  * 1.1.6: the built-in Tailscale node, so other devices can reach this phone without the Tailscale app.
  *
- * The node is `libtsbridge.so` (tsnet, userspace networking: no VPN slot, no root), shipped in the APK and run as a
- * child process of this app. It joins the user's tailnet as its own device ("agent-vscreen") and forwards HTTP sent to
+ * The node is `libtsnode.so` (tsnet, userspace networking: no VPN slot, no root), shipped in the APK and, since
+ * 1.3.0, run inside this app's process ([TsNative]); before, it was a child process that the system could freeze on
+ * its own. It joins the user's tailnet as its own device ("agent-vscreen") and forwards HTTP sent to
  * <node>:port to our local server, adding [secret] so [com.kilon.agentvscreen.api.ApiServer] knows the request really
  * came from the tailnet, and the peer's identity. The token is still required: tailnet membership alone gives nothing.
  *
- * The child dies with us (its stdin is our pipe: EOF ends it) and is restarted with backoff while the mode is on.
+ * It dies with this process and is restarted with backoff while the mode is on.
  * Login: the bridge reports an auth URL (the user signs in in a browser) or uses an auth key given once.
  */
 object Tailnet {
@@ -160,12 +160,13 @@ object Tailnet {
             })
     }
 
-    /** Random per process: only our own child knows it, so no app on the phone can pose as a tailnet peer. */
+    /** Random per process: only our own node knows it, so no app on the phone can pose as a tailnet peer. */
     val secret: String = ByteArray(24).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
 
     /**
-     * 1.3 beta7: the bridge says how it is every 2 s. Silence while this process runs means the bridge itself was
-     * stopped (frozen by the system) while the app was not; counted, and logged with where the app was.
+     * 1.3 beta7: the node says how it is every 2 s. Silence means it was stopped (frozen) or stuck; counted, and
+     * logged with where the app was. 1.3.0: in-process, a freeze stops this watcher too, so what is left to see is a
+     * node that hangs.
      */
     @Volatile var silences = 0; private set
     @Volatile var silencesAway = 0; private set
@@ -177,8 +178,6 @@ object Tailnet {
     private val _status = MutableStateFlow(Status())
     val status: StateFlow<Status> = _status.asStateFlow()
 
-    @Volatile private var proc: Process? = null
-    @Volatile private var stdin: OutputStreamWriter? = null
     @Volatile private var wanted = false
     @Volatile private var restarts = 0
     /**
@@ -190,8 +189,7 @@ object Tailnet {
     @Volatile private var gen = 0
     private var supervisor: Thread? = null
 
-    fun binary(ctx: Context): File = File(ctx.applicationInfo.nativeLibraryDir, "libtsbridge.so")
-    fun available(ctx: Context): Boolean = binary(ctx).canExecute()
+    fun available(@Suppress("UNUSED_PARAMETER") ctx: Context): Boolean = TsNative.loaded
 
     /** Names the caller may use for this node in the Host header. */
     fun hostNames(): Set<String> {
@@ -212,20 +210,20 @@ object Tailnet {
     }
 
     @Synchronized fun stop(why: String) {
-        if (wanted || proc != null) AppLogger.info(TAG, "stop: $why")
+        val live = TsNative.loaded && TsNative.running()
+        if (wanted || live) AppLogger.info(TAG, "stop: $why")
         wanted = false
         gen++
-        com.kilon.agentvscreen.host.quiet("Tailnet:98") { stdin?.apply { write("quit\n"); flush() } }
-        proc?.let { p -> Thread { if (!runCatching { p.waitFor(3, java.util.concurrent.TimeUnit.SECONDS) }.getOrDefault(false)) runCatching { p.destroyForcibly() } }.apply { isDaemon = true }.start() }
+        if (live) quiet("Tailnet:quit") { TsNative.command("quit") }
         supervisor?.interrupt(); supervisor = null
         _status.value = Status()
     }
 
     /** Sign out of the tailnet (the node stays listed in the admin console until removed there). */
-    fun logout(ctx: Context? = null) { ctx?.let { forget(it) }; runCatching { stdin?.apply { write("logout\n"); flush() } } }
+    fun logout(ctx: Context? = null) { ctx?.let { forget(it) }; if (TsNative.loaded) runCatching { TsNative.command("logout") } }
 
     /** 1.1.7: ask the control server for a fresh login link (the bridge also does this by itself every 20 s). */
-    fun login() { runCatching { stdin?.apply { write("login\n"); flush() } } }
+    fun login() { if (TsNative.loaded) runCatching { TsNative.command("login") } }
 
     /** Restart now, e.g. with a new auth key or control server. */
     fun restart(ctx: Context) { stop("restart"); sync(ctx) }
@@ -248,10 +246,9 @@ object Tailnet {
      * and ignore the key. Another server's login is left alone.
      */
     fun configure(ctx: Context, control: String?, authKey: String?) {
-        val old = proc
         stop("new settings")
         // Let the old node finish writing its state before it may be deleted.
-        com.kilon.agentvscreen.host.quiet("Tailnet:134") { old?.waitFor(3, java.util.concurrent.TimeUnit.SECONDS) }
+        waitClosed(5_000)
         ApiConfig.tailnetControlUrl = control
         if (!authKey.isNullOrBlank()) {
             ApiConfig.tailnetAuthKey = authKey.trim()
@@ -260,117 +257,148 @@ object Tailnet {
         sync(ctx)
     }
 
+    /** Waits until no node runs in this process (an earlier one may still be closing). */
+    private fun waitClosed(ms: Long): Boolean {
+        if (!TsNative.loaded) return true
+        val until = android.os.SystemClock.uptimeMillis() + ms
+        while (TsNative.running()) {
+            if (android.os.SystemClock.uptimeMillis() > until) return false
+            try { Thread.sleep(100) } catch (_: InterruptedException) { return !TsNative.running() }
+        }
+        return true
+    }
+
     private fun supervise(ctx: Context, g: Int) {
-        val bin = binary(ctx)
         while (wanted && g == gen) {
-            // Never two nodes on one identity: the previous bridge must be gone before the next starts.
-            proc?.let { old ->
-                if (old.isAlive) {
-                    AppLogger.info(TAG, "waiting for the previous bridge to exit")
-                    if (!runCatching { old.waitFor(5, java.util.concurrent.TimeUnit.SECONDS) }.getOrDefault(false)) { runCatching { old.destroyForcibly(); old.waitFor(2, java.util.concurrent.TimeUnit.SECONDS) } }
-                }
+            if (!TsNative.loaded) {
+                _status.value = Status(state = "Error", error = tr("内置 Tailscale 组件加载失败（${TsNative.loadError}）", "Built-in Tailscale component failed to load (${TsNative.loadError})")); return
+            }
+            // Never two nodes on one identity: the previous node must have closed before the next starts.
+            if (!waitClosed(8_000)) {
+                AppLogger.warning(TAG, "the previous node is still closing; asking again")
+                quiet("Tailnet:requit") { TsNative.command("quit") }
+                if (!waitClosed(8_000)) { _status.value = _status.value.copy(state = "Error", error = tr("上一个内置 Tailscale 节点关不掉", "The previous built-in Tailscale node does not close")) }
             }
             if (!wanted || g != gen) break
-            if (!bin.canExecute()) {
-                _status.value = Status(state = "Error", error = tr("内置 Tailscale 组件缺失（$bin）", "Built-in Tailscale component missing ($bin)")); return
-            }
             val t0 = System.currentTimeMillis()
-            runCatching { runOnce(ctx, bin, g) }.onFailure { e ->
-                AppLogger.warning(TAG, "bridge: ${e.javaClass.simpleName}: ${e.message}")
+            runCatching { runOnce(ctx, g) }.onFailure { e ->
+                AppLogger.warning(TAG, "node: ${e.javaClass.simpleName}: ${e.message}")
                 _status.value = _status.value.copy(running = false, state = "Error", error = e.message)
             }
             if (!wanted || g != gen) break
             if (System.currentTimeMillis() - t0 > 60_000) restarts = 0
             val wait = (1_000L shl restarts.coerceAtMost(5)).coerceAtMost(30_000L)
             restarts++
-            AppLogger.info(TAG, "bridge ended, restarting in ${wait / 1000}s")
+            AppLogger.info(TAG, "node ended, restarting in ${wait / 1000}s")
             try { Thread.sleep(wait) } catch (_: InterruptedException) { break }
         }
     }
 
-    private fun runOnce(ctx: Context, bin: File, g: Int) {
+    /** One reader of the node's lines at a time: a node's lines never go to the reader of the next one. */
+    private val reader = java.util.concurrent.locks.ReentrantLock()
+
+    private fun runOnce(ctx: Context, g: Int) {
+        reader.lock()
+        try { runLocked(ctx, g) } finally { reader.unlock() }
+    }
+
+    private fun runLocked(ctx: Context, g: Int) {
         val dir = stateDir(ctx).apply { mkdirs() }
-        val pb = ProcessBuilder(bin.absolutePath).directory(dir)
-        val env = pb.environment()
-        env["TSB_DIR"] = dir.absolutePath
-        env["TSB_HOSTNAME"] = ApiConfig.tailnetHostname
-        env["TSB_PORT"] = ApiConfig.port.toString()
-        env["TSB_TARGET"] = "127.0.0.1:${ApiConfig.port}"
-        env["TSB_SECRET"] = secret
-        env["TSB_DNS"] = dnsServers(ctx).joinToString(",")
-        env["HOME"] = dir.absolutePath
-        ApiConfig.tailnetControlUrl?.let { env["TSB_CONTROL_URL"] = it }
+        val cfg = JSONObject()
+            .put("dir", dir.absolutePath)
+            .put("hostname", ApiConfig.tailnetHostname)
+            .put("port", ApiConfig.port.toString())
+            .put("target", "127.0.0.1:${ApiConfig.port}")
+            .put("secret", secret)
+            .put("dns", org.json.JSONArray(dnsServers(ctx)))
+        ApiConfig.tailnetControlUrl?.let { cfg.put("control_url", it) }
         // An auth key is only needed until the node is registered; it is dropped as soon as the node runs.
-        ApiConfig.tailnetAuthKey?.let { env["TSB_AUTHKEY"] = it }
-        val p = synchronized(this) {
+        ApiConfig.tailnetAuthKey?.let { cfg.put("auth_key", it) }
+        synchronized(this) {
             if (g != gen || !wanted) return
-            pb.start().also { proc = it }
+            // Lines left from an earlier node (it has closed: its "X" came before running() turned false) go.
+            while (TsNative.next(0) != null) { /* drop */ }
+            when (val r = TsNative.start(cfg.toString().toByteArray())) {
+                0 -> {}
+                1 -> throw IllegalStateException("a node is still running")
+                else -> throw IllegalStateException("start refused ($r)")
+            }
         }
-        stdin = OutputStreamWriter(p.outputStream)
         _status.value = _status.value.copy(running = true, error = null)
-        AppLogger.info(TAG, "bridge started (pid-less child), host=${ApiConfig.tailnetHostname}")
-        Thread({
-            p.errorStream.bufferedReader().forEachLine { l -> if (l.isNotBlank()) AppLogger.info(TAG, l.take(300)) }
-        }, "vscreen-tailnet-err").apply { isDaemon = true }.start()
+        AppLogger.info(TAG, "node started in-process, host=${ApiConfig.tailnetHostname}")
         lastLine = android.os.SystemClock.uptimeMillis()
-        Thread({
-            var silentSince = 0L
-            while (p.isAlive && g == gen) {
-                try { Thread.sleep(2_000) } catch (_: InterruptedException) { break }
-                val now = android.os.SystemClock.uptimeMillis()
-                val quiet = now - lastLine
-                if (silentSince == 0L && quiet > 10_000) {
+        var silentSince = 0L
+        var code = -1
+        var quitAsked = false
+        while (true) {
+            if (g != gen && !quitAsked) {
+                // Replaced or stopped: stop() already asked it to quit; read on until it says it has closed, so the
+                // next node never sees this one's lines.
+                quitAsked = true
+            }
+            val b = TsNative.next(1_000)
+            val now = android.os.SystemClock.uptimeMillis()
+            if (b == null) {
+                val quietMs = now - lastLine
+                if (silentSince == 0L && quietMs > 10_000 && !quitAsked) {
                     silentSince = lastLine
                     val away = AppFront.awayMs()
                     silences++; if (away > 0) silencesAway++
-                    AppLogger.warning(TAG, "bridge silent ${quiet / 1000}s while the app runs (" +
+                    AppLogger.warning(TAG, "node silent ${quietMs / 1000}s (" +
                         (if (away > 0) "app in background ${away / 1000}s" else "app in front") + ", screen " + (if (screenOn(ctx)) "on" else "off") + ")")
-                } else if (silentSince != 0L && quiet < 4_000) {
-                    lastSilenceS = (now - silentSince) / 1000
-                    AppLogger.info(TAG, "bridge back after ${lastSilenceS}s")
-                    silentSince = 0L
                 }
+                if (quitAsked && !TsNative.running()) break
+                continue
             }
-        }, "vscreen-tailnet-watch").apply { isDaemon = true }.start()
-        p.inputStream.bufferedReader().forEachLine { line ->
-            lastLine = android.os.SystemClock.uptimeMillis()
-            val o = runCatching { JSONObject(line) }.getOrNull() ?: return@forEachLine
-            if (g != gen) return@forEachLine // a bridge on its way out says nothing about the current one
-            val st = Status(
-                running = true,
-                state = o.optString("state", "Unknown"),
-                authUrl = o.optString("auth_url").takeIf { it.isNotBlank() },
-                ip = o.optString("ip").takeIf { it.isNotBlank() },
-                dnsName = o.optString("dns_name").takeIf { it.isNotBlank() },
-                tailnet = o.optString("tailnet").takeIf { it.isNotBlank() },
-                user = o.optString("user").takeIf { it.isNotBlank() },
-                peers = o.optInt("peers"), online = o.optInt("online"),
-                error = o.optString("error").takeIf { it.isNotBlank() },
-                lastPeer = o.optString("last_peer").takeIf { it.isNotBlank() },
-                waitingS = o.optInt("waiting_s"),
-                health = o.optString("health").takeIf { it.isNotBlank() },
-                control = o.optString("control").takeIf { it.isNotBlank() },
-                loginError = o.optString("login_error").takeIf { it.isNotBlank() },
-                keyExpiry = o.optLong("key_expiry") * 1000L,
-                linkAgeS = o.optInt("link_age_s"),
-                controlOk = o.optBoolean("control_ok", true), relayOk = o.optBoolean("relay_ok", true),
-                relay = o.optString("relay").takeIf { it.isNotBlank() }, flaps = o.optInt("flaps"),
-                problem = o.optString("problem").takeIf { it.isNotBlank() }, downS = o.optInt("down_s"),
-            )
-            if (st.loggedIn && st.linkUp != _status.value.linkUp && _status.value.loggedIn)
-                AppLogger.info(TAG, (if (st.linkUp) "link up (relay ${st.relay})" else "link down: ${st.problem ?: "relay ${st.relay}"}") +
-                    AppFront.awayMs().let { if (it > 0) ", app in background ${it / 1000}s" else ", app in front" })
-            if (st.loggedIn) remember(ctx, st)
-            if (st.state != _status.value.state) AppLogger.info(TAG, "state ${st.state}${st.ip?.let { " $it" } ?: ""}${st.error?.let { " ($it)" } ?: ""}")
-            if (st.loggedIn && ApiConfig.tailnetAuthKey != null) ApiConfig.tailnetAuthKey = null
-            _status.value = st
+            if (silentSince != 0L) {
+                lastSilenceS = (now - silentSince) / 1000
+                AppLogger.info(TAG, "node back after ${lastSilenceS}s")
+                silentSince = 0L
+            }
+            lastLine = now
+            val line = String(b, Charsets.UTF_8)
+            when {
+                line.startsWith("X") -> { code = line.substring(1).trim().toIntOrNull() ?: -1; break }
+                line.startsWith("L ") -> AppLogger.info(TAG, line.substring(2).take(300))
+                line.startsWith("S") && !quitAsked -> onState(ctx, line.substring(1))
+            }
         }
-        val code = runCatching { p.waitFor() }.getOrDefault(-1)
-        AppLogger.info(TAG, "bridge exited with code $code" + (if (g != gen) " (replaced)" else if (!wanted) " (stopped)" else ""))
+        AppLogger.info(TAG, "node ended with code $code" + (if (g != gen) " (replaced)" else if (!wanted) " (stopped)" else ""))
         if (g != gen) return
-        synchronized(this) { if (proc === p) { proc = null; stdin = null } }
         _status.value = _status.value.copy(running = false, state = if (wanted) "Restarting" else "Stopped",
             error = if (code != 0 && wanted) tr("内置 Tailscale 退出（$code）", "Built-in Tailscale exited ($code)") else null)
+    }
+
+    private fun onState(ctx: Context, line: String) {
+        val o = runCatching { JSONObject(line) }.getOrNull() ?: return
+        val st = Status(
+            running = true,
+            state = o.optString("state", "Unknown"),
+            authUrl = o.optString("auth_url").takeIf { it.isNotBlank() },
+            ip = o.optString("ip").takeIf { it.isNotBlank() },
+            dnsName = o.optString("dns_name").takeIf { it.isNotBlank() },
+            tailnet = o.optString("tailnet").takeIf { it.isNotBlank() },
+            user = o.optString("user").takeIf { it.isNotBlank() },
+            peers = o.optInt("peers"), online = o.optInt("online"),
+            error = o.optString("error").takeIf { it.isNotBlank() },
+            lastPeer = o.optString("last_peer").takeIf { it.isNotBlank() },
+            waitingS = o.optInt("waiting_s"),
+            health = o.optString("health").takeIf { it.isNotBlank() },
+            control = o.optString("control").takeIf { it.isNotBlank() },
+            loginError = o.optString("login_error").takeIf { it.isNotBlank() },
+            keyExpiry = o.optLong("key_expiry") * 1000L,
+            linkAgeS = o.optInt("link_age_s"),
+            controlOk = o.optBoolean("control_ok", true), relayOk = o.optBoolean("relay_ok", true),
+            relay = o.optString("relay").takeIf { it.isNotBlank() }, flaps = o.optInt("flaps"),
+            problem = o.optString("problem").takeIf { it.isNotBlank() }, downS = o.optInt("down_s"),
+        )
+        if (st.loggedIn && st.linkUp != _status.value.linkUp && _status.value.loggedIn)
+            AppLogger.info(TAG, (if (st.linkUp) "link up (relay ${st.relay})" else "link down: ${st.problem ?: "relay ${st.relay}"}") +
+                AppFront.awayMs().let { if (it > 0) ", app in background ${it / 1000}s" else ", app in front" })
+        if (st.loggedIn) remember(ctx, st)
+        if (st.state != _status.value.state) AppLogger.info(TAG, "state ${st.state}${st.ip?.let { " $it" } ?: ""}${st.error?.let { " ($it)" } ?: ""}")
+        if (st.loggedIn && ApiConfig.tailnetAuthKey != null) ApiConfig.tailnetAuthKey = null
+        _status.value = st
     }
 
     private fun screenOn(ctx: Context) = runCatching { ctx.getSystemService(android.os.PowerManager::class.java)?.isInteractive }.getOrNull() ?: true

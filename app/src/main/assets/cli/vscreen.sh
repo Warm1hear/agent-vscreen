@@ -151,10 +151,14 @@ pidof_app() { sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$1" 2>/dev/null | head -n1; 
 # 1.3 beta7: a command whose app dies on the way never gets an answer (the connection to a proxy or a userspace
 # Tailscale stays open). While it runs, look every 20 s: the app answering with another process id (it restarted), or
 # not answering three times in a row, ends the wait with a clear message instead of hanging for minutes.
+# 1.3.0: it runs with its output on /dev/null: a caller reading our output through a pipe waits until every holder
+# of that pipe is gone, and a sleeping watcher held it for up to 20 s after the command had finished.
 watch_post() {
   wp0=$(pidof_app "$tmp/ping"); miss=0
   while kill -0 "$1" 2>/dev/null; do
-    sleep 20; kill -0 "$1" 2>/dev/null || break
+    # 1.3.0: one-second steps, so it ends within a second of the command (a lone `sleep 20` outlived it).
+    i=0; while [ $i -lt 20 ] && kill -0 "$1" 2>/dev/null; do sleep 1; i=$((i + 1)); done
+    kill -0 "$1" 2>/dev/null || break
     if c -s -m 8 -o "$tmp/ping2" "$URL/v2/ping" 2>/dev/null; then
       miss=0; wp=$(pidof_app "$tmp/ping2")
       if [ -n "$wp0" ] && [ -n "$wp" ] && [ "$wp" != "$wp0" ]; then echo restarted > "$tmp/lost"; break; fi
@@ -200,7 +204,7 @@ post() { req POST "$target" "$tmp/body" "$tmp/${1:-h}" "$tmp/${2:-b}" --connect-
 # again with the same request id (it runs once).
 post & ppid=$!
 alive; pr=$?
-if [ $pr -ne 28 ]; then watch_post $ppid & wpid=$!; wait $ppid; rc=$?; kill $wpid 2>/dev/null; wait $wpid 2>/dev/null; sent=1
+if [ $pr -ne 28 ]; then watch_post $ppid </dev/null >/dev/null 2>&1 & wpid=$!; wait $ppid; rc=$?; kill $wpid 2>/dev/null; wait $wpid 2>/dev/null; sent=1
   if [ -s "$tmp/lost" ]; then
     case "$(cat "$tmp/lost")" in
       restarted) echo "vscreen: APP_RESTARTED «这条命令执行中，手机上的 Agent-VScreen 重启了（可能被系统杀掉后又拉起），回复丢了。命令可能做了一部分：先 vscreen act 看一眼现在的画面再决定。|Agent-VScreen on the phone restarted while this command ran (likely killed by the system and started again); the reply was lost. The command may be partly done: look with vscreen act before going on.»" >&2 ;;
