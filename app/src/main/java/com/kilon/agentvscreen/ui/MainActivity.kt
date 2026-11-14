@@ -707,9 +707,17 @@ class MainActivity : ComponentActivity() {
                             // 1.3 beta7: online while this page is open says little: the system may stop the app (and the
                             // node with it) as soon as the user leaves. Say so when it was measured.
                             val frozen = com.kilon.agentvscreen.host.Liveness.frozenUnresolved()
-                            if (frozen || T.silencesAway > 0) {
-                                Note(tr("离开 App 后，系统停过它（冻结 ${com.kilon.agentvscreen.host.Liveness.screenOnFreezesSinceVisit} 次，内置 Tailscale 停 ${T.silencesAway} 次），这期间其它设备连不上。把 Agent-VScreen 设成允许后台活动。",
-                                    "After you left the app, the system stopped it (frozen ${com.kilon.agentvscreen.host.Liveness.screenOnFreezesSinceVisit}×, built-in Tailscale stopped ${T.silencesAway}×); other devices could not connect meanwhile. Allow Agent-VScreen to run in the background."), Palette.stopped)
+                            // 1.3.0: what the user sees is the link dropping once they leave; the cause (a freeze, a
+                            // stopped node, the system blocking the app's network) is told when it was measured.
+                            val L = com.kilon.agentvscreen.host.Liveness
+                            if (frozen || T.silencesAway > 0 || T.dropsAway > 0 || L.netBlocksAway > 0) {
+                                val causes = listOfNotNull(
+                                    L.screenOnFreezesSinceVisit.takeIf { it > 0 }?.let { tr("冻结 $it 次", "frozen ${it}×") },
+                                    L.netBlocksAway.takeIf { it > 0 }?.let { tr("断网 $it 次", "network blocked ${it}×") },
+                                    T.silencesAway.takeIf { it > 0 }?.let { tr("Tailscale 停 $it 次", "Tailscale stopped ${it}×") },
+                                ).joinToString(tr("、", ", "))
+                                Note(tr("离开 App 后，远程断过 ${maxOf(T.dropsAway, 1)} 次" + (if (causes.isNotEmpty()) "（系统$causes）" else "") + "，这期间其它设备连不上。把 Agent-VScreen 设成允许后台活动。",
+                                    "After you left the app, remote access dropped ${maxOf(T.dropsAway, 1)}×" + (if (causes.isNotEmpty()) " (system: $causes)" else "") + "; other devices could not connect meanwhile. Allow Agent-VScreen to run in the background."), Palette.stopped)
                                 SecondaryAction(tr("去允许后台活动", "Allow background activity")) {
                                     val opened = com.kilon.agentvscreen.host.Liveness.openBackgroundSettings(this@MainActivity)
                                     Toast.makeText(this@MainActivity, tr("已打开：$opened。把 Agent-VScreen 设为允许自启动、关联启动和后台活动", "Opened: $opened. Allow Agent-VScreen to auto-start, be started by other apps and run in the background"), Toast.LENGTH_LONG).show()

@@ -149,7 +149,7 @@ object Tailnet {
     fun json(ctx: Context): JSONObject {
         val p = phase(ctx)
         val k = known(ctx)
-        return _status.value.json().put("bridge_silent", silences).put("bridge_silent_in_background", silencesAway)
+        return _status.value.json().put("bridge_silent", silences).put("bridge_silent_in_background", silencesAway).put("drops_in_background", dropsAway)
             .put("app_in_front", AppFront.visible).put("phase", p.key).put("summary", line(ctx)).put("last_ip", k?.ip ?: JSONObject.NULL)
             .put("key_expiry", _status.value.keyExpiry.takeIf { it > 0 }?.let { it / 1000 } ?: JSONObject.NULL)
             .put("user_action", when (p) {
@@ -172,8 +172,10 @@ object Tailnet {
     @Volatile var silencesAway = 0; private set
     @Volatile var lastSilenceS = 0L; private set
     @Volatile private var lastLine = 0L
+    /** 1.3.0: times the link went down while the user was out of the app (whatever the cause: freeze, network block). */
+    @Volatile var dropsAway = 0; private set
     /** The user went to the background settings: count afresh. */
-    fun resetSilences() { silencesAway = 0 }
+    fun resetSilences() { silencesAway = 0; dropsAway = 0; Liveness.resetNetBlocks() }
 
     private val _status = MutableStateFlow(Status())
     val status: StateFlow<Status> = _status.asStateFlow()
@@ -327,7 +329,33 @@ object Tailnet {
         _status.value = _status.value.copy(running = true, error = null)
         AppLogger.info(TAG, "node started in-process, host=${ApiConfig.tailnetHostname}")
         lastLine = android.os.SystemClock.uptimeMillis()
-        var silentSince = 0L
+        // 1.3.0: silence is watched from a thread of its own. The reader below waits inside the node's code; if the
+        // node's threads stop, it stops with them and could never notice.
+        val running = java.util.concurrent.atomic.AtomicBoolean(true)
+        Thread({
+            var since = 0L
+            while (running.get() && g == gen) {
+                try { Thread.sleep(2_000) } catch (_: InterruptedException) { break }
+                val now = android.os.SystemClock.uptimeMillis()
+                val quietMs = now - lastLine
+                if (since == 0L && quietMs > 10_000) {
+                    since = lastLine
+                    val away = AppFront.awayMs()
+                    silences++; if (away > 0) silencesAway++
+                    AppLogger.warning(TAG, "node silent ${quietMs / 1000}s (" +
+                        (if (away > 0) "app in background ${away / 1000}s" else "app in front") + ", screen " + (if (screenOn(ctx)) "on" else "off") +
+                        ", network " + (if (Liveness.netBlocked) "blocked" else "not blocked") + ")")
+                } else if (since != 0L && quietMs < 4_000) {
+                    lastSilenceS = (now - since) / 1000
+                    AppLogger.info(TAG, "node back after ${lastSilenceS}s")
+                    since = 0L
+                }
+            }
+        }, "vscreen-tailnet-watch").apply { isDaemon = true }.start()
+        try { readLines(ctx, g) } finally { running.set(false) }
+    }
+
+    private fun readLines(ctx: Context, g: Int) {
         var code = -1
         var quitAsked = false
         while (true) {
@@ -339,21 +367,8 @@ object Tailnet {
             val b = TsNative.next(1_000)
             val now = android.os.SystemClock.uptimeMillis()
             if (b == null) {
-                val quietMs = now - lastLine
-                if (silentSince == 0L && quietMs > 10_000 && !quitAsked) {
-                    silentSince = lastLine
-                    val away = AppFront.awayMs()
-                    silences++; if (away > 0) silencesAway++
-                    AppLogger.warning(TAG, "node silent ${quietMs / 1000}s (" +
-                        (if (away > 0) "app in background ${away / 1000}s" else "app in front") + ", screen " + (if (screenOn(ctx)) "on" else "off") + ")")
-                }
                 if (quitAsked && !TsNative.running()) break
                 continue
-            }
-            if (silentSince != 0L) {
-                lastSilenceS = (now - silentSince) / 1000
-                AppLogger.info(TAG, "node back after ${lastSilenceS}s")
-                silentSince = 0L
             }
             lastLine = now
             val line = String(b, Charsets.UTF_8)
@@ -392,6 +407,7 @@ object Tailnet {
             relay = o.optString("relay").takeIf { it.isNotBlank() }, flaps = o.optInt("flaps"),
             problem = o.optString("problem").takeIf { it.isNotBlank() }, downS = o.optInt("down_s"),
         )
+        if (st.loggedIn && !st.linkUp && _status.value.linkUp && AppFront.awayMs() > 0) dropsAway++
         if (st.loggedIn && st.linkUp != _status.value.linkUp && _status.value.loggedIn)
             AppLogger.info(TAG, (if (st.linkUp) "link up (relay ${st.relay})" else "link down: ${st.problem ?: "relay ${st.relay}"}") +
                 AppFront.awayMs().let { if (it > 0) ", app in background ${it / 1000}s" else ", app in front" })

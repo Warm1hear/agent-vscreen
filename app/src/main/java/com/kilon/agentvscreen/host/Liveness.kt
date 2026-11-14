@@ -43,7 +43,51 @@ object Liveness {
     @Volatile var screenOnFreezesSinceVisit = 0; private set
     @Volatile private var pm: android.os.PowerManager? = null
     @Volatile private var app: Context? = null
-    fun init(ctx: Context) { app = ctx.applicationContext; pm = ctx.getSystemService(android.os.PowerManager::class.java) }
+    fun init(ctx: Context) {
+        app = ctx.applicationContext; pm = ctx.getSystemService(android.os.PowerManager::class.java)
+        watchNetwork(ctx.applicationContext)
+    }
+
+    /**
+     * 1.3.0: whether the system blocks this app's network while the process keeps running. A vendor background
+     * manager can cut an app's network in the background instead of freezing it; the process then looks alive (no
+     * freeze is measured) while the Tailscale node loses its relay. Android reports that block to the app itself
+     * (onBlockedStatusChanged), so it is measured, not guessed.
+     */
+    @Volatile var netBlocked = false; private set
+    @Volatile var netBlocks = 0; private set
+    /** Blocks that began while the user was out of the app (what makes other devices lose the phone). */
+    @Volatile var netBlocksAway = 0; private set
+    @Volatile var lastNetBlockMs = 0L; private set
+    @Volatile private var netBlockedAt = 0L
+    @Volatile private var netWatching = false
+
+    private fun watchNetwork(ctx: Context) {
+        if (netWatching || android.os.Build.VERSION.SDK_INT < 29) return
+        val cm = ctx.getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        netWatching = quiet("Liveness:net") {
+            cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onBlockedStatusChanged(network: android.net.Network, blocked: Boolean) {
+                    if (blocked == netBlocked) return
+                    netBlocked = blocked
+                    val away = AppFront.awayMs()
+                    if (blocked) {
+                        netBlocks++; if (away > 0) netBlocksAway++
+                        netBlockedAt = SystemClock.elapsedRealtime()
+                        AppLogger.warning("Liveness", "the system blocked this app's network (" +
+                            (if (away > 0) "app in background ${away / 1000}s" else "app in front") + ", screen " + (if (interactive()) "on" else "off") + ")")
+                    } else {
+                        lastNetBlockMs = SystemClock.elapsedRealtime() - netBlockedAt
+                        AppLogger.info("Liveness", "network unblocked after ${lastNetBlockMs / 1000}s")
+                    }
+                }
+            })
+            true
+        } == true
+    }
+
+    /** The user went to the background settings: count afresh. */
+    fun resetNetBlocks() { netBlocksAway = 0 }
     private fun interactive(): Boolean = runCatching { pm?.isInteractive }.getOrNull() ?: true
     private var ticker: Thread? = null
 
@@ -96,6 +140,8 @@ object Liveness {
         !foreground -> run { val why = foregroundError ?: tr("原因未知", "unknown reason"); tr("服务没能成为前台服务（$why），切到后台后系统会冻结或杀掉它。打开一次本应用会自动补上。", "The service could not become a foreground service ($why), so the system freezes or kills it in the background. Opening this app once fixes it.") }
         frozenUnresolved() -> tr("亮屏时系统在后台冻结过本应用 $screenOnFreezesSinceVisit 次（最近一次 ${lastScreenOnFreezeMs / 1000} 秒）：冻结期间 agent 的命令会一直等，直到你打开本应用。", "With the screen on, the system froze this app in the background $screenOnFreezesSinceVisit times (last time ${lastScreenOnFreezeMs / 1000} s): while frozen, the agent's commands wait until you open this app.") +
             tr("请在系统的后台管理里把 Agent-VScreen 设为“允许后台活动”。", "Set Agent-VScreen to \"allow background activity\" in the system's background management.")
+        netBlocksAway > 0 -> tr("你离开 App 后，系统断过本应用的网络 $netBlocksAway 次（进程还在，但其它设备连不上）。请在系统的后台管理里把 Agent-VScreen 设为“允许后台活动”。",
+            "After you left the app, the system blocked this app's network $netBlocksAway times (the process kept running, but other devices could not connect). Set Agent-VScreen to \"allow background activity\" in the system's background management.")
         else -> null
     }
 
@@ -109,6 +155,10 @@ object Liveness {
         .put("frozen_screen_on_count", screenOnFreezes)
         .put("frozen_unresolved", frozenUnresolved())
         .put("keep_alive_window", Presence.up)
+        .put("network_blocked", netBlocked)
+        .put("network_blocked_count", netBlocks)
+        .put("network_blocked_in_background", netBlocksAway)
+        .put("last_network_block_s", if (netBlocks > 0) lastNetBlockMs / 1000 else JSONObject.NULL)
         .put("pid", android.os.Process.myPid())
         .put("previous_exit", ExitInfo.last ?: JSONObject.NULL)
 

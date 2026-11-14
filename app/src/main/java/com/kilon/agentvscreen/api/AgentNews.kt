@@ -78,6 +78,11 @@ object AgentNews {
             "\"Areas that keep moving\" is now the whole video or carousel (including where danmaku and subtitles pass); words there are no longer listed in [Meanwhile], and a look on a video page no longer waits out 3 s first.",
             "Pieces of words caught while they were drawing (\"音频广\" next to \"音频广播\") are no longer listed on their own. collect no longer takes top bars, tab bars and bottom bars as items.",
         )),
+        Entry(24, "1.3.0-beta11", listOf(
+            "status 的 host 多了 network_blocked / network_blocked_in_background（系统在后台断了 App 的网络，进程还在），remote 多了 drops_in_background（用户离开 App 后远程断过几次）。连不上时先看这几项，再请用户把 Agent-VScreen 设成允许后台活动。",
+        ), listOf(
+            "status.host has network_blocked / network_blocked_in_background (the system blocked the app's network in the background while the process kept running), and status.remote has drops_in_background (how often remote access dropped after the user left the app). When the phone cannot be reached, look at these first, then ask the user to allow Agent-VScreen to run in the background.",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */
