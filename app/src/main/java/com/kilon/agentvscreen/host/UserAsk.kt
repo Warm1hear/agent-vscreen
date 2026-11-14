@@ -1,0 +1,167 @@
+package com.kilon.agentvscreen.host
+
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.os.SystemClock
+import androidx.core.app.NotificationCompat
+import com.kilon.agentvscreen.cmd.Call
+import com.kilon.agentvscreen.tr
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONObject
+import java.io.File
+
+/**
+ * 1.3: the one way an agent asks the user something on the phone.
+ *
+ * 1.2 had this only for yes/no ([Consent]: pay, force-stop …). Agents also need answers that words carry badly: "which
+ * of these do you mean?" is one tap on the picture, not a paragraph. So the question is one thing with a kind:
+ *  - CONFIRM  allow / deny (what [Consent] asks; its rules — what asks at which autonomy level, pre-authorization —
+ *             stay in [Consent], the asking itself is here);
+ *  - POINT    tap one place on a picture of the background screen;
+ *  - AREA     drag a box on it;
+ *  - CHOOSE   one of a few given options;
+ *  - TEXT     a short line.
+ * One list of open questions (the app's cards and the notifications show it), one notification channel, one way to
+ * answer, one wait that stops when the caller goes away. Every answer is written to the audit log.
+ */
+object UserAsk {
+    enum class Kind(val key: String) { CONFIRM("confirm"), POINT("point"), AREA("area"), CHOOSE("choose"), TEXT("text");
+        companion object { fun of(k: String?) = entries.firstOrNull { it.key == k } } }
+
+    const val VALID_MS = 10 * 60_000L
+    private const val CHANNEL = "agent_vscreen_consent"
+    const val ACTION = "com.kilon.agentvscreen.CONSENT"
+
+    class Ask(val id: Int, val kind: Kind, val key: String, val token: String, val tokenName: String, val session: String,
+              val title: String, val detail: String, val at: Long, val reusable: Boolean,
+              val options: List<String> = emptyList(),
+              /** POINT / AREA: the picture the user answers on, and the screen size its pixels stand for. */
+              val picture: File? = null, val screenW: Int = 0, val screenH: Int = 0,
+              val validMs: Long = VALID_MS) {
+        /** CONFIRM: null = not answered; true = allowed; false = denied. Other kinds: true = answered ([reply]), false = declined. */
+        @Volatile var answer: Boolean? = null
+        @Volatile var reply: JSONObject? = null
+        @Volatile var answeredAt = 0L
+        @Volatile var used = false
+        val live: Boolean get() = answer == null && System.currentTimeMillis() - at < validMs
+    }
+
+    internal val lock = Object()
+    private val asks = ArrayList<Ask>()
+    private var seq = 100
+    private val _open = MutableStateFlow<List<Ask>>(emptyList())
+    /** Questions waiting for the user (the app shows them too). */
+    val open: StateFlow<List<Ask>> = _open.asStateFlow()
+
+    private fun publish() { _open.value = asks.filter { it.live } }
+
+    private fun prune(now: Long) {
+        val gone = asks.filter { now - it.at > it.validMs && (it.answer == null || now - it.answeredAt > it.validMs) }
+        gone.forEach { a -> a.picture?.delete() }
+        asks.removeAll(gone.toSet())
+    }
+
+    /** The question with [key] of [token] that is still open or answered within its validity. */
+    fun find(key: String, token: String): Ask? = synchronized(lock) {
+        prune(System.currentTimeMillis())
+        asks.lastOrNull { it.key == key && it.token == token && !(it.used && !it.reusable) }
+    }
+
+    fun byId(id: Int): Ask? = synchronized(lock) { asks.firstOrNull { it.id == id } }
+
+    /** Put a new question in front of the user. */
+    fun create(ctx: Context, kind: Kind, key: String, title: String, detail: String, reusable: Boolean = false,
+               options: List<String> = emptyList(), picture: File? = null, screenW: Int = 0, screenH: Int = 0, validMs: Long = VALID_MS): Ask {
+        val call = Call.current()
+        val a = synchronized(lock) {
+            prune(System.currentTimeMillis())
+            Ask(++seq, kind, key, call?.tokenId ?: "main", call?.tokenName ?: "main", call?.session ?: "default",
+                title, detail, System.currentTimeMillis(), reusable, options, picture, screenW, screenH, validMs).also { asks += it; publish() }
+        }
+        post(ctx, a)
+        return a
+    }
+
+    /** Wait up to [waitMs] for [a] to be answered; returns early when the caller went away. True = it was answered. */
+    fun await(a: Ask, waitMs: Long): Boolean {
+        val call = Call.current()
+        val t0 = SystemClock.elapsedRealtime()
+        synchronized(lock) {
+            while (a.answer == null && SystemClock.elapsedRealtime() - t0 < waitMs && call?.cancelled != true) lock.wait(500)
+        }
+        return a.answer != null
+    }
+
+    fun markUsed(a: Ask) = synchronized(lock) { a.used = true; publish() }
+
+    /** The user's answer (notification action, the card in the app, or the answer page). */
+    fun answer(ctx: Context, id: Int, allow: Boolean, reply: JSONObject? = null) {
+        val a = synchronized(lock) {
+            val a = asks.firstOrNull { it.id == id && it.answer == null } ?: return
+            a.reply = reply; a.answer = allow; a.answeredAt = System.currentTimeMillis()
+            publish(); lock.notifyAll(); a
+        }
+        val what = when (a.kind) {
+            Kind.CONFIRM -> if (allow) "allowed" else "denied"
+            else -> if (allow) "answered ${a.kind.key}" else "declined"
+        }
+        Audit.consent(a.tokenName, a.session, "${a.title} — ${a.detail}", what)
+        quiet("ask-cancel") { ctx.getSystemService(NotificationManager::class.java)?.cancel(noteId(id)) }
+    }
+
+    /** The caller went away before an answer: take the question off the phone. */
+    fun withdraw(ctx: Context, a: Ask) {
+        synchronized(lock) { if (a.answer == null) { asks.remove(a); a.picture?.delete(); publish() } }
+        quiet("ask-withdraw") { ctx.getSystemService(NotificationManager::class.java)?.cancel(noteId(a.id)) }
+    }
+
+    private fun noteId(id: Int) = 7400 + (id % 500)
+
+    private fun post(ctx: Context, a: Ask) {
+        quiet("ask-notify") {
+            val nm = ctx.getSystemService(NotificationManager::class.java) ?: return@quiet
+            if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null)
+                nm.createNotificationChannel(NotificationChannel(CHANNEL, tr("需要你确认或回答的问题", "Questions that need your answer"), NotificationManager.IMPORTANCE_HIGH))
+            val b = NotificationCompat.Builder(ctx, CHANNEL)
+                .setSmallIcon(com.kilon.agentvscreen.R.drawable.ic_stat)
+                .setPriority(NotificationCompat.PRIORITY_HIGH).setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setAutoCancel(false).setTimeoutAfter(a.validMs)
+            if (a.kind == Kind.CONFIRM) {
+                fun pi(allow: Boolean) = PendingIntent.getService(ctx, a.id * 2 + (if (allow) 1 else 0),
+                    Intent(ctx, HostService::class.java).setAction(ACTION).putExtra("id", a.id).putExtra("allow", allow),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+                val open = PendingIntent.getActivity(ctx, 6, Intent(ctx, com.kilon.agentvscreen.ui.MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+                val body = tr("${a.detail}\n来自：${a.tokenName}（会话 ${a.session}）", "${a.detail}\nFrom: ${a.tokenName} (session ${a.session})")
+                b.setContentTitle(tr("AI 请求：${a.title}", "AI asks: ${a.title}"))
+                    .setContentText(a.detail).setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                    .setContentIntent(open)
+                    .addAction(0, tr("拒绝", "Deny"), pi(false)).addAction(0, tr("允许", "Allow"), pi(true))
+            } else {
+                val open = PendingIntent.getActivity(ctx, 9000 + a.id % 500, answerIntent(ctx, a.id), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+                val how = when (a.kind) {
+                    Kind.POINT -> tr("点开，在画面上点一下回答", "Open it and tap the picture to answer")
+                    Kind.AREA -> tr("点开，在画面上框出一块回答", "Open it and drag a box on the picture to answer")
+                    Kind.CHOOSE -> tr("点开选一个", "Open it to choose")
+                    else -> tr("点开回答", "Open it to answer")
+                }
+                b.setContentTitle(tr("AI 在问你：${a.title}", "The AI asks you: ${a.title}"))
+                    .setContentText(how).setStyle(NotificationCompat.BigTextStyle().bigText(tr("$how\n来自：${a.tokenName}", "$how\nFrom: ${a.tokenName}")))
+                    .setContentIntent(open)
+            }
+            nm.notify(noteId(a.id), b.build())
+        }
+    }
+
+    fun answerIntent(ctx: Context, id: Int): Intent = Intent(ctx, com.kilon.agentvscreen.ui.AskActivity::class.java)
+        .putExtra("id", id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+
+    /** For tests. */
+    internal fun reset() = synchronized(lock) { asks.clear(); publish() }
+    internal fun pendingId(key: String): Int? = synchronized(lock) { asks.lastOrNull { it.key == key && it.answer == null }?.id }
+}

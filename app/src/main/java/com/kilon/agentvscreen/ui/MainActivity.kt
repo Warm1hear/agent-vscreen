@@ -260,6 +260,8 @@ class MainActivity : ComponentActivity() {
                 SubTitle(tr("识别和记录", "Reading and recording"))
                 Toggle(tr("精确文字识别", "Accurate text recognition"), tr("PP-OCR，在本机运行", "PP-OCR, runs on this phone"), s.accurateOcr) { BackgroundOperation.setAccurateOcr(it) }
                 Toggle(tr("后台录制", "Background recording"), tr("【这段时间】里的拼图", "The picture strip in [Meanwhile]"), s.recording) { BackgroundOperation.setRecording(it) }
+                SubTitle(tr("定时预约", "Scheduled times"))
+                SchedulesPanel(tick)
             }
 
             // ── what happened ──
@@ -677,6 +679,32 @@ class MainActivity : ComponentActivity() {
             Column(Modifier.weight(1f)) {
                 Text(it.label + if (it.key == "accessibility") tr("（可选）", "(optional)") else "", fontWeight = FontWeight.Medium, fontSize = 14.sp)
                 Text(it.detail, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+
+    /** 1.3: the times agents booked with `vscreen schedule`, their last check, and a way to remove them. */
+    @Composable
+    private fun SchedulesPanel(tick: Int) {
+        var list by remember { mutableStateOf(com.kilon.agentvscreen.host.Wake.list(this@MainActivity)) }
+        var again by remember { mutableIntStateOf(0) }
+        LaunchedEffect(tick, again) { list = withContext(Dispatchers.IO) { com.kilon.agentvscreen.host.Wake.list(this@MainActivity).also { com.kilon.agentvscreen.host.Wake.arm(this@MainActivity) } } }
+        if (list.isEmpty()) {
+            Text(tr("没有。agent 的定时任务要用手机时，可以用 vscreen schedule 预约时间：到点前 3 分钟这里会拉起服务并检查，没准备好会通知你。", "None. An agent whose timed task uses the phone can book the time with vscreen schedule: 3 minutes before, the service is started and checked here, and you are notified if it is not ready."),
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            return
+        }
+        list.forEach { e ->
+            val j = e.json()
+            val last = j.optJSONObject("last_check")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("${e.name} · ${e.spec.describe()}", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text(tr("下次 ${j.optString("next_local", "—")} · 保持 ${e.forMin} 分钟 · ${e.by}", "Next ${j.optString("next_local", "—")} · ${e.forMin} min · ${e.by}") +
+                        (last?.let { if (it.optBoolean("ready")) tr(" · 上次检查正常", " · last check OK") else tr(" · 上次检查没通过", " · last check failed") } ?: ""),
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton(onClick = { com.kilon.agentvscreen.host.Wake.remove(this@MainActivity, e.name); again++ }) { Text(tr("删除", "Remove")) }
             }
         }
     }

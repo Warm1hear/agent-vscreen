@@ -122,6 +122,16 @@ The app speaks Chinese or English (the **Language** card on the home page: Syste
 
 The token equals control of the phone, so the app never offers a public link.
 
+## 1.3.0-beta1 (pre-release)
+
+- **On call for timed agents**: `vscreen schedule "weekdays 07:00"` books the times an agent will use the phone. Three minutes before each one, an exact alarm starts the service, asks the system for a temporary power exemption (through Shizuku), re-checks the connection and records whether everything is ready. If something blocks it, for example Shizuku not running after a restart, you get a notification in time to fix it. The agent gets the result as an event. Booked times are listed under Settings › Scheduled times.
+- **One answer to "is it ready?"**: `vscreen status` starts with `ready` and `readiness` (what blocks, what only warns), and `/v2/ping` carries `ready` too. The schedule check uses the same rules.
+- **No more silent hangs on this phone**: when the app does not answer for 5 s, the CLI wakes it with an explicit broadcast and tries again. If that fails, it stops with `NOT_READY` and says why instead of waiting.
+- **Show me**: `vscreen ask "Which one do you mean?"` puts the question on the phone. You tap the place on a picture of the background screen, and the agent gets the point and the element there. `--area` (a box), `--choose "A|B"` and `--text` work too. Confirmations and questions now go through one channel and show as one list in the app.
+- **Long tasks keep their turn**: a command started with `--async` now counts as activity until it finishes, so the turn no longer ends under it.
+
+Not yet verified on a phone: whether vendor background managers (MagicOS, MIUI …) honour the exact alarm, the temporary exemption and the wake-up broadcast for an app they froze.
+
 ## What's new in 1.2.0
 
 This version rebuilds the command gate, the reply format, the security model and the guide for agents, and went through two real-phone regression rounds with [docs/TASKS.md](docs/TASKS.md) (Honor Magic 7, MagicOS 11). The upgrade table from 1.1 is in section 9 of [API.md](API.md).

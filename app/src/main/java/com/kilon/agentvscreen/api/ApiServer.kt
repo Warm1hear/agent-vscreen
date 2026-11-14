@@ -389,6 +389,9 @@ class ApiServer(private val ctx: Context) {
             "/", "/v1/ping", "/v2/ping" -> return Resp.json(JSONObject().put("ok", true).put("app", "agent-vscreen")
                 .put("version", BuildConfig.VERSION_NAME).put("code", BuildConfig.VERSION_CODE).put("pid", android.os.Process.myPid())
                 .put("time", System.currentTimeMillis() / 1000).put("api", JSONArray(listOf("v2", "v1")))
+                // 1.3: ready + the codes of what blocks (no details before the token is checked).
+                .also { o -> quiet("ping-ready") { val items = com.kilon.agentvscreen.host.Readiness.now(ctx)
+                    o.put("ready", com.kilon.agentvscreen.host.Readiness.ready(items)).put("blocking", JSONArray(items.filter { it.blocking }.map { it.code })) } }
                 .put("endpoints", JSONArray(listOf("/v2/run", "/v2/shot/<name>", "/v2/events", "/v2/help", "/v2/codes", "/mcp", "/cli"))))
             "/v1/help", "/v2/help" -> return langOf(r) { Resp.text(VScreenOffloadHandler.HELP + "\n") }
             "/v2/codes" -> return langOf(r) { Resp.json(JSONObject().put("codes", JSONArray(com.kilon.agentvscreen.cmd.Codes.all.map { JSONObject().put("code", it.name).put("next", it.next.key).put("text", it.text) }))) }

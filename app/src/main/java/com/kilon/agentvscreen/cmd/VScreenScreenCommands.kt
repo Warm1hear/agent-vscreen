@@ -62,7 +62,12 @@ internal fun VScreenOffloadHandler.status(sid: String?, args: OffloadArgs): Nati
     val s = BackgroundOperation.state.value
     val d = BackgroundOperation.previewDisplayFor(sid ?: "")
     val idleAt = BackgroundOperation.idleReleaseAt
+    // 1.3: the one yes/no an agent (above all a timed one) reads first; the same rules as ping and the schedule check.
+    val readiness = com.kilon.agentvscreen.host.Readiness.now(context)
     val data = JSONObject()
+        .put("ready", com.kilon.agentvscreen.host.Readiness.ready(readiness))
+        .put("readiness", com.kilon.agentvscreen.host.Readiness.json(readiness))
+        .put("schedules", JSONArray(com.kilon.agentvscreen.host.Wake.list(context).map { it.json() }))
         .put("enabled", s.enabled)
         .put("connection", s.connection.name)
         .put("connection_error", s.connectionError ?: JSONObject.NULL)

@@ -170,6 +170,25 @@ internal object CommandSpec {
             listOf(Opt("note", Kind.VALUE, "说明", "text", "out 时给用户的通知里写什么", "what the notification to the user says on out")),
             scopeOf = { a -> if (a.positional.firstOrNull()?.lowercase() == "in") Scope.SYSTEM else Scope.OPERATE },
             scopeNoteZh = "in 需要 system", scopeNoteEn = "in needs system"),
+        Cmd("ask", "\"<问题>\"", "\"<question>\"",
+            listOf("在手机上问用户（通知 + App 首页），等用户回答。默认 --point：用户在副屏的画面上点一下“你说的是哪个”，返回副屏坐标和那里的元素（#N）。说不清位置时用它，比文字描述准。",
+                "回答的是事实，不是许可：付款等仍按手机确认走。"),
+            listOf("ask the user on the phone (notification + the app's home page) and wait for the answer. Default --point: the user taps \"the one I mean\" on the screen's picture; you get the screen point and the element there (#N). Use it when a place is hard to put into words.",
+                "An answer is information, not permission: payments still need the phone's confirmation."),
+            listOf(Opt("point", Kind.SWITCH, null, null, "在画面上点一下（默认）", "tap once on the picture (default)"),
+                Opt("area", Kind.SWITCH, null, null, "在画面上框一块，返回框和框里的元素", "drag a box on the picture; returns the box and the elements in it"),
+                Opt("choose", Kind.VALUE, "甲|乙|丙", "A|B|C", "从 2–8 个选项里选一个", "choose one of 2–8 options"),
+                Opt("text", Kind.SWITCH, null, null, "写一句话回答", "answer with a line of text"),
+                Opt("wait", Kind.DURATION, "时长", "duration", "最多等多久（默认 60s，最长 5m；没答复是 ASK_PENDING，之后重发同一条 ask 取答案）", "how long to wait (default 60s, at most 5m; no answer is ASK_PENDING, send the same ask again later for the answer)")),
+            screen = false, long = true, sumZh = "在手机上问用户，让用户在副屏画面上点出你要找的东西", sumEn = "ask the user on the phone; the user can tap what you mean on the screen's picture"),
+        Cmd("schedule", "[\"时间\"] | off <名字|all>", "[\"when\"] | off <name|all>",
+            listOf("预约你会来用手机的时间（定时任务用）：每个窗口开始前 3 分钟拉起服务、检查 Shizuku 和连接，没准备好就通知用户，结果作为事件发给本会话。不带参数列出预约和现在是否就绪。",
+                "时间写法：\"07:00\"、\"07:00,19:30\"、\"weekdays 08:30\"、\"mon,wed,fri 21:00\"、\"every 2h from 08:00 to 22:00\"（间隔至少 30 分钟，最多 8 条）。"),
+            listOf("book the times you will use the phone (for timed tasks): 3 minutes before each window the service is started and Shizuku and the connection are checked; the user is notified if it is not ready, and the result is sent to this session as an event. With no argument: the schedules and whether it is ready now.",
+                "Times: \"07:00\", \"07:00,19:30\", \"weekdays 08:30\", \"mon,wed,fri 21:00\", \"every 2h from 08:00 to 22:00\" (at least 30 minutes apart, at most 8 entries)."),
+            listOf(Opt("name", Kind.VALUE, "名字", "name", "预约的名字（同名会替换；默认 w1、w2…）", "the schedule's name (the same name replaces it; default w1, w2…)"),
+                Opt("for", Kind.DURATION, "时长", "duration", "每个窗口保持多久（默认 10m，最长 30m）", "how long each window stays up (default 10m, at most 30m)")),
+            screen = false, sumZh = "预约定时任务要用手机的时间，到点前拉起并检查", sumEn = "book when a timed task will use the phone; it is started and checked before each time"),
         Cmd("status", "", "",
             listOf("后台操作是否可用、副屏、权限、应用限制、正在盯守的条件、排队中的命令。"),
             listOf("whether background operation works, the screen, permissions, app rules, watches running, commands in the queue."),
@@ -282,6 +301,8 @@ internal object CommandSpec {
             "  keep | keep off 名字      查看 / 停止本轮之后的盯守\n" +
             "  events [--wait 30s]       取盯守（--keep wake）发来的事件\n" +
             "  task [任务号]             查看 --async 开始的任务\n" +
+            "  ask \"问题\" [--area|--choose \"甲|乙\"|--text]  在手机上问用户；默认让用户在副屏画面上点出你要找的东西\n" +
+            "  schedule \"07:00\" | schedule off 名字  预约定时任务要用手机的时间（到点前拉起并检查）\n" +
             "  title 文字 | done         告诉用户你在做什么（悬浮窗上显示）| 这一轮做完了（副屏让出，页面保留）\n" +
             "  stop | release | handoff in|out | status | apps 关键词 | spots | zoom 区域 | collect | fix | diag\n" +
             "成功与否看退出码 / ok：0 整段按预期做完；1 停在某一步或被拒绝（【注意】里的代码说明原因，help codes 查怎么办）；2 命令写错。\n" +
@@ -297,6 +318,8 @@ internal object CommandSpec {
             "  keep | keep off <name>    list / stop watches that run after this turn\n" +
             "  events [--wait 30s]       fetch events sent by watches (--keep wake)\n" +
             "  task [id]                 look at tasks started with --async\n" +
+            "  ask \"question\" [--area|--choose \"A|B\"|--text]  ask the user on the phone; by default the user taps what you mean on the screen's picture\n" +
+            "  schedule \"07:00\" | schedule off <name>  book when a timed task will use the phone (started and checked before)\n" +
             "  title <text> | done       tell the user what you are doing (shown on the floating window) | this turn is finished (screen freed, page kept)\n" +
             "  stop | release | handoff in|out | status | apps <keyword> | spots | zoom <region> | collect | fix | diag\n" +
             "Success is in the exit code / ok: 0 the whole stretch went as expected; 1 it stopped at a step or was refused (the code in [Notes] says why, help codes says what to do); 2 the command was written wrong.\n" +

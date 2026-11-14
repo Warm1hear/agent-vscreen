@@ -42,8 +42,12 @@ internal object Tasks {
             val c = Call(sid, parent?.tokenId ?: "main", parent?.tokenName ?: "main", parent?.scopes ?: setOf("look", "operate", "system"), parent?.peer, parent?.requestId, parent?.lang, parent?.trustUntil ?: 0L)
             Task(id, sid, c.tokenId, com.kilon.agentvscreen.host.Audit.redact(argv).take(120), c).also { tasks[id] = it }
         }
+        // 1.3: a task is part of its session's turn for as long as it runs. Before, only the request that started it
+        // counted, so after the quiet minutes the turn ended (screen paused, takeover dropped) under a task still working.
+        com.kilon.agentvscreen.api.Turns.begin(sid)
         val run = I18n.carry {
-            Call.with(t.call) { h.handle(NativeOffloadRequest(listOf("vscreen") + argv, sid)) }
+            try { Call.with(t.call) { h.handle(NativeOffloadRequest(listOf("vscreen") + argv, sid)) } }
+            finally { com.kilon.agentvscreen.api.Turns.end(sid) }
         }
         pool.execute {
             val r = try { run() } catch (e: Throwable) { h.err("INTERNAL_ERROR", "${e.javaClass.simpleName}: ${e.message}") }

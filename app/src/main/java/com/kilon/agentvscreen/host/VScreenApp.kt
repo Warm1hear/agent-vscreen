@@ -20,6 +20,7 @@ class VScreenApp : Application() {
         ShizukuManager.init(this)
         BackgroundOperation.init(this)
         if (Prefs.serviceOn(this)) HostService.start(this)
+        quiet("wake-arm") { Wake.arm(this) }
     }
 }
 
@@ -27,5 +28,6 @@ class VScreenApp : Application() {
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (Prefs.serviceOn(context)) HostService.start(context)
+        quiet("wake-arm-boot") { Wake.arm(context.applicationContext) }
     }
 }

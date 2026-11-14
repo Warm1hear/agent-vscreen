@@ -132,9 +132,21 @@ for a in "$@"; do
   if [ -z "$a" ]; then echo 00 >> "$tmp/body"; else printf '%s' "$a" | hex >> "$tmp/body"; echo >> "$tmp/body"; fi
 done
 # A frozen app still accepts the connection (the kernel does) but never answers: find out in 5 s, not minutes.
-c -s -m 5 -o /dev/null "$URL/v2/ping"
-if [ $? -eq 28 ]; then
-  echo "vscreen: «Agent-VScreen 5 秒没有响应，多半是系统把它冻结在后台了。请用户打开一次 Agent-VScreen，按首页“后台运行受限”的提示允许它后台活动（荣耀/华为：应用启动管理 › 手动管理）。|Agent-VScreen did not answer for 5 s; the system most likely froze it in the background. Ask the user to open Agent-VScreen once and allow background activity as \"Background running restricted\" on its home page says (Honor/Huawei: App launch › Manage manually).»" >&2
+# 1.3: on this phone, wake it first (an explicit broadcast thaws the process and starts the service), then try again.
+alive() { c -s -m 5 -o /dev/null "$URL/v2/ping"; }
+alive; pr=$?
+if [ $pr -ne 0 ]; then
+  case "$URL" in
+    http://127.0.0.1:*|http://localhost:*)
+      if command -v am >/dev/null 2>&1; then
+        am broadcast -n com.kilon.agentvscreen/.host.WakeReceiver -a com.kilon.agentvscreen.WAKE >/dev/null 2>&1
+        for i in 1 2 3; do sleep 2; alive && { pr=0; break; }; done
+        [ $pr -eq 0 ] && echo "«（Agent-VScreen 刚才没有响应，已唤醒）|(Agent-VScreen was not answering; it was woken up)»" >&2
+      fi ;;
+  esac
+fi
+if [ $pr -eq 28 ]; then
+  echo "vscreen: NOT_READY «Agent-VScreen 5 秒没有响应，唤醒也没成功，多半是系统把它冻结在后台了。请用户打开一次 Agent-VScreen，按首页“后台运行受限”的提示允许它后台活动（荣耀/华为：应用启动管理 › 手动管理）。定时任务请先 vscreen schedule 预约时间。|Agent-VScreen did not answer for 5 s and could not be woken; the system most likely froze it in the background. Ask the user to open Agent-VScreen once and allow background activity as \"Background running restricted\" on its home page says (Honor/Huawei: App launch › Manage manually). For timed tasks, book the time with vscreen schedule first.»" >&2
   exit 3
 fi
 # One request id for this command: if the connection breaks mid-way, the retry gets the result of the first run

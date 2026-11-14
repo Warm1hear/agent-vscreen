@@ -48,22 +48,34 @@ import java.util.Locale
 @Composable
 private fun Small(t: String) = Text(t, fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-/** Questions waiting for the user's yes (the same ones the notifications ask). Nothing is shown when there is none. */
+/** Questions waiting for the user (the same ones the notifications ask). Nothing is shown when there is none. */
 @Composable
 fun ConsentCards() {
     val open by Consent.open.collectAsState()
     val ctx = LocalContext.current
     open.forEach { a ->
+        val confirm = a.kind == com.kilon.agentvscreen.host.UserAsk.Kind.CONFIRM
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.errorContainer).padding(14.dp),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+                .background(if (confirm) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(tr("需要你确认", "Needs your confirmation"), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
-            Text(tr("agent「${a.tokenName}」想要：${a.title}", "Agent \"${a.tokenName}\" wants to: ${a.title}"), fontSize = 14.sp, color = MaterialTheme.colorScheme.onErrorContainer)
-            Text(a.detail, fontSize = 12.sp, color = MaterialTheme.colorScheme.onErrorContainer)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { Consent.answer(ctx, a.id, true) }) { Text(tr("允许", "Allow")) }
-                OutlinedButton(onClick = { Consent.answer(ctx, a.id, false) }) { Text(tr("拒绝", "Deny")) }
+            val fg = if (confirm) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer
+            if (confirm) {
+                Text(tr("需要你确认", "Needs your confirmation"), fontWeight = FontWeight.Bold, color = fg)
+                Text(tr("agent「${a.tokenName}」想要：${a.title}", "Agent \"${a.tokenName}\" wants to: ${a.title}"), fontSize = 14.sp, color = fg)
+                Text(a.detail, fontSize = 12.sp, color = fg)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { Consent.answer(ctx, a.id, true) }) { Text(tr("允许", "Allow")) }
+                    OutlinedButton(onClick = { Consent.answer(ctx, a.id, false) }) { Text(tr("拒绝", "Deny")) }
+                }
+            } else {
+                Text(tr("agent「${a.tokenName}」在问你", "Agent \"${a.tokenName}\" asks you"), fontWeight = FontWeight.Bold, color = fg)
+                Text(a.title, fontSize = 14.sp, color = fg)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { ctx.startActivity(com.kilon.agentvscreen.host.UserAsk.answerIntent(ctx, a.id)) }) { Text(tr("回答", "Answer")) }
+                    OutlinedButton(onClick = { com.kilon.agentvscreen.host.UserAsk.answer(ctx, a.id, false) }) { Text(tr("不回答", "Decline")) }
+                }
             }
         }
     }

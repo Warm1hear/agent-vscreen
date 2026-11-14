@@ -114,6 +114,30 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 
 权限范围: `operate`（in 需要 system） · 在副屏队列里执行
 
+### `ask "<问题>" [--point] [--area] [--choose <甲|乙|丙>] [--text] [--wait <时长>] [--async]`
+
+在手机上问用户（通知 + App 首页），等用户回答。默认 --point：用户在副屏的画面上点一下“你说的是哪个”，返回副屏坐标和那里的元素（#N）。说不清位置时用它，比文字描述准。
+回答的是事实，不是许可：付款等仍按手机确认走。
+
+- `--point` 在画面上点一下（默认）
+- `--area` 在画面上框一块，返回框和框里的元素
+- `--choose <甲|乙|丙>` 从 2–8 个选项里选一个
+- `--text` 写一句话回答
+- `--wait <时长>` 最多等多久（默认 60s，最长 5m；没答复是 ASK_PENDING，之后重发同一条 ask 取答案）
+- `--async` 不等它做完：马上返回任务号，之后 task <号> 取结果（长操作、怕连接超时时用）
+
+权限范围: `operate`
+
+### `schedule ["时间"] | off <名字|all> [--name <名字>] [--for <时长>]`
+
+预约你会来用手机的时间（定时任务用）：每个窗口开始前 3 分钟拉起服务、检查 Shizuku 和连接，没准备好就通知用户，结果作为事件发给本会话。不带参数列出预约和现在是否就绪。
+时间写法："07:00"、"07:00,19:30"、"weekdays 08:30"、"mon,wed,fri 21:00"、"every 2h from 08:00 to 22:00"（间隔至少 30 分钟，最多 8 条）。
+
+- `--name <名字>` 预约的名字（同名会替换；默认 w1、w2…）
+- `--for <时长>` 每个窗口保持多久（默认 10m，最长 30m）
+
+权限范围: `operate`
+
 ### `status`
 
 后台操作是否可用、副屏、权限、应用限制、正在盯守的条件、排队中的命令。
@@ -218,6 +242,10 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 | `HANDOFF_DENIED` | `ask_user` | 系统没有让应用在两块屏之间移动。 |
 | `CLOSE_FAILED` | `look` | 没能只关掉副屏上的任务。 |
 | `MAIN_SCREEN_TASK` | `none` | 这个任务在主屏上，没有动它。 |
+| `SCHEDULE_LIMIT` | `fix_command` | 预约到上限了（8 条）：先 schedule off 一条。 |
+| `NOT_READY` | `ask_user` | Agent-VScreen 没有响应或还没准备好（被系统冻结、服务没开、Shizuku 没运行）。命令行已经试过唤醒一次。把原因告诉用户；定时任务请先用 schedule 预约时间。 |
+| `ASK_PENDING` | `ask_user` | 问题已经显示在手机上，用户还没回答。告诉用户去手机上回答；之后把同一个 ask 原样再发一次就能拿到答案（10 分钟内有效）。 |
+| `ASK_DECLINED` | `ask_user` | 用户选择不回答这个问题。不要再问同一个问题，换个方式或告诉用户你停在了哪里。 |
 | `KEEP_LIMIT` | `fix_command` | 同时盯守的条件到上限了：先 keep off 一个。 |
 | `TASK_NOT_FOUND` | `fix_command` | 没有这个任务号（任务结果保留 30 分钟）。task 列出本会话的任务。 |
 | `TASK_RUNNING` | `retry_later` | 任务还在执行。 |
@@ -356,6 +384,30 @@ in: move the app from the user's main screen to the background screen and carry 
 
 scope: `operate` (in needs system) · runs in the screen queue
 
+### `ask "<question>" [--point] [--area] [--choose <A|B|C>] [--text] [--wait <duration>] [--async]`
+
+ask the user on the phone (notification + the app's home page) and wait for the answer. Default --point: the user taps "the one I mean" on the screen's picture; you get the screen point and the element there (#N). Use it when a place is hard to put into words.
+An answer is information, not permission: payments still need the phone's confirmation.
+
+- `--point` tap once on the picture (default)
+- `--area` drag a box on the picture; returns the box and the elements in it
+- `--choose <A|B|C>` choose one of 2–8 options
+- `--text` answer with a line of text
+- `--wait <duration>` how long to wait (default 60s, at most 5m; no answer is ASK_PENDING, send the same ask again later for the answer)
+- `--async` do not wait for it: returns a task id at once, fetch the result later with task <id> (for long operations or short connection timeouts)
+
+scope: `operate`
+
+### `schedule ["when"] | off <name|all> [--name <name>] [--for <duration>]`
+
+book the times you will use the phone (for timed tasks): 3 minutes before each window the service is started and Shizuku and the connection are checked; the user is notified if it is not ready, and the result is sent to this session as an event. With no argument: the schedules and whether it is ready now.
+Times: "07:00", "07:00,19:30", "weekdays 08:30", "mon,wed,fri 21:00", "every 2h from 08:00 to 22:00" (at least 30 minutes apart, at most 8 entries).
+
+- `--name <name>` the schedule's name (the same name replaces it; default w1, w2…)
+- `--for <duration>` how long each window stays up (default 10m, at most 30m)
+
+scope: `operate`
+
 ### `status`
 
 whether background operation works, the screen, permissions, app rules, watches running, commands in the queue.
@@ -460,6 +512,10 @@ scope: `look`
 | `HANDOFF_DENIED` | `ask_user` | The system did not let the app move between the screens. |
 | `CLOSE_FAILED` | `look` | Could not close just the task on the screen. |
 | `MAIN_SCREEN_TASK` | `none` | This task is on the main screen; it was left alone. |
+| `SCHEDULE_LIMIT` | `fix_command` | Too many schedules (8): remove one with schedule off. |
+| `NOT_READY` | `ask_user` | Agent-VScreen did not answer or is not ready (frozen by the system, service off, Shizuku not running). The CLI already tried to wake it once. Tell the user why; for timed tasks, book the time with schedule first. |
+| `ASK_PENDING` | `ask_user` | The question is on the phone and the user has not answered yet. Tell the user to answer on the phone; then send the same ask again to get the answer (valid for 10 minutes). |
+| `ASK_DECLINED` | `ask_user` | The user chose not to answer. Don't ask the same again; go another way or tell the user where you stopped. |
 | `KEEP_LIMIT` | `fix_command` | Too many watches at once: turn one off with keep off. |
 | `TASK_NOT_FOUND` | `fix_command` | No such task id (results are kept 30 minutes). task lists this session's tasks. |
 | `TASK_RUNNING` | `retry_later` | The task is still running. |
