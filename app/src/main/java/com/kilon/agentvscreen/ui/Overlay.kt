@@ -21,10 +21,13 @@ import android.widget.FrameLayout
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -767,7 +770,7 @@ private val PAD = 7.dp
 
 /** Report a button's bounds so the gesture frame lets its taps through. */
 @Composable
-private fun Modifier.control(key: String): Modifier {
+internal fun Modifier.control(key: String): Modifier {
     DisposableEffect(key) { onDispose { Overlay.controls.remove(key) } }
     return this.onGloballyPositioned { c -> val b = c.boundsInRoot(); Overlay.controls[key] = RectF(b.left, b.top, b.right, b.bottom) }
 }
@@ -778,7 +781,8 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
     val s = fixed ?: live
     val owner = s.ownerSessionId ?: return
     val mode = modeOf(s)
-    if (Overlay.docked.value) { DockTab(mode, Overlay.dockRight.value); return }
+    val waiting = pendingAsks()
+    if (Overlay.docked.value) { DockTab(mode, Overlay.dockRight.value, waiting.size); return }
     val density = LocalDensity.current
     val landscape = Overlay.aspect() > 1f
     LaunchedEffect(landscape) { Overlay.orientationChanged(landscape) }
@@ -864,6 +868,11 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
                 }
             }
 
+            // 1.3 beta2: a question from an agent, answered right here.
+            waiting.firstOrNull()?.let { a ->
+                AskQuick(a, waiting.size, k, inOverlay = true, modifier = Modifier.align(Alignment.Center).padding(horizontal = (8 * k).dp))
+            }
+
             // Messages: gesture hints.
             var now by remember { mutableLongStateOf(SystemClock.uptimeMillis()) }
             LaunchedEffect(Overlay.hintAt.longValue) { now = SystemClock.uptimeMillis(); delay(3100); now = SystemClock.uptimeMillis() }
@@ -907,9 +916,29 @@ private fun RoundBtn(icon: ImageVector, desc: String, bg: Color, k: Float, key: 
  * colour as the big window (rainbow while the AI acts) — the app's own mark, so it reads as "the background screen".
  */
 @Composable
-private fun DockTab(mode: Mode, right: Boolean) {
+private fun DockTab(mode: Mode, right: Boolean, asking: Int = 0) {
     val shape = if (right) RoundedCornerShape(topStart = 30.dp, bottomStart = 30.dp) else RoundedCornerShape(topEnd = 30.dp, bottomEnd = 30.dp)
     val glass = listOf(Color(0xF0262A38), Color(0xF014161F))
+    // 1.3 beta2: an agent is waiting for an answer: the folded tab says so by itself (the user may never open the
+    // notification shade). Amber, pulsing, with a question mark where the little phone is: unlike standby and acting.
+    if (asking > 0) {
+        val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "ask")
+        val pulse by t.animateFloat(0.35f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(700), androidx.compose.animation.core.RepeatMode.Reverse), label = "pulse")
+        Box(
+            Modifier.width(Overlay.TAB_W.dp).height(Overlay.TAB_H.dp)
+                .shadow(12.dp, shape, ambientColor = Palette.asking, spotColor = Palette.asking)
+                .clip(shape)
+                .background(Brush.horizontalGradient(if (right) glass else glass.reversed()))
+                .border(1.5.dp, Palette.asking.copy(alpha = pulse), shape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier.offset(x = if (right) 2.dp else (-2).dp).size(18.dp).clip(CircleShape).background(Palette.asking.copy(alpha = 0.25f + 0.75f * pulse)),
+                contentAlignment = Alignment.Center,
+            ) { Text(if (asking > 1) "$asking" else "?", color = Color(0xFF1A1206), fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+        }
+        return
+    }
     Box(
         Modifier.width(Overlay.TAB_W.dp).height(Overlay.TAB_H.dp)
             .shadow(10.dp, shape)
@@ -926,6 +955,69 @@ private fun DockTab(mode: Mode, right: Boolean) {
         ) {
             // A navigation bar at its bottom: it reads as a phone screen, not an empty frame.
             Box(Modifier.padding(bottom = 2.dp).width(5.dp).height(1.2.dp).clip(RoundedCornerShape(1.dp)).background(Color(0xCCFFFFFF)))
+        }
+    }
+}
+
+
+/** 1.3 beta2: the questions agents are waiting on that are still open (re-checked every second: they expire). */
+@Composable
+internal fun pendingAsks(): List<com.kilon.agentvscreen.host.UserAsk.Ask> {
+    val open by com.kilon.agentvscreen.host.UserAsk.open.collectAsState()
+    var tick by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(open.isNotEmpty()) { while (open.isNotEmpty()) { delay(1000); tick++ } }
+    return remember(open, tick) { open.filter { it.live }.sortedByDescending { it.at } }
+}
+
+/**
+ * 1.3 beta2: answer an agent's question on the window itself (the small window, or full screen): allow / deny, pick an
+ * option, or open the answer page for a point, an area or a line of text. Same answers as the notification and the
+ * card in the app ([com.kilon.agentvscreen.host.UserAsk.answer]).
+ */
+@Composable
+internal fun AskQuick(a: com.kilon.agentvscreen.host.UserAsk.Ask, count: Int, k: Float, inOverlay: Boolean, modifier: Modifier = Modifier) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val kind = a.kind
+    @Composable fun Modifier.mark(key: String): Modifier = if (inOverlay) this.control("ask-$key") else this
+    fun answer(allow: Boolean, reply: org.json.JSONObject? = null) = com.kilon.agentvscreen.host.UserAsk.answer(ctx, a.id, allow, reply)
+    fun openPage() = ctx.startActivity(com.kilon.agentvscreen.host.UserAsk.answerIntent(ctx, a.id).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    Column(
+        modifier.clip(RoundedCornerShape((14 * k).dp)).background(Color(0xF2181A24)).border(1.dp, Palette.asking, RoundedCornerShape((14 * k).dp))
+            .padding(horizontal = (10 * k).dp, vertical = (8 * k).dp),
+        verticalArrangement = Arrangement.spacedBy((6 * k).dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size((8 * k).dp).clip(CircleShape).background(Palette.asking))
+            Spacer(Modifier.width((5 * k).dp))
+            Text(tr("${a.tokenName} 在问你", "${a.tokenName} asks you") + if (count > 1) tr("（还有 ${count - 1} 个）", " (${count - 1} more)") else "",
+                color = Palette.asking, fontSize = (10 * k).sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text(a.title, color = Color.White, fontSize = (12 * k).sp, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        if (a.detail.isNotBlank()) Text(a.detail, color = Color(0xB3FFFFFF), fontSize = (10 * k).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        @Composable fun Btn(key: String, label: String, primary: Boolean, onClick: () -> Unit) =
+            Box(Modifier.mark(key).clip(RoundedCornerShape(50)).background(if (primary) Palette.asking else Color(0x33FFFFFF)).clickable(onClick = onClick)
+                .padding(horizontal = (10 * k).dp, vertical = (5 * k).dp)) {
+                Text(label, color = if (primary) Color(0xFF1A1206) else Color.White, fontSize = (11 * k).sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        when (kind) {
+            com.kilon.agentvscreen.host.UserAsk.Kind.CONFIRM -> Row(horizontalArrangement = Arrangement.spacedBy((6 * k).dp)) {
+                Btn("yes", tr("允许", "Allow"), true) { answer(true) }
+                Btn("no", tr("拒绝", "Deny"), false) { answer(false) }
+            }
+            com.kilon.agentvscreen.host.UserAsk.Kind.CHOOSE -> Column(verticalArrangement = Arrangement.spacedBy((5 * k).dp)) {
+                a.options.take(4).forEachIndexed { i, o ->
+                    Btn("opt$i", o, i == 0) { answer(true, org.json.JSONObject().put("kind", "choose").put("index", i + 1).put("choice", o)) }
+                }
+                Btn("skip", tr("不回答", "Decline"), false) { answer(false) }
+            }
+            else -> Row(horizontalArrangement = Arrangement.spacedBy((6 * k).dp)) {
+                Btn("go", when (kind) {
+                    com.kilon.agentvscreen.host.UserAsk.Kind.POINT -> tr("去点一下", "Point it out")
+                    com.kilon.agentvscreen.host.UserAsk.Kind.AREA -> tr("去框一块", "Mark an area")
+                    else -> tr("去回答", "Answer")
+                }, true) { openPage() }
+                Btn("skip", tr("不回答", "Decline"), false) { answer(false) }
+            }
         }
     }
 }

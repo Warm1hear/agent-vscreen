@@ -42,8 +42,9 @@ object Readiness {
     fun evaluate(i: Inputs): List<Item> = buildList {
         if (!i.serviceOn) add(Item("service_off", true, tr("用户在 Agent-VScreen 里关掉了服务", "The user turned the service off in Agent-VScreen")))
         when (i.privilege) {
+            // 1.3: with Shizuku there, the next command reconnects by itself: a warning, not a block.
             "READY" -> if (i.connection == "ERROR" || i.needsReconnect)
-                add(Item("not_connected", true, tr("后台连接断了：vscreen fix not_connected 重连", "The background connection dropped: vscreen fix not_connected reconnects")))
+                add(Item("not_connected", false, tr("后台连接现在断着，下一条命令会自动重连", "The background connection is down now; the next command reconnects by itself")))
             "NOT_RUNNING" -> add(Item("no_privilege", true, tr("Shizuku 没在运行（手机重启后要用户重新启动 Shizuku）", "Shizuku is not running (after a phone restart the user must start Shizuku again)")))
             "NOT_INSTALLED" -> add(Item("no_privilege", true, tr("没装 Shizuku", "Shizuku is not installed")))
             else -> add(Item("no_privilege", true, tr("Agent-VScreen 没有 Shizuku 授权", "Agent-VScreen has no Shizuku permission")))

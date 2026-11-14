@@ -36,6 +36,8 @@ internal fun bounded(name: String, v: Int, lo: Int, hi: Int): Int = bounded(name
 
 /** [v] kept within [lo]..[hi]; a value outside is clamped AND reported in the result. */
 internal fun bounded(name: String, v: Long, lo: Long, hi: Long): Long {
-    if (v < lo || v > hi) adjusted(tr("--$name $v 超出范围，按 ${v.coerceIn(lo, hi)} 执行（可用 $lo–$hi）", "--$name $v is out of range, used ${v.coerceIn(lo, hi)} (allowed $lo–$hi)"))
+    // 1.3 beta2: below the smallest allowed value is a mistake (collect --pages -1 ran 1 page), not something to guess.
+    if (v < lo) throw OffloadArgs.BadOption(tr("--$name $v 太小（可用 $lo–$hi）", "--$name $v is too small (allowed $lo–$hi)"))
+    if (v > hi) adjusted(tr("--$name $v 超出范围，按 ${v.coerceIn(lo, hi)} 执行（可用 $lo–$hi）", "--$name $v is out of range, used ${v.coerceIn(lo, hi)} (allowed $lo–$hi)"))
     return v.coerceIn(lo, hi)
 }

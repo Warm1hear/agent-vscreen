@@ -238,6 +238,9 @@ class FullscreenActivity : ComponentActivity() {
             // Bottom bar.
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding().navigationBarsPadding().padding(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // 1.3 beta2: an agent's question, answered without leaving the full screen.
+                val waiting = pendingAsks()
+                waiting.firstOrNull()?.let { a -> AskQuick(a, waiting.size, 1.15f, inOverlay = false, modifier = Modifier.fillMaxWidth()) }
                 if (typing) {
                     val fr = remember { FocusRequester() }
                     LaunchedEffect(Unit) { fr.requestFocus() }

@@ -93,6 +93,7 @@ import com.kilon.agentvscreen.core.BackgroundOperation
 import com.kilon.agentvscreen.host.A11yHeal
 import com.kilon.agentvscreen.host.AppLogger
 import com.kilon.agentvscreen.host.HostService
+import com.kilon.agentvscreen.host.ServiceControl
 import com.kilon.agentvscreen.host.Prefs
 import com.kilon.agentvscreen.host.Setup
 import com.kilon.agentvscreen.host.ShizukuManager
@@ -152,6 +153,7 @@ class MainActivity : ComponentActivity() {
             while (true) {
                 items = withContext(Dispatchers.IO) { runCatching { BackgroundOperation.refreshStatus(); Setup.check(this@MainActivity) }.getOrDefault(items) }
                 liveProblem = com.kilon.agentvscreen.host.Liveness.problem()
+                serviceOn = Prefs.serviceOn(this@MainActivity)  // the notification's pause/stop, or a booking that resumed it
                 delay(2_000)
             }
         }
@@ -162,10 +164,26 @@ class MainActivity : ComponentActivity() {
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             ConsentCards()
+            // 1.3 beta2: on / paused / off all go through ServiceControl. Turning it off while an agent has a booking
+            // asks once: pause until that booking, or off for good (the booking then only notifies you).
+            var askOff by remember { mutableStateOf<Long?>(null) }
             Hero(s, serviceOn) { on ->
-                serviceOn = on; Prefs.setServiceOn(this@MainActivity, on)
-                if (on) HostService.start(this@MainActivity) else { BackgroundOperation.stopAndRelease(tr("用户停止了服务", "The user stopped the service")); HostService.stop(this@MainActivity) }
+                if (on) { ServiceControl.turnOn(this@MainActivity, "switch"); serviceOn = true }
+                else ServiceControl.nextBooking(this@MainActivity)?.let { askOff = it } ?: run {
+                    ServiceControl.turnOff(this@MainActivity, untilNextBooking = false, why = "switch"); serviceOn = false
+                }
                 tick++
+            }
+            askOff?.let { at ->
+                val hm = ServiceControl.hhmm(at)
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { askOff = null },
+                    title = { Text(tr("关掉服务", "Turn the service off")) },
+                    text = { Text(tr("agent 预约了 $hm 用手机。暂停：到 $hm 自动打开，预约照常。完全关闭：到点不会打开，只通知你。",
+                        "An agent booked the phone for $hm. Pause: it turns itself on at $hm and the booking works. Off: it stays off and the booking only notifies you.")) },
+                    confirmButton = { TextButton(onClick = { askOff = null; ServiceControl.turnOff(this@MainActivity, true, "switch"); serviceOn = false; tick++ }) { Text(tr("暂停到 $hm", "Pause until $hm")) } },
+                    dismissButton = { TextButton(onClick = { askOff = null; ServiceControl.turnOff(this@MainActivity, false, "switch"); serviceOn = false; tick++ }) { Text(tr("完全关闭", "Turn off")) } },
+                )
             }
 
             if (s.userStopped) Banner(
@@ -250,6 +268,10 @@ class MainActivity : ComponentActivity() {
                 val idleSave by com.kilon.agentvscreen.core.VScreenStore.idlePowerSave.collectAsState()
                 Toggle(tr("空闲省电", "Idle power saving"), tr("一轮结束后暂停副屏渲染，页面保留，下一条命令自动恢复；个别应用恢复时会重新加载，遇到可以关掉", "Pauses rendering after a turn ends; the page is kept and the next command resumes it. A few apps reload on resume: turn this off if you see that"), idleSave) {
                     BackgroundOperation.setIdlePowerSave(it)
+                }
+                var mute by remember { mutableStateOf(com.kilon.agentvscreen.core.VScreenMute.enabled) }
+                Toggle(tr("副屏静音", "Mute the background screen"), tr("副屏里的应用不从手机放声音（视频、直播）；应用移到主屏或副屏释放时恢复", "Apps on the background screen make no sound on the phone (videos, live streams); their sound comes back when they move to the main screen or the screen is released"), mute) {
+                    mute = it; com.kilon.agentvscreen.core.VScreenMute.enabled = it
                 }
                 Text(tr("一轮的长度", "Turn length"), fontWeight = FontWeight.Medium, fontSize = 14.sp)
                 Text(tr("agent 安静多久算这轮结束：之后副屏省电暂停，10 分钟后释放（agent 也可以用 vscreen done 马上结束）", "How long the agent stays quiet before its turn ends: the screen then pauses to save power and is released after 10 minutes (the agent can also end at once with vscreen done)"),
@@ -339,6 +361,18 @@ class MainActivity : ComponentActivity() {
                                 Toast.makeText(this@MainActivity, tr("端口改成 $np：请在“接入 agent”里重新复制接入命令给 agent", "Port changed to $np: copy the connect message for your agent again under \"Connect an agent\""), Toast.LENGTH_LONG).show()
                             }) { Text(tr("换端口", "Change port"), color = Color.White) }
                         else TextButton(onClick = { HostService.server?.start(ApiConfig.port) }) { Text(tr("立即重试", "Retry now"), color = Color.White) }
+                }
+                // 1.3 beta2: paused (back at the next booking) or off, and one tap to switch between the two.
+                var flip by remember { mutableIntStateOf(0) }
+                if (!serviceOn) ServiceControl.line(this@MainActivity).takeIf { flip >= 0 }?.let { line ->
+                    val st = ServiceControl.now(this@MainActivity)
+                    val next = ServiceControl.nextBooking(this@MainActivity)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(line, color = Color(0xB3FFFFFF), fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        if (next != null) TextButton(onClick = {
+                            Prefs.setResumeOnSchedule(this@MainActivity, st != ServiceControl.State.PAUSED); ServiceControl.now(this@MainActivity); flip++
+                        }) { Text(if (st == ServiceControl.State.PAUSED) tr("改成完全关闭", "Keep it off") else tr("改成暂停到 ${ServiceControl.hhmm(next)}", "Pause until ${ServiceControl.hhmm(next)}"), color = Color.White, fontSize = 12.sp) }
+                    }
                 }
                 // The screen right now.
                 Row(

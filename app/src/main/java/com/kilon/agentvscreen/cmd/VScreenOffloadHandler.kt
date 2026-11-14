@@ -115,6 +115,11 @@ class VScreenOffloadHandler(internal val context: Context) : NativeOffloadHandle
                 BackgroundOperation.refreshStatus()
                 enforceRules(sub)
                 dispatch(sub, args, sid)
+            }.let { r ->
+                // 1.3 beta2: an option that was clamped is said by every command (collect, zoom … said nothing).
+                val left = takeAdjusted()
+                if (left.isEmpty()) r else r.copy(output = r.output.trimEnd() + "\n" + left.joinToString("\n") { tr("参数被调整：$it", "options adjusted: $it") } + "\n",
+                    data = r.data?.also { d -> d.put("adjusted", org.json.JSONArray(left)) })
             }
         } catch (e: ActionError) {
             err(e.code, e.message ?: e.code, data = e.data)

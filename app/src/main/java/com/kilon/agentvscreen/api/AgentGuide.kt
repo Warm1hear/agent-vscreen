@@ -128,7 +128,7 @@ Please connect Agent-VScreen so that from now on you can open and operate apps o
 
 1. 把这段加进你的 MCP 配置（streamable HTTP）：
 ${ApiConfig.mcpJson(base, token)}
-""" + (if (local(base)) "" else "（MCP 客户端不会给请求签名：从其它设备用 MCP 接入时，我需要在 Agent-VScreen › 其它设备 里关掉“只接受签名请求”。连接被拒绝时提醒我。）\n") + """
+""" + (if (local(base)) "" else "（MCP 客户端不会给请求签名：手机用“内置”Tailscale 时不需要签名；用“外部 App”方式时，我需要在 Agent-VScreen › 其它设备 里关掉“只接受签名请求”。连接被拒绝时提醒我。）\n") + """
 2. 把下面这段话存进你的长期记忆（或建成一个 skill / 规则）。这是我的要求：以后的新对话里，你也要知道自己有这个能力，我让你在手机上做事时直接用它。
 「${memoryMcp()}」
 
@@ -138,7 +138,7 @@ Please connect Agent-VScreen so that from now on you can open and operate apps o
 
 1. Add this to your MCP config (streamable HTTP):
 ${ApiConfig.mcpJson(base, token)}
-""" + (if (local(base)) "" else "(MCP clients do not sign requests: to use MCP from another device I have to turn off \"signed requests only\" under Other devices in Agent-VScreen. Remind me if the connection is refused.)\n") + """
+""" + (if (local(base)) "" else "(MCP clients do not sign requests: with the built-in Tailscale none is needed; with the external Tailscale app I have to turn off \"signed requests only\" under Other devices in Agent-VScreen. Remind me if the connection is refused.)\n") + """
 2. Save the text below in your long-term memory (or as a skill / rule). This is my request: in future conversations you should know you have this ability and use it directly when I ask you to do something on my phone.
 "${memoryMcp()}"
 

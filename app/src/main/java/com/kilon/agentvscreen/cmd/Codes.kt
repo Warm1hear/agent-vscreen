@@ -45,7 +45,7 @@ internal object Codes {
         Code("USER_STOPPED", Next.USER, "用户按了“停止 AI”。所有操作都被拒绝，只有用户能解除；把返回里怎么解除的那句转告用户。", "The user pressed \"Stop AI\". Everything is refused and only the user can lift it; pass on the line that says how."),
         Code("REREAD_REQUIRED", Next.LOOK, "用户刚接管过副屏，页面可能变了。这次的返回就是现在的画面，看清再继续。", "The user just had the screen and the page may have changed. This reply is the screen now: look, then carry on."),
         Code("HOST_RESTARTED", Next.LOOK, "Agent-VScreen 进程重启过，上一轮的任务被打断。这次的返回就是现在的画面，不要假设之前的步骤都做完了。", "The Agent-VScreen process restarted and the last task was cut off. This reply is the screen now; don't assume earlier steps completed."),
-        Code("MAIN_SCREEN_CHANGED", Next.USER, "这段前后主屏的前台应用或任务变了：可能是用户自己切的，也可能被打扰了。先告诉用户。", "The main screen's front app or tasks changed during this stretch: the user may have switched, or something disturbed it. Tell the user first."),
+        Code("MAIN_SCREEN_CHANGED", Next.USER, "副屏这边的应用或任务跑到了主屏，打扰了用户正在用的主屏。停下告诉用户；handoff in 把它拿回副屏。用户自己在主屏切换应用不会报这条。", "An app or task of ours came to the main screen and disturbed what the user is using. Stop and tell the user; take it back with handoff in. The user switching apps on the main screen is not reported."),
         Code("SCOPE_DENIED", Next.USER, "这个令牌没有做这件事的权限（用户在 App 里给令牌定的范围）。", "This token is not allowed to do this (the scope the user gave the token in the app)."),
         Code("PROTECTED_APP", Next.NONE, "这是 Agent-VScreen 自己、桌面或系统界面，不能结束。", "This is Agent-VScreen itself, the launcher or system UI; it cannot be stopped."),
         // screen and connection
@@ -97,7 +97,7 @@ internal object Codes {
         Code("BODY_TOO_LARGE", Next.FIX, "请求体太大（上限 1 MB）。", "The request body is too large (at most 1 MB)."),
         Code("HEADERS_TOO_LARGE", Next.FIX, "请求头太大。", "The request headers are too large."),
         Code("REQUEST_TIMEOUT", Next.WAIT, "请求没有在时限内发完。", "The request did not arrive in time."),
-        Code("SIGNATURE_REQUIRED", Next.USER, "从其它设备来的请求必须签名（vscreen 命令行会签名）。MCP 等不能签名的客户端：请用户在 其它设备 里关掉“只接受签名请求”。", "Requests from other devices must be signed (the vscreen CLI signs). For clients that cannot sign, such as MCP: ask the user to turn off \"signed requests only\" under Other devices."),
+        Code("SIGNATURE_REQUIRED", Next.USER, "经外部 Tailscale App 从其它设备来的请求必须签名（vscreen 命令行会签名；经内置 Tailscale 来的不需要）。MCP 等不能签名的客户端：请用户在 其它设备 里关掉“只接受签名请求”，或改用内置 Tailscale。", "Requests from other devices through the external Tailscale app must be signed (the vscreen CLI signs; through the built-in Tailscale none is needed). For clients that cannot sign, such as MCP: ask the user to turn off \"signed requests only\" under Other devices, or use the built-in Tailscale."),
         Code("TASK_STARTED", Next.NONE, "任务已开始，用 task <号> 取结果。", "The task started; fetch its result with task <id>."),
         Code("TIME_SKEW", Next.USER, "调用方的时钟和手机差得太多，签名因此不被接受。校准调用方的时钟。", "The caller's clock is too far from the phone's, so the signature is not accepted. Fix the caller's clock."),
         Code("OPERATION_FAILED", Next.LOOK, "执行出错，返回里有原因。", "It failed; the reply says why."),

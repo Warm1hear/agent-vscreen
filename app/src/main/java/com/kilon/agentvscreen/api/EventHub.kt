@@ -42,15 +42,25 @@ object EventHub {
                 seq = o.optLong("seq")
                 val q = o.optJSONObject("queues") ?: JSONObject()
                 for (k in q.keys()) { val a = q.optJSONArray(k) ?: continue; queues[k] = ArrayDeque((0 until a.length()).mapNotNull { a.optJSONObject(it) }) }
+                // 1.3 beta2: a batch handed out before the restart and never confirmed is given again, marked as a
+                // repeat (same seq), so the caller can tell it already had it. Before, it came back looking new.
+                val h = o.optJSONObject("handed") ?: JSONObject()
+                for (k in h.keys()) {
+                    val a = h.optJSONArray(k) ?: continue
+                    val back = (0 until a.length()).mapNotNull { a.optJSONObject(it) }.onEach { it.put("repeat", true) }
+                    val qq = queues.getOrPut(k) { ArrayDeque() }
+                    back.asReversed().forEach { qq.addFirst(it) }
+                }
             }
         }
     }
 
     private fun persist() = quiet("events-write") {
-        val q = JSONObject()
-        // The handed-out batch is still undelivered as far as the disk is concerned: after a restart it is given again.
-        (queues.keys + handed.keys).forEach { k -> q.put(k, JSONArray(handed[k].orEmpty() + queues[k].orEmpty())) }
-        file?.writeText(JSONObject().put("seq", seq).put("queues", q).toString())
+        val q = JSONObject(); val h = JSONObject()
+        // The handed-out batch is not confirmed yet: after a restart it is given again, as a repeat.
+        queues.keys.forEach { k -> q.put(k, JSONArray(queues[k].orEmpty())) }
+        handed.forEach { (k, v) -> h.put(k, JSONArray(v)) }
+        file?.writeText(JSONObject().put("seq", seq).put("queues", q).put("handed", h).toString())
     }
 
     /** Returns a short note of where it went. */

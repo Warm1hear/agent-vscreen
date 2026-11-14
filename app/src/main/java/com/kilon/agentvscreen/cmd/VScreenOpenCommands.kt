@@ -200,6 +200,7 @@ private fun VScreenOffloadHandler.handoffOut(sid: String, pkgArg: String?, msg: 
     val task = VScreenShell.taskIdOn(d0.displayId, pkg) ?: throw ActionError("HANDOFF_NO_TASK", tr("副屏上找不到 $pkg 的任务", "No task of $pkg on the screen"))
     return BackgroundOperation.agentAction(sid, null, isRead = false, describe = tr("交还：把副屏的 $pkg 移到主屏", "Hand back: move $pkg from the background screen to the main screen")) { _ ->
         val m = VScreenHandoff.move(task, pkg, 0)
+        if (m.ok) com.kilon.agentvscreen.core.VScreenMute.restore(pkg)
         if (!m.ok) throw ActionError("HANDOFF_DENIED", tr("系统没有让 $pkg 移回主屏（${m.detail}）。替代：请用户点副屏悬浮窗 › 全屏 › 接管，自己完成这一步", "The system did not move $pkg back to the main screen (${m.detail}). Instead: ask the user to tap the floating window › Full screen › Take over and do the step themselves"))
         val label = runCatching { context.packageManager.getApplicationInfo(pkg, 0).loadLabel(context.packageManager).toString() }.getOrDefault(pkg)
         val notified = VScreenHandoff.alert(context, 7290, tr("$label 已交给你", "$label is yours now"), msg ?: tr("Agent 把 $label 停在当前页面交给你，请在主屏继续", "The agent left $label on the current page for you; carry on on the main screen"))
@@ -231,7 +232,7 @@ internal fun VScreenOffloadHandler.mainTasksLost(before: Set<Int>?): Set<Int> {
 internal fun VScreenOffloadHandler.stopCmd(sid: String?, args: OffloadArgs): NativeOffloadResult {
     val s = sid ?: throw ActionError("NO_SESSION", tr("没有会话（请求头 X-VScreen-Session）", "No session (header X-VScreen-Session)"))
     val force = args.hasFlag("force")
-    val main0 = mainTop(); val tasks0 = mainTaskIds()
+    val main0 = mainWatch(s)
     val pkgArg = args.positional.getOrNull(0)
     if (pkgArg != null && force && VScreenShell.isProtected(pkgArg)) throw ActionError("PROTECTED_APP", tr("$pkgArg 是 Agent-VScreen 自己、桌面或系统界面，不能 force-stop", "$pkgArg is Agent-VScreen itself, the launcher or system UI, and cannot be force-stopped"))
     if (force) {
@@ -251,15 +252,15 @@ internal fun VScreenOffloadHandler.stopCmd(sid: String?, args: OffloadArgs): Nat
         if (!o.ok) throw ActionError(o.code, o.message)
         o.message + tr("（force-stop：主屏上的同一个应用也被结束了）", " (force-stop: the same app on the main screen was stopped too)")
     }
-    return text(msg + (mainCheckLines(main0, tasks0)?.let { "\n${Blocks.notes}$it" } ?: ""))
+    return text(msg + (mainCheckLines(main0, s)?.let { "\n${Blocks.notes}$it" } ?: ""))
 }
 
 /** `release`: give the background screen back now (the connection stays; the next launch builds a new one). */
 internal fun VScreenOffloadHandler.releaseCmd(sid: String?): NativeOffloadResult {
     val s = sid ?: throw ActionError("NO_SESSION", tr("没有会话（请求头 X-VScreen-Session）", "No session (header X-VScreen-Session)"))
-    val main0 = mainTop(); val tasks0 = mainTaskIds()
+    val main0 = mainWatch(s)
     BackgroundOperation.releaseNow(s)
-    return text(tr("副屏已释放（连接保留，下次 launch 会新建副屏）", "Screen released (connection kept; the next launch creates a new screen)") + (mainCheckLines(main0, tasks0)?.let { "\n${Blocks.notes}$it" } ?: ""))
+    return text(tr("副屏已释放（连接保留，下次 launch 会新建副屏）", "Screen released (connection kept; the next launch creates a new screen)") + (mainCheckLines(main0)?.let { "\n${Blocks.notes}$it" } ?: ""))
 }
 
 /** 1.1 `done`: this session's turn ends now (screen idles, page kept, another session may take it over). */

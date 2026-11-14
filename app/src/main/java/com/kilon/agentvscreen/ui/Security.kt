@@ -188,8 +188,8 @@ fun RemoteSafety() {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.weight(1f)) {
             Text(tr("只接受签名请求", "Signed requests only"), fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            Small(tr("其它设备来的请求必须签名，令牌本身不上网络，回复也带校验。vscreen 命令行会自动签名；MCP 客户端不会，用 MCP 远程接入才需要关掉。",
-                "Requests from other devices must be signed: the token itself never travels, and replies are verified too. The vscreen CLI signs by itself; MCP clients do not, so turn this off only to use MCP remotely."))
+            Small(tr("经“外部 App”来的请求必须签名，令牌本身不上网络，回复也带校验。经“内置”Tailscale 来的请求由 Tailscale 认出是哪台设备并加密，带令牌即可（MCP 客户端也能直接用），不受这个开关影响。",
+                "Requests through the external Tailscale app must be signed: the token itself never travels, and replies are verified too. Requests through the built-in Tailscale come from a device Tailscale has identified, over its encrypted tunnel: a token is enough (MCP clients work too), whatever this switch says."))
         }
         Switch(checked = signed, onCheckedChange = { signed = it; ApiConfig.remoteSigned = it; Audit.security("remote_signed", it.toString()) })
     }

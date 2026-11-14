@@ -152,7 +152,7 @@ internal object VPixels {
     }
 
     /** Share of sampled pixels in [r0] that differ noticeably between two same-size frames; -1 = cannot compare. */
-    fun regionDiff(a: Bitmap, b: Bitmap, r0: Rect): Double {
+    fun regionDiff(a: Bitmap, b: Bitmap, r0: Rect, skip: List<Rect> = emptyList()): Double {
         if (a.width != b.width || a.height != b.height) return -1.0
         val r = clip(r0, a.width, a.height)
         if (r.width() <= 0 || r.height() <= 0) return -1.0
@@ -160,7 +160,10 @@ internal object VPixels {
         var y = r.top
         while (y < r.bottom) {
             var x = r.left
-            while (x < r.right) { n++; if (dist(a.getPixel(x, y), b.getPixel(x, y)) > 40) diff++; x += 2 }
+            while (x < r.right) {
+                if (skip.isEmpty() || skip.none { it.contains(x, y) }) { n++; if (dist(a.getPixel(x, y), b.getPixel(x, y)) > 40) diff++ }
+                x += 2
+            }
             y += 2
         }
         return if (n == 0) -1.0 else diff.toDouble() / n

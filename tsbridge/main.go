@@ -22,11 +22,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -97,6 +99,65 @@ func emit(s status) {
 	}
 	last = string(b)
 	fmt.Fprintln(os.Stdout, string(b))
+}
+
+// 1.3: tsnet repeats some lines every few seconds (the login prompt, with its link) and they filled the app's
+// diagnostics. Each distinct line is written at most once per 10 minutes, and login links are cut.
+var (
+	logMu   sync.Mutex
+	logSeen = map[string]time.Time{}
+	loginRe = regexp.MustCompile(`https?://\S*/a/\S+`)
+)
+
+func userLog(f string, a ...any) {
+	line := loginRe.ReplaceAllString(fmt.Sprintf(f, a...), "<login link>")
+	logMu.Lock()
+	defer logMu.Unlock()
+	if t, ok := logSeen[line]; ok && time.Since(t) < 10*time.Minute {
+		return
+	}
+	if len(logSeen) > 500 {
+		logSeen = map[string]time.Time{}
+	}
+	logSeen[line] = time.Now()
+	fmt.Fprintln(os.Stderr, line)
+}
+
+// 1.3: requests are bounded here, before they reach the app: a body over 1 MiB is refused from its declared length
+// (before, about 9 MB were read first), and a request whose headers and body do not arrive within 30 s is dropped.
+const maxBody = 1 << 20
+
+func bounded(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ContentLength > maxBody {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.Header().Set("Connection", "close")
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			fmt.Fprintf(w, `{"ok":false,"code":"BODY_TOO_LARGE","error":"request body over %d bytes"}`, maxBody)
+			return
+		}
+		if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
+			// The body must arrive within 30 s; once it has, the deadline is lifted (a command may run for minutes).
+			rc := http.NewResponseController(w)
+			_ = rc.SetReadDeadline(time.Now().Add(30 * time.Second))
+			r.Body = &untilEOF{ReadCloser: http.MaxBytesReader(w, r.Body, maxBody), done: func() { _ = rc.SetReadDeadline(time.Time{}) }}
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+type untilEOF struct {
+	io.ReadCloser
+	done func()
+	once sync.Once
+}
+
+func (u *untilEOF) Read(p []byte) (int, error) {
+	n, err := u.ReadCloser.Read(p)
+	if err == io.EOF {
+		u.once.Do(u.done)
+	}
+	return n, err
 }
 
 func env(k, def string) string {
@@ -173,7 +234,7 @@ func main() {
 		AuthKey:    os.Getenv("TSB_AUTHKEY"),
 		ControlURL: normalizeControlURL(os.Getenv("TSB_CONTROL_URL")),
 		Logf:       func(string, ...any) {},
-		UserLogf:   func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) },
+		UserLogf:   userLog,
 	}
 	defer srv.Close()
 
@@ -227,7 +288,9 @@ func main() {
 		w.WriteHeader(http.StatusBadGateway)
 		fmt.Fprintf(w, `{"ok":false,"code":"APP_NOT_ANSWERING","error":"Agent-VScreen on the phone did not answer (%s): open the app once / 手机上的 Agent-VScreen 没有回应：打开一次 App"}`, strings.ReplaceAll(err.Error(), `"`, `'`))
 	}
-	go func() { _ = (&http.Server{Handler: rp, ReadHeaderTimeout: 30 * time.Second}).Serve(ln) }()
+	go func() {
+		_ = (&http.Server{Handler: bounded(rp), ReadHeaderTimeout: 30 * time.Second}).Serve(ln)
+	}()
 
 	// Commands from the app; EOF = the app is gone.
 	quit := make(chan struct{})

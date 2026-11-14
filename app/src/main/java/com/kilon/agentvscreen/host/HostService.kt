@@ -41,6 +41,7 @@ class HostService : Service() {
         private const val CHANNEL = "agent_vscreen_host"
         private const val NOTE_ID = 7001
         const val ACTION_STOP = "com.kilon.agentvscreen.STOP"
+        const val ACTION_PAUSE = "com.kilon.agentvscreen.PAUSE"
         const val ACTION_ALLOW = "com.kilon.agentvscreen.ALLOW"
         const val ACTION_SHOW_WINDOW = "com.kilon.agentvscreen.SHOW_WINDOW"
         private const val STOP_CHANNEL = "agent_vscreen_stopped"
@@ -133,8 +134,9 @@ class HostService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            Prefs.setServiceOn(this, false)
+        if (intent?.action == ACTION_STOP || intent?.action == ACTION_PAUSE) {
+            // 1.3 beta2: the same off / pause as the switch on the home page (ServiceControl), so they mean the same.
+            ServiceControl.turnOff(this, untilNextBooking = intent.action == ACTION_PAUSE, why = "notification")
             stopSelf(); return START_NOT_STICKY
         }
         if (intent?.action == ACTION_ALLOW) { BackgroundOperation.userResume(); return START_STICKY }
@@ -197,6 +199,11 @@ class HostService : Service() {
         if (s.windowHidden && s.displayId != null)
             b.addAction(0, tr("显示小窗", "Show window"), PendingIntent.getService(this, 5, Intent(this, HostService::class.java).setAction(ACTION_SHOW_WINDOW), PendingIntent.FLAG_IMMUTABLE))
         else b.addAction(0, tr("查看副屏", "View screen"), PendingIntent.getActivity(this, 2, Intent(this, com.kilon.agentvscreen.ui.FullscreenActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE))
+        // When an agent booked a window, "pause until then" sits next to "stop": done for now, the booking still works.
+        ServiceControl.nextBooking(this)?.let { at ->
+            b.addAction(0, tr("暂停到 ${ServiceControl.hhmm(at)}", "Pause until ${ServiceControl.hhmm(at)}"),
+                PendingIntent.getService(this, 6, Intent(this, HostService::class.java).setAction(ACTION_PAUSE), PendingIntent.FLAG_IMMUTABLE))
+        }
         return b.addAction(0, tr("停止服务", "Stop service"), stop).build()
     }
 }
@@ -206,4 +213,10 @@ object Prefs {
     private fun p(ctx: Context) = ctx.getSharedPreferences("agent_vscreen", Context.MODE_PRIVATE)
     fun serviceOn(ctx: Context) = p(ctx).getBoolean("service_on", true)
     fun setServiceOn(ctx: Context, on: Boolean) { p(ctx).edit().putBoolean("service_on", on).apply() }
+    /**
+     * 1.3 beta2: the service is off only until the next booked window ("pause"), not for good. Only the user sets it
+     * (the switch on the home page); a booking alone never turns a service the user switched off back on.
+     */
+    fun resumeOnSchedule(ctx: Context) = p(ctx).getBoolean("resume_on_schedule", false)
+    fun setResumeOnSchedule(ctx: Context, on: Boolean) { p(ctx).edit().putBoolean("resume_on_schedule", on).apply() }
 }

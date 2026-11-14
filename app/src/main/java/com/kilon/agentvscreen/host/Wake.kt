@@ -58,10 +58,18 @@ object Wake {
      * Days: daily (default) / weekdays / weekends / mon-fri / mon,wed,fri; 每天 / 工作日 / 周末 too.
      * [days] bit 0 = Monday … bit 6 = Sunday. Times are minutes of the day, local time.
      */
-    data class Spec(val days: Int, val times: List<Int>, val everyMin: Int = 0, val fromMin: Int = 0, val toMin: Int = 24 * 60) {
+    data class Spec(val days: Int, val times: List<Int>, val everyMin: Int = 0, val fromMin: Int = 0, val toMin: Int = 24 * 60,
+                    /** 1.3 beta2: one day only (`today 10:11`, `once 10:11`, `11-15 10:11`); the entry goes when it is over. */
+                    val date: LocalDate? = null) {
         fun minutesOfDay(): List<Int> = if (everyMin > 0) (fromMin until toMin step everyMin).toList() else times
         fun runsOn(d: DayOfWeek): Boolean = days and (1 shl (d.value - 1)) != 0
+        /** The text that means exactly this (a one-off is stored with its date, whatever word booked it). */
+        fun canonical(): String {
+            fun hm(m: Int) = "%02d:%02d".format(m / 60, m % 60)
+            return if (date != null) "$date " + times.joinToString(",") { hm(it) } else ""
+        }
         fun describe(): String {
+            if (date != null) return tr("仅 ${date.monthValue}-${date.dayOfMonth} ", "only on ${date.monthValue}-${date.dayOfMonth} ") + times.joinToString(",") { "%02d:%02d".format(it / 60, it % 60) } + tr("（一次）", " (once)")
             val dayText = when (days) {
                 0x7F -> tr("每天", "daily"); 0x1F -> tr("工作日", "weekdays"); 0x60 -> tr("周末", "weekends")
                 else -> DayOfWeek.entries.filter { runsOn(it) }.joinToString(",") { it.name.take(3).lowercase() }
@@ -98,9 +106,36 @@ object Wake {
         return mask.takeIf { it != 0 }
     }
 
-    fun parse(text: String): Spec {
+    private val DATE_MD = Regex("^(\\d{1,2})-(\\d{1,2})$")
+    private val DATE_YMD = Regex("^(\\d{4})-(\\d{1,2})-(\\d{1,2})$")
+
+    /**
+     * A one-off day word: today / tomorrow / once (the next time the clock shows it) / MM-DD / YYYY-MM-DD.
+     * [times] decides `once`: today if the first time is still ahead at [nowMs], else tomorrow.
+     */
+    private fun oneDay(word: String, times: List<Int>, nowMs: Long, zone: ZoneId): LocalDate? {
+        val now = Instant.ofEpochMilli(nowMs).atZone(zone)
+        val today = now.toLocalDate()
+        return when (word.lowercase()) {
+            "today", "今天" -> today
+            "tomorrow", "明天" -> today.plusDays(1)
+            "once", "一次" -> if ((times.firstOrNull() ?: 0) > now.hour * 60 + now.minute) today else today.plusDays(1)
+            else -> DATE_YMD.find(word)?.let { m -> runCatching { LocalDate.of(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt()) }.getOrNull() ?: throw BadSpec(tr("没有 $word 这一天", "there is no day $word")) }
+                ?: DATE_MD.find(word)?.let { m -> runCatching { LocalDate.of(today.year, m.groupValues[1].toInt(), m.groupValues[2].toInt()) }.getOrNull()?.let { d -> if (d.isBefore(today)) d.plusYears(1) else d } ?: throw BadSpec(tr("没有 $word 这一天", "there is no day $word")) }
+        }
+    }
+
+    fun parse(text: String, nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): Spec {
         val words = text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.toMutableList()
         if (words.isEmpty()) throw BadSpec(tr("没写时间", "no time given"))
+        // A one-off: a day word, then times (no repeat, no days of the week).
+        if (words.size >= 2 && (words[0].lowercase() in setOf("today", "tomorrow", "once", "今天", "明天", "一次") || DATE_MD.matches(words[0]) || DATE_YMD.matches(words[0]))) {
+            val times = words.drop(1).joinToString(",").split(',').filter { it.isNotBlank() }.map { t -> hhmm(t)?.takeIf { it < 1440 } ?: throw BadSpec(tr("时间写成 HH:MM（收到 $t）", "write times as HH:MM (got $t)")) }.distinct().sorted()
+            val date = oneDay(words[0], times, nowMs, zone)!!
+            val lastAt = ZonedDateTime.of(date.year, date.monthValue, date.dayOfMonth, times.last() / 60, times.last() % 60, 0, 0, zone).toInstant().toEpochMilli()
+            if (lastAt <= nowMs) throw BadSpec(tr("${words[0]} ${times.joinToString(",") { "%02d:%02d".format(it / 60, it % 60) }} 已经过去了", "${words[0]} ${times.joinToString(",") { "%02d:%02d".format(it / 60, it % 60) }} is already past"))
+            return Spec(0x7F, times, date = date)
+        }
         val d = days(words.first())?.also { words.removeAt(0) } ?: 0x7F
         if (words.isEmpty()) throw BadSpec(tr("只有日期没有时间", "days without a time"))
         if (words.first().lowercase() in setOf("every", "每")) {
@@ -128,6 +163,7 @@ object Wake {
         val start = Instant.ofEpochMilli(afterMs).atZone(zone).toLocalDate()
         for (k in 0..8) {
             val day: LocalDate = start.plusDays(k.toLong())
+            if (spec.date != null && day != spec.date) continue
             if (!spec.runsOn(day.dayOfWeek)) continue
             for (m in spec.minutesOfDay()) {
                 val at = ZonedDateTime.of(day.year, day.monthValue, day.dayOfMonth, m / 60, m % 60, 0, 0, zone).toInstant().toEpochMilli()
@@ -140,14 +176,23 @@ object Wake {
     // ── entries ──────────────────────────────────────────────────────
 
     class Entry(val name: String, val text: String, val spec: Spec, val forMin: Int, val session: String, val by: String, val at: Long) {
+        /** The window shown as next: the first one that has not ended (a window in progress is still "next"). */
         @Volatile var nextAt: Long = 0L
+        /** 1.3 beta2: the start of the last window already opened (checked and told), so it is never opened twice. */
+        @Volatile var opened: Long = 0L
         @Volatile var last: JSONObject? = null
         fun json(): JSONObject = JSONObject().put("name", name).put("when", text).put("means", spec.describe()).put("for_min", forMin)
             .put("session", session).put("by", by).put("next_at", if (nextAt > 0) nextAt / 1000 else JSONObject.NULL)
             .put("next_local", if (nextAt > 0) java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(nextAt)) else JSONObject.NULL)
             .put("last_check", last ?: JSONObject.NULL)
         fun store(): JSONObject = JSONObject().put("name", name).put("when", text).put("for", forMin).put("session", session).put("by", by).put("at", at)
-            .also { o -> last?.let { o.put("last", it) } }
+            .put("opened", opened).also { o -> last?.let { o.put("last", it) } }
+        /** The next window start not yet opened and not over at [now] (null: none left). */
+        fun pending(now: Long): Long? {
+            var t = next(spec, now - forMin * 60_000L) ?: return null
+            while (t <= opened) t = next(spec, t) ?: return null
+            return t
+        }
     }
 
     private val lock = Any()
@@ -167,9 +212,10 @@ object Wake {
                 val a = JSONObject(f.readText()).optJSONArray("entries") ?: JSONArray()
                 for (i in 0 until a.length()) {
                     val o = a.optJSONObject(i) ?: continue
-                    val spec = runCatching { parse(o.getString("when")) }.getOrNull() ?: continue
+                    // A one-off is stored with its date; it parses whatever today is (and is dropped by arm() once over).
+                    val spec = runCatching { parse(o.getString("when"), nowMs = 0L) }.getOrNull() ?: continue
                     entries += Entry(o.getString("name"), o.getString("when"), spec, o.optInt("for", DEFAULT_FOR_MIN), o.optString("session", "default"), o.optString("by", "main"), o.optLong("at"))
-                        .also { e -> e.last = o.optJSONObject("last") }
+                        .also { e -> e.last = o.optJSONObject("last"); e.opened = o.optLong("opened") }
                 }
             }
             loaded = true
@@ -182,19 +228,28 @@ object Wake {
 
     fun list(ctx: Context): List<Entry> { load(ctx); return synchronized(lock) { entries.toList() } }
 
-    /** Add or replace [name]. Throws [BadSpec] / IllegalStateException (too many). */
-    fun add(ctx: Context, name: String?, text: String, forMin: Int?, session: String, by: String): Entry {
+    /** What [add] did: the entry, and the existing one it matched when nothing new was added. */
+    class Added(val entry: Entry, val same: Boolean)
+
+    /**
+     * Add or replace [name]. Throws [BadSpec] / IllegalStateException (too many). 1.3 beta2: an unnamed booking that
+     * means the same as one this session already has (same times, same window length) is not added twice.
+     */
+    fun add(ctx: Context, name: String?, text: String, forMin: Int?, session: String, by: String): Added {
         load(ctx)
         val spec = parse(text)
         val f = (forMin ?: DEFAULT_FOR_MIN).coerceIn(1, MAX_FOR_MIN)
+        val stored = spec.canonical().ifEmpty { text.trim() }
+        val given = name?.trim()?.takeIf { it.isNotEmpty() }?.take(32)
+        if (given == null) synchronized(lock) { entries.firstOrNull { it.session == session && it.spec == spec && it.forMin == f } }?.let { return Added(it, true) }
         val e = synchronized(lock) {
-            val n = name?.trim()?.takeIf { it.isNotEmpty() }?.take(32) ?: run { var i = entries.size + 1; while (entries.any { it.name == "w$i" }) i++; "w$i" }
+            val n = given ?: run { var i = entries.size + 1; while (entries.any { it.name == "w$i" }) i++; "w$i" }
             val others = entries.filter { it.name != n }
             if (others.size >= MAX_ENTRIES) throw IllegalStateException(tr("最多 $MAX_ENTRIES 条预约：先 schedule off 一条", "At most $MAX_ENTRIES schedules: remove one with schedule off first"))
-            Entry(n, text.trim(), spec, f, session, by, System.currentTimeMillis()).also { entries.clear(); entries.addAll(others + it) }
+            Entry(n, stored, spec, f, session, by, System.currentTimeMillis()).also { entries.clear(); entries.addAll(others + it) }
         }
         save(ctx); arm(ctx)
-        return e
+        return Added(e, false)
     }
 
     fun remove(ctx: Context, name: String): Int {
@@ -217,10 +272,15 @@ object Wake {
         load(ctx)
         val am = ctx.getSystemService(AlarmManager::class.java) ?: return
         val now = System.currentTimeMillis()
+        // One-offs that are over go.
+        val over = synchronized(lock) { entries.filter { it.spec.date != null && next(it.spec, now - it.forMin * 60_000L) == null }.also { entries.removeAll(it.toSet()) } }
+        if (over.isNotEmpty()) save(ctx)
         val list = synchronized(lock) { entries.toList() }
-        // A window that has started but not ended is still "next" (its alarm already fired, or must fire now).
-        list.forEach { e -> e.nextAt = next(e.spec, now - LEAD_MS) ?: 0L }
-        val first = list.filter { it.nextAt > 0 }.minOfOrNull { it.nextAt - LEAD_MS }
+        // 1.3 beta2: "next" is the first window that has not ended (one in progress stays next, it does not jump to
+        // tomorrow), and the alarm is for the first window not opened yet. Before, any change of the list re-armed the
+        // window in progress and it was opened (and announced) again each time.
+        list.forEach { e -> e.nextAt = next(e.spec, now - e.forMin * 60_000L) ?: 0L }
+        val first = list.mapNotNull { e -> e.pending(now)?.let { it - LEAD_MS } }.minOrNull()
         val pi = alarmIntent(ctx)
         if (first == null) { am.cancel(pi); return }
         val at = maxOf(first, now + 1_000L)
@@ -235,26 +295,21 @@ object Wake {
     internal fun onAlarm(ctx: Context) {
         load(ctx)
         val now = System.currentTimeMillis()
-        val due = synchronized(lock) { entries.filter { it.nextAt > 0 && it.nextAt - LEAD_MS <= now + 30_000L && it.nextAt + it.forMin * 60_000L > now } }
+        val due = synchronized(lock) {
+            entries.mapNotNull { e -> e.pending(now)?.takeIf { it - LEAD_MS <= now + 30_000L }?.let { e to it } }
+                .onEach { (e, at) -> e.opened = at; e.nextAt = at }.map { it.first }
+        }
         if (due.isNotEmpty()) {
-            HostService.start(ctx)
+            save(ctx)
+            // 1.3 beta2: the user's "service off" is never overruled by a booking an agent made: the window is checked
+            // (it reports service_off, the agent gets the event, the user a notification to turn it on), not started.
+            // Before, the alarm started the service anyway while the switch still showed it off.
+            // Unless the user chose "off until the next booking": then this window turns it back on.
+            ServiceControl.windowDue(ctx)
             val until = due.maxOf { it.nextAt + it.forMin * 60_000L }
             openWindow(ctx, due, until)
         }
-        // Next alarm after these windows' starts.
-        synchronized(lock) { due.forEach { e -> e.nextAt = next(e.spec, e.nextAt) ?: 0L } }
-        armAfter(ctx)
-    }
-
-    private fun armAfter(ctx: Context) {
-        val am = ctx.getSystemService(AlarmManager::class.java) ?: return
-        val now = System.currentTimeMillis()
-        val first = synchronized(lock) { entries.filter { it.nextAt > 0 }.minOfOrNull { it.nextAt - LEAD_MS } } ?: return
-        val at = maxOf(first, now + 1_000L)
-        runCatching {
-            if (exactAllowed(ctx)) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, alarmIntent(ctx))
-            else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, alarmIntent(ctx))
-        }
+        arm(ctx)
     }
 
     @Volatile private var lockHeld: PowerManager.WakeLock? = null
@@ -308,7 +363,7 @@ object Wake {
         if (now - lastPoke < 3_000L) return
         lastPoke = now
         AppLogger.info(TAG, "woken by a local caller")
-        if (!HostService.isAlive) HostService.start(ctx)
+        if (!HostService.isAlive && Prefs.serviceOn(ctx)) HostService.start(ctx)
     }
 }
 

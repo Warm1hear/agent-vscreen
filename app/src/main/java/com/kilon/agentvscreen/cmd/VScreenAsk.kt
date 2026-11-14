@@ -35,7 +35,11 @@ internal fun VScreenOffloadHandler.askCmd(sid: String?, args: OffloadArgs): Nati
     if (picked.size > 1) throw ActionError("INVALID_ARGS", tr("--point / --area / --choose / --text 只能选一个", "use only one of --point / --area / --choose / --text"))
     val kind = picked.firstOrNull() ?: UserAsk.Kind.POINT
     if (kind == UserAsk.Kind.CHOOSE && (choose!!.size < 2 || choose.size > 8)) throw ActionError("INVALID_ARGS", tr("--choose 给 2 到 8 个选项，用 | 隔开", "--choose takes 2 to 8 options separated by |"))
-    val wait = bounded("wait", parseDuration(args.get("wait"), 60_000L), 0L, ASK_MAX_WAIT_MS)
+    // 1.3 beta2: as a task (--async) nobody holds a connection, so it waits as long as the question is valid (the
+    // answer then lands in the task's result). Before, it gave up after the default 60 s and the task kept ASK_PENDING.
+    val inTask = Call.current()?.taskId != null
+    val wait = if (inTask && args.get("wait") == null) com.kilon.agentvscreen.host.UserAsk.VALID_MS
+        else bounded("wait", parseDuration(args.get("wait"), 60_000L), 0L, if (inTask) com.kilon.agentvscreen.host.UserAsk.VALID_MS else ASK_MAX_WAIT_MS)
     val call = Call.current()
     val key = "ask:$session:${kind.key}:$question:${choose?.joinToString("|").orEmpty()}"
 

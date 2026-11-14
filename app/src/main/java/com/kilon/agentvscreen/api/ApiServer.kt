@@ -364,10 +364,11 @@ class ApiServer(private val ctx: Context) {
         val host = r.headers["host"]?.substringBeforeLast(':')?.lowercase()?.takeIf { it.isNotEmpty() } ?: r.headers["host"]?.lowercase()
         val remote = r.peer?.let { !it.isLoopbackAddress } == true
         if (r.viaBuiltinTailnet) {
-            // Forwarded by our own Tailscale node (it alone knows the secret). The caller must still name the node by
-            // its tailnet address or name, so a web page cannot rebind a hostname onto it.
+            // Forwarded by our own Tailscale node (it alone knows the secret): the peer is a device of the user's tailnet,
+            // identified and encrypted by Tailscale. 1.3: its Host is not checked any more. A caller that reaches us
+            // through a local forwarder or a proxy names us by whatever it uses (127.0.0.1, a proxy's target); the
+            // rebinding a Host check guards against needs a browser, and browsers are refused below, tokens required.
             if (!com.kilon.agentvscreen.host.Tailnet.status.value.loggedIn) return Resp.err(403, "NOT_ALLOWED", tr("内置 Tailscale 没有登录", "Built-in Tailscale is not logged in"))
-            if (host != null && host !in com.kilon.agentvscreen.host.Tailnet.hostNames() && !ApiConfig.tailnetHostOk(host)) return Resp.err(403, "BAD_HOST", tr("用这台手机的 Tailscale 地址或名字访问（自建控制服务器的域名后缀在 App › 其它设备 里填）", "Use this phone's Tailscale address or name (for a self-hosted control server, enter its name suffix under Other devices in the app)"))
         } else if (remote) {
             // Only a tailnet peer reaches this (the socket is bound to the Tailscale address); it must still name us by
             // that address or a tailnet name, so a web page cannot rebind a hostname onto us.
@@ -474,7 +475,7 @@ class ApiServer(private val ctx: Context) {
             val nonce = r.headers["x-vscreen-nonce"]?.takeIf { it.length in 8..64 && it.all { c -> c.isLetterOrDigit() } } ?: return failed(r, "BAD_SIGNATURE", "X-VScreen-Nonce missing (8-64 letters/digits)")
             val sign = r.headers["x-vscreen-sign"]?.lowercase() ?: return failed(r, "BAD_SIGNATURE", "X-VScreen-Sign missing")
             val now = System.currentTimeMillis() / 1000
-            if (kotlin.math.abs(now - ts) > SKEW_S) return failed(r, "TIME_SKEW", tr("请求的时间和手机差了 ${now - ts} 秒（最多 $SKEW_S 秒）：校准调用方的时钟。手机时间（unix 秒）：$now", "The request's time is ${now - ts} s off the phone's (at most $SKEW_S s): fix the caller's clock. Phone time (unix seconds): $now"))
+            if (kotlin.math.abs(now - ts) > SKEW_S) return failed(r, "TIME_SKEW", tr("请求的时间比手机${if (ts > now) "快" else "慢"} ${kotlin.math.abs(now - ts)} 秒（最多差 $SKEW_S 秒）：校准调用方的时钟。手机时间（unix 秒）：$now", "The request's time is ${kotlin.math.abs(now - ts)} s ${if (ts > now) "ahead of" else "behind"} the phone's (at most $SKEW_S s apart): fix the caller's clock. Phone time (unix seconds): $now"))
             if (!constTimeEq(sign, signature(t.key, ts.toString(), nonce, r.method, r.target, r.body))) return failed(r, "BAD_SIGNATURE", tr("签名不对：令牌不匹配，或请求在路上被改过", "Wrong signature: the token does not match, or the request was changed on the way"))
             synchronized(nonces) {
                 val cut = System.currentTimeMillis() - 2 * SKEW_S * 1000
@@ -487,7 +488,10 @@ class ApiServer(private val ctx: Context) {
             ?: return failed(r, "BAD_TOKEN", tr("缺少令牌：在 Agent-VScreen 里复制接入命令（Authorization: Bearer <令牌>，或签名请求）" + if (r.q("token") != null) "。1.2 起不再接受网址里的 ?token=" else "",
                 "Missing token: copy the connect message in Agent-VScreen (Authorization: Bearer <token>, or a signed request)" + if (r.q("token") != null) ". Since 1.2 ?token= in the URL is no longer accepted" else ""))
         val t = Tokens.byBearer(given) ?: return failed(r, "BAD_TOKEN", tr("令牌不对或已被撤销：在 Agent-VScreen 里重新复制接入命令", "Wrong or revoked token: copy the connect message in Agent-VScreen again"))
-        if (r.remote && ApiConfig.remoteSigned) return failed(r, "SIGNATURE_REQUIRED", tr("从其它设备来的请求必须签名（令牌不在网络上传）：用最新的 vscreen 命令（它会签名），或请用户在 Agent-VScreen › 其它设备 里关掉“只接受签名请求”",
+        // 1.3: through the built-in node the peer is a known tailnet device (WhoIs) on an encrypted tunnel: a token is
+        // enough (MCP clients cannot sign). Signing stays required for the other remote way in, when the user wants it.
+        val knownPeer = r.viaBuiltinTailnet && r.headers["x-vscreen-peer"].let { !it.isNullOrBlank() && it != "?" }
+        if (r.remote && ApiConfig.remoteSigned && !knownPeer) return failed(r, "SIGNATURE_REQUIRED", tr("从其它设备来的请求必须签名（令牌不在网络上传）：用最新的 vscreen 命令（它会签名），或请用户在 Agent-VScreen › 其它设备 里关掉“只接受签名请求”",
             "Requests from other devices must be signed (the token is not sent over the network): use the current vscreen command (it signs), or ask the user to turn off \"signed requests only\" under Other devices in Agent-VScreen"))
         return Auth(t, false, null)
     }

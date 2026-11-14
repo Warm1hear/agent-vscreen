@@ -166,11 +166,12 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 
 权限范围: `look` · 在副屏队列里执行
 
-### `collect [--pages <页数>] [--until <文字>] [--async]`
+### `collect [--pages <页数>] [--from-top] [--until <文字>] [--async]`
 
-从当前位置往下一页页滚，收集每一行文字（去重）。
+从当前位置往下一页页滚，收集每一条（一张卡片或一行列表算一条，去重）。上面还有内容时会说；--from-top 先回到顶部。
 
 - `--pages <页数>` 最多翻几页（默认 8，最多 40）
+- `--from-top` 先滚回页面顶部再开始收集
 - `--until <文字>` 看到这段文字就停
 - `--async` 不等它做完：马上返回任务号，之后 task <号> 取结果（长操作、怕连接超时时用）
 
@@ -216,7 +217,7 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 | `USER_STOPPED` | `ask_user` | 用户按了“停止 AI”。所有操作都被拒绝，只有用户能解除；把返回里怎么解除的那句转告用户。 |
 | `REREAD_REQUIRED` | `look` | 用户刚接管过副屏，页面可能变了。这次的返回就是现在的画面，看清再继续。 |
 | `HOST_RESTARTED` | `look` | Agent-VScreen 进程重启过，上一轮的任务被打断。这次的返回就是现在的画面，不要假设之前的步骤都做完了。 |
-| `MAIN_SCREEN_CHANGED` | `ask_user` | 这段前后主屏的前台应用或任务变了：可能是用户自己切的，也可能被打扰了。先告诉用户。 |
+| `MAIN_SCREEN_CHANGED` | `ask_user` | 副屏这边的应用或任务跑到了主屏，打扰了用户正在用的主屏。停下告诉用户；handoff in 把它拿回副屏。用户自己在主屏切换应用不会报这条。 |
 | `SCOPE_DENIED` | `ask_user` | 这个令牌没有做这件事的权限（用户在 App 里给令牌定的范围）。 |
 | `PROTECTED_APP` | `none` | 这是 Agent-VScreen 自己、桌面或系统界面，不能结束。 |
 | `NO_SCREEN` | `fix_command` | 现在没有副屏：先 launch 一个应用。 |
@@ -265,7 +266,7 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 | `BODY_TOO_LARGE` | `fix_command` | 请求体太大（上限 1 MB）。 |
 | `HEADERS_TOO_LARGE` | `fix_command` | 请求头太大。 |
 | `REQUEST_TIMEOUT` | `retry_later` | 请求没有在时限内发完。 |
-| `SIGNATURE_REQUIRED` | `ask_user` | 从其它设备来的请求必须签名（vscreen 命令行会签名）。MCP 等不能签名的客户端：请用户在 其它设备 里关掉“只接受签名请求”。 |
+| `SIGNATURE_REQUIRED` | `ask_user` | 经外部 Tailscale App 从其它设备来的请求必须签名（vscreen 命令行会签名；经内置 Tailscale 来的不需要）。MCP 等不能签名的客户端：请用户在 其它设备 里关掉“只接受签名请求”，或改用内置 Tailscale。 |
 | `TASK_STARTED` | `none` | 任务已开始，用 task <号> 取结果。 |
 | `TIME_SKEW` | `ask_user` | 调用方的时钟和手机差得太多，签名因此不被接受。校准调用方的时钟。 |
 | `OPERATION_FAILED` | `look` | 执行出错，返回里有原因。 |
@@ -436,11 +437,12 @@ zoom into a region (screen coordinates on the picture's edges).
 
 scope: `look` · runs in the screen queue
 
-### `collect [--pages <count>] [--until <text>] [--async]`
+### `collect [--pages <count>] [--from-top] [--until <text>] [--async]`
 
-scroll down page by page from here and collect every line of text (deduplicated).
+scroll down page by page from here and collect every item (a card or list row is one item, deduplicated). Says when there is more above; --from-top goes to the top first.
 
 - `--pages <count>` pages to go through at most (default 8, at most 40)
+- `--from-top` scroll back to the top of the page before collecting
 - `--until <text>` stop when this text is seen
 - `--async` do not wait for it: returns a task id at once, fetch the result later with task <id> (for long operations or short connection timeouts)
 
@@ -486,7 +488,7 @@ scope: `look`
 | `USER_STOPPED` | `ask_user` | The user pressed "Stop AI". Everything is refused and only the user can lift it; pass on the line that says how. |
 | `REREAD_REQUIRED` | `look` | The user just had the screen and the page may have changed. This reply is the screen now: look, then carry on. |
 | `HOST_RESTARTED` | `look` | The Agent-VScreen process restarted and the last task was cut off. This reply is the screen now; don't assume earlier steps completed. |
-| `MAIN_SCREEN_CHANGED` | `ask_user` | The main screen's front app or tasks changed during this stretch: the user may have switched, or something disturbed it. Tell the user first. |
+| `MAIN_SCREEN_CHANGED` | `ask_user` | An app or task of ours came to the main screen and disturbed what the user is using. Stop and tell the user; take it back with handoff in. The user switching apps on the main screen is not reported. |
 | `SCOPE_DENIED` | `ask_user` | This token is not allowed to do this (the scope the user gave the token in the app). |
 | `PROTECTED_APP` | `none` | This is Agent-VScreen itself, the launcher or system UI; it cannot be stopped. |
 | `NO_SCREEN` | `fix_command` | There is no screen now: launch an app first. |
@@ -535,7 +537,7 @@ scope: `look`
 | `BODY_TOO_LARGE` | `fix_command` | The request body is too large (at most 1 MB). |
 | `HEADERS_TOO_LARGE` | `fix_command` | The request headers are too large. |
 | `REQUEST_TIMEOUT` | `retry_later` | The request did not arrive in time. |
-| `SIGNATURE_REQUIRED` | `ask_user` | Requests from other devices must be signed (the vscreen CLI signs). For clients that cannot sign, such as MCP: ask the user to turn off "signed requests only" under Other devices. |
+| `SIGNATURE_REQUIRED` | `ask_user` | Requests from other devices through the external Tailscale app must be signed (the vscreen CLI signs; through the built-in Tailscale none is needed). For clients that cannot sign, such as MCP: ask the user to turn off "signed requests only" under Other devices, or use the built-in Tailscale. |
 | `TASK_STARTED` | `none` | The task started; fetch its result with task <id>. |
 | `TIME_SKEW` | `ask_user` | The caller's clock is too far from the phone's, so the signature is not accepted. Fix the caller's clock. |
 | `OPERATION_FAILED` | `look` | It failed; the reply says why. |

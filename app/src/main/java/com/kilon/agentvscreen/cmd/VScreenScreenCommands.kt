@@ -325,14 +325,9 @@ internal fun VScreenOffloadHandler.fixOne(sid: String?, code: String, args: Offl
 
 internal fun VScreenOffloadHandler.apps(args: OffloadArgs): NativeOffloadResult {
     val filter = args.positional.getOrNull(0)?.lowercase()
-    val pm = context.packageManager
-    val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
     val arr = JSONArray()
-    pm.queryIntentActivities(intent, 0)
-        .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
-        .distinctBy { it.second }
-        .filter { filter == null || it.first.lowercase().contains(filter) || it.second.lowercase().contains(filter) }
-        .sortedBy { it.first }
+    // 1.3 beta2: the same matching and order as launch uses (launch takes the first one listed here).
+    com.kilon.agentvscreen.core.VScreenKnowledge.findApps(filter).let { l -> if (filter == null) l.sortedBy { it.first } else l }
         .take(200)
         .forEach { (label, pkg) -> arr.put(JSONObject().put("name", label).put("package", pkg)) }
     return ok(args, JSONObject().put("apps", arr))

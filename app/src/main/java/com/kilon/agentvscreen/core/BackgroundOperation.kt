@@ -243,6 +243,15 @@ object BackgroundOperation {
         VScreenMap.init(context)
         VScreenRules.init(context)
         VScreenAwake.init(context)
+        // 1.3: apps muted on the background screen get their sound back when it goes, and after a crash (once the
+        // privileged connection is back and no screen is up).
+        VScreenMute.init(context)
+        onScreenReleased { VScreenMute.restoreAll() }
+        if (VScreenMute.mutedNow().isNotEmpty()) Thread {
+            val t = android.os.SystemClock.elapsedRealtime()
+            while (android.os.SystemClock.elapsedRealtime() - t < 600_000L && _state.value.connection != Connection.READY) Thread.sleep(2_000)
+            if (display == null) runCatching { VScreenMute.restoreAll() }
+        }.apply { isDaemon = true; name = "vscreen-unmute" }.start()
         runCatching {
             val home = context.packageManager.resolveActivity(
                 android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_HOME), 0,
@@ -607,15 +616,10 @@ object BackgroundOperation {
         val s0 = _state.value
         if (!s0.enabled) throw ActionError("DISABLED", tr("Agent-VScreen 的服务已被用户关闭。请用户打开 Agent-VScreen 点“启动服务”", "The user turned off the Agent-VScreen service. Ask the user to open Agent-VScreen and turn the service on"))
         if (s0.connection != Connection.READY) {
-            // Standalone: only the user's own 停止并释放 needs the user; a lost Shizuku that came back reconnects here.
-            if (s0.needsExplicitReconnect && s0.connection == Connection.DISCONNECTED) {
-                throw ActionError(
-                    "NOT_CONNECTED",
-                    tr("后台连接未就绪（${s0.connectionError ?: "需要明确重连"}）。请用户打开 Agent-VScreen 点“连接”，或执行 vscreen fix not_connected。不会改为在主屏操作。",
-                        "The background connection is not ready (${s0.connectionError ?: "needs an explicit reconnect"}). Ask the user to open Agent-VScreen, or run vscreen fix not_connected. It will not fall back to the main screen."),
-                )
-            }
-            // Enabled, never connected and never stopped: verify the channel once.
+            // 1.3: the service is on (checked above), so the user wants it working: connect now, whatever ended the last
+            // connection (the user's stop is undone by turning the service back on; a lost Shizuku may be back). Before,
+            // a connection the user had stopped once needed `vscreen fix not_connected` even after the service was
+            // turned on again, and `launch` failed with NOT_CONNECTED although the guide says it builds the screen.
             val after = connect()
             if (after.connection != Connection.READY) {
                 throw ActionError("NOT_CONNECTED", tr("后台连接失败：${after.connectionError}。不会改为在主屏操作。", "Background connection failed: ${after.connectionError}. It will not fall back to the main screen."))
@@ -1010,6 +1014,65 @@ object BackgroundOperation {
         }
         roots.forEach { walk(it, 0) }
         return hit ?: ""
+    }
+
+    /**
+     * 1.3: every visible node whose words contain [want] (normalised), with its box; refreshed before it counts.
+     * Null when the tree cannot be read.
+     */
+    fun a11yFind(displayId: Int, norm: (String) -> String, want: String): List<Pair<String, android.graphics.Rect>>? {
+        val roots = nodeRoots(displayId)
+        if (roots.isEmpty()) return null
+        val out = ArrayList<Pair<String, android.graphics.Rect>>()
+        var seen = 0
+        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
+            if (n == null || depth > 40 || out.size >= 20 || ++seen > 1500) return
+            val t = (n.text ?: n.contentDescription)?.toString()
+            if (t != null && n.isVisibleToUser && norm(t).contains(want)) {
+                val fresh = runCatching { n.refresh() }.getOrDefault(false)
+                val t2 = if (fresh) (n.text ?: n.contentDescription)?.toString() else t
+                if (t2 != null && (!fresh || n.isVisibleToUser) && norm(t2).contains(want))
+                    out += t2.replace('\n', ' ').trim().take(40) to android.graphics.Rect().also { n.getBoundsInScreen(it) }
+            }
+            for (i in 0 until n.childCount) walk(runCatching { n.getChild(i) }.getOrNull(), depth + 1)
+        }
+        roots.forEach { walk(it, 0) }
+        return out
+    }
+
+    /**
+     * 1.3 beta2: whether the biggest scrollable view on [displayId] can still scroll back (up): there is content above.
+     * Null when no scrollable view is found (the tree does not say).
+     */
+    fun canScrollBack(displayId: Int): Boolean? {
+        var best: AccessibilityNodeInfo? = null; var bestArea = 0L
+        var seen = 0
+        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
+            if (n == null || depth > 40 || ++seen > 1500) return
+            if (n.isScrollable && n.isVisibleToUser) {
+                val r = android.graphics.Rect().also { n.getBoundsInScreen(it) }
+                val a = r.width().toLong() * r.height()
+                if (a > bestArea) { best = n; bestArea = a }
+            }
+            for (i in 0 until n.childCount) walk(runCatching { n.getChild(i) }.getOrNull(), depth + 1)
+        }
+        nodeRoots(displayId).forEach { walk(it, 0) }
+        val b = best ?: return null
+        val ids = b.actionList.map { it.id }
+        return AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD.id in ids || AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.id in ids
+    }
+
+    /** 1.3: the box of the focused input field on [displayId] (where typing went), or null. */
+    fun focusedInput(displayId: Int): android.graphics.Rect? {
+        var hit: android.graphics.Rect? = null
+        var seen = 0
+        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
+            if (n == null || depth > 40 || hit != null || ++seen > 1500) return
+            if (n.isEditable && n.isFocused && n.isVisibleToUser) { hit = android.graphics.Rect().also { n.getBoundsInScreen(it) }; return }
+            for (i in 0 until n.childCount) walk(runCatching { n.getChild(i) }.getOrNull(), depth + 1)
+        }
+        nodeRoots(displayId).forEach { walk(it, 0) }
+        return hit
     }
 
     fun a11yTexts(displayId: Int, max: Int = 400): List<String>? {

@@ -62,28 +62,46 @@ object VScreenKnowledge {
     fun knownPackages(): Set<String> = runCatching { VScreenMap.packages().toCollection(LinkedHashSet()) }.getOrDefault(emptySet())
 
     /** A package name, or an app name the user would say (美团, Mini Metro). Null when nothing fits. */
+    /**
+     * 1.3 beta2: the one way an app is found by what the agent calls it, used by both `launch` and `apps`. Before they
+     * matched differently: `apps settings` found 设置 by its package name, `launch Settings` said APP_NOT_FOUND (on a
+     * phone in Chinese the English name is nowhere but in the package). Ranked: exact name, exact package, a word of
+     * the package (settings, calculator), name contains, package contains. Launchable apps first.
+     */
+    fun findApps(query: String?): List<Pair<String, String>> {
+        val c = ctx() ?: return emptyList()
+        val pm = c.packageManager
+        val launcher = runCatching {
+            pm.queryIntentActivities(android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_LAUNCHER), 0)
+                .map { it.loadLabel(pm).toString().trim() to it.activityInfo.packageName }
+        }.getOrDefault(emptyList())
+        val q = query?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return launcher.distinctBy { it.second }
+        // Application labels too (a launcher entry may be named differently: Honor's clock "时钟" vs "时钟服务").
+        val appLabels = runCatching { pm.getInstalledApplications(0).mapNotNull { ai -> runCatching { pm.getApplicationLabel(ai).toString().trim() to ai.packageName }.getOrNull() } }.getOrDefault(emptyList())
+        val launchable = launcher.map { it.second }.toSet()
+        fun rank(p: Pair<String, String>): Int {
+            val name = p.first.lowercase(); val pkg = p.second.lowercase()
+            return when {
+                name == q -> 0
+                pkg == q -> 1
+                pkg.split('.').any { it == q } -> 2
+                name.contains(q) -> 3
+                pkg.contains(q) -> 4
+                else -> 9
+            }
+        }
+        return (launcher + appLabels).map { it to rank(it) }.filter { it.second < 9 }
+            .sortedWith(compareBy({ it.second }, { if (it.first.second in launchable) 0 else 1 }, { it.first.first }))
+            .map { it.first }.distinctBy { it.second }
+    }
+
     fun resolveApp(nameOrPkg: String?): String? {
         val q = nameOrPkg?.trim()?.takeIf { it.isNotEmpty() } ?: return null
         val c = ctx()
         if (q.contains('.') && (c == null || runCatching { c.packageManager.getApplicationInfo(q, 0); true }.getOrDefault(false) || q in knownPackages())) return q
         val lq = q.lowercase()
-        val known = knownPackages()
-        known.firstOrNull { p -> label(p)?.lowercase() == lq }?.let { return it }
-        val pm = c?.packageManager ?: return null
-        val launchable = runCatching {
-            pm.queryIntentActivities(android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_LAUNCHER), 0)
-                .map { it.activityInfo.packageName }.toSet()
-        }.getOrDefault(emptySet())
-        val apps = runCatching { pm.getInstalledApplications(PackageManager.GET_META_DATA) }.getOrNull() ?: return null
-        // v0.5: the names the user sees on the home screen are the launcher entries' labels (what `apps` lists), which
-        // can differ from the application label (Honor's clock: launcher "时钟", application "时钟服务"…). Both are names.
-        val launcherNames = runCatching {
-            pm.queryIntentActivities(android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_LAUNCHER), 0)
-                .map { it.activityInfo.packageName to it.loadLabel(pm).toString().trim() }
-        }.getOrDefault(emptyList())
-        val named = launcherNames + apps.mapNotNull { ai -> runCatching { ai.packageName to pm.getApplicationLabel(ai).toString() }.getOrNull() }
-            .sortedBy { if (it.first in launchable) 0 else 1 }
-        return (named.firstOrNull { it.second.equals(q, ignoreCase = true) } ?: named.firstOrNull { it.second.lowercase().contains(lq) })?.first
+        knownPackages().firstOrNull { p -> label(p)?.lowercase() == lq }?.let { return it }
+        return findApps(q).firstOrNull()?.second
     }
 
     private fun mentions(text: String, pkg: String): Boolean {
