@@ -30,7 +30,9 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"tailscale.com/net/netmon"
@@ -58,6 +60,15 @@ type status struct {
 	// 1.3 beta4: when this node's login (node key) expires, unix seconds (0 = never or unknown), and how old the
 	// login link shown to the user is.
 	KeyExpiry int64 `json:"key_expiry,omitempty"`
+	// 1.3 beta6: "Running" only says the node is logged in. Whether it can actually be reached is what control and
+	// the home relay say: ControlOK = the coordination server is in touch; RelayOK = the home DERP is connected;
+	// Relay = its region code; Flaps = how often either went down in the last 10 minutes; Problem = the health text.
+	ControlOK bool   `json:"control_ok"`
+	RelayOK   bool   `json:"relay_ok"`
+	Relay     string `json:"relay,omitempty"`
+	Flaps     int    `json:"flaps,omitempty"`
+	Problem   string `json:"problem,omitempty"`
+	DownS     int    `json:"down_s,omitempty"`
 	LinkAgeS  int   `json:"link_age_s,omitempty"`
 }
 
@@ -112,6 +123,42 @@ var (
 	logSeen = map[string]time.Time{}
 	loginRe = regexp.MustCompile(`https?://\S*/a/\S+`)
 )
+
+// 1.3 beta6: the backend's own log is mostly noise, but the lines about links, relays and the control connection are
+// what a flapping node needs explained. Those pass (at most 30 a minute), with the time.
+var backendKeep = []string{"LinkChange", "home is now", "derphttp", "control: mapRoutine", "control: controlhttp", "netmon", "Rebind", "health(", "magicsock: derp-", "network map", "portmap"}
+var backendMu sync.Mutex
+
+// The state directory's lock (see main); a package variable so the file is never collected and closed.
+var lockFile *os.File
+var backendMin int64
+var backendN int
+
+func backendLog(f string, a ...any) {
+	line := fmt.Sprintf(f, a...)
+	keep := false
+	for _, k := range backendKeep {
+		if strings.Contains(line, k) {
+			keep = true
+			break
+		}
+	}
+	if !keep {
+		return
+	}
+	backendMu.Lock()
+	m := time.Now().Unix() / 60
+	if m != backendMin {
+		backendMin, backendN = m, 0
+	}
+	backendN++
+	n := backendN
+	backendMu.Unlock()
+	if n > 30 {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "ts: "+loginRe.ReplaceAllString(strings.TrimSpace(line), "<login link>"))
+}
 
 func userLog(f string, a ...any) {
 	line := loginRe.ReplaceAllString(fmt.Sprintf(f, a...), "<login link>")
@@ -237,10 +284,28 @@ func main() {
 		Hostname:   env("TSB_HOSTNAME", "agent-vscreen"),
 		AuthKey:    os.Getenv("TSB_AUTHKEY"),
 		ControlURL: normalizeControlURL(os.Getenv("TSB_CONTROL_URL")),
-		Logf:       func(string, ...any) {},
+		Logf:       backendLog,
 		UserLogf:   userLog,
 	}
 	defer srv.Close()
+
+	// 1.3 beta6: one node per identity. Two bridges on one state directory (the same node key) take turns on the
+	// control server and the relay, so each is online for a while and then gone. The second one waits here until the
+	// first has exited, and gives up after 20 s rather than fight it.
+	if f, err := os.OpenFile(filepath.Join(srv.Dir, ".bridge.lock"), os.O_CREATE|os.O_RDWR, 0o600); err == nil {
+		deadline := time.Now().Add(20 * time.Second)
+		for {
+			if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				emit(status{State: "Error", Error: "another built-in Tailscale node is still running on this phone"})
+				os.Exit(3)
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		lockFile = f // kept referenced: the lock lasts as long as this process
+	}
 
 	emit(status{State: "Starting"})
 	if err := srv.Start(); err != nil {
@@ -339,6 +404,10 @@ func main() {
 	}()
 
 	var needSince time.Time
+	// 1.3 beta6: the real link state and its changes.
+	var wasUp = true
+	var downSince time.Time
+	var flaps []time.Time
 	// 1.3 beta4: a login link is not good forever. One left open for 10 minutes (the user went away, the browser tab
 	// was lost) is replaced with a fresh one, so the button in the app never opens a dead page.
 	var link string
@@ -398,6 +467,47 @@ func main() {
 			}
 			if st.CurrentTailnet != nil {
 				s.Tailnet = st.CurrentTailnet.Name
+			}
+			if st.BackendState == "Running" {
+				s.ControlOK, s.RelayOK = true, true
+				var probs []string
+				for _, h := range st.Health {
+					l := strings.ToLower(h)
+					switch {
+					case strings.Contains(l, "coordination server"):
+						s.ControlOK = false
+						probs = append(probs, h)
+					case strings.Contains(l, "relay server"):
+						s.RelayOK = false
+						probs = append(probs, h)
+					}
+				}
+				if st.Self != nil {
+					s.Relay = st.Self.Relay
+					if s.Relay == "" {
+						s.RelayOK = false
+					}
+				}
+				s.Problem = strings.Join(probs, "; ")
+				up := s.ControlOK && s.RelayOK
+				if up != wasUp {
+					if !up {
+						downSince = time.Now()
+						flaps = append(flaps, time.Now())
+						fmt.Fprintf(os.Stderr, "link down: control_ok=%v relay=%q relay_ok=%v %s\n", s.ControlOK, s.Relay, s.RelayOK, s.Problem)
+					} else {
+						fmt.Fprintf(os.Stderr, "link up again after %ds, relay=%q\n", int(time.Since(downSince)/time.Second), s.Relay)
+					}
+					wasUp = up
+				}
+				if !up {
+					s.DownS = int(time.Since(downSince) / time.Second)
+				}
+				cut := time.Now().Add(-10 * time.Minute)
+				for len(flaps) > 0 && flaps[0].Before(cut) {
+					flaps = flaps[1:]
+				}
+				s.Flaps = len(flaps)
 			}
 			for _, p := range st.Peer {
 				s.Peers++

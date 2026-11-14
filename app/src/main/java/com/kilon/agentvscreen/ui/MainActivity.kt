@@ -697,6 +697,8 @@ class MainActivity : ComponentActivity() {
                                     (ts.user?.let { "\n" + tr("账号", "Account") + " $it" } ?: "") +
                                     (if (ts.ownServer) "\n" + tr("服务器", "Server") + " ${ts.serverName}" else "") +
                                     "\n" + tr("在线设备 ${ts.online} 台", "${ts.online} devices online") +
+                                    (ts.relay?.let { "\n" + tr("中继", "Relay") + " $it" } ?: "") +
+                                    (if (ts.flaps >= 2) "\n" + tr("10 分钟内断过 ${ts.flaps} 次", "Dropped ${ts.flaps} times in 10 minutes") else "") +
                                     (ts.lastPeer?.let { "\n" + tr("最近来访", "Last visitor") + " $it" } ?: ""))
                             // The login runs out (180 days by default on Tailscale): warn two weeks ahead, not on the day.
                             val days = if (ts.keyExpiry > 0) ((ts.keyExpiry - System.currentTimeMillis()) / 86_400_000L).toInt() else -1
@@ -734,6 +736,12 @@ class MainActivity : ComponentActivity() {
                         SecondaryAction(tr("重新获取登录链接", "Get a login link again")) { com.kilon.agentvscreen.host.Tailnet.login() }
                     }
 
+                        TsPhase.UNSTABLE -> StatusCard(Palette.standby, tr("Tailscale 断开了，正在重连", "Tailscale dropped, reconnecting"),
+                            tr("登录还在（${ts.dnsName ?: ts.ip}），但手机现在连不上", "Still logged in (${ts.dnsName ?: ts.ip}), but the phone cannot reach ") +
+                                (if (!ts.controlOk) tr(" Tailscale 服务器", "the Tailscale server") else tr("中继${ts.relay?.let { " $it" } ?: ""}", "the relay${ts.relay?.let { " $it" } ?: ""}")) +
+                                tr("，其它设备暂时连不上它（已 ${ts.downS} 秒）。", ", so other devices cannot reach it for now (${ts.downS} s).") +
+                                (if (ts.flaps >= 2) tr("10 分钟内断了 ${ts.flaps} 次。", " It dropped ${ts.flaps} times in 10 minutes.") else "") +
+                                tr("一直这样时，看看手机网络和开着的代理或 VPN。", " If it keeps happening, check the phone's network and any proxy or VPN."))
                         TsPhase.ERROR -> StatusCard(Palette.stopped, tr("内置 Tailscale 出错，会自动重试", "Built-in Tailscale failed, retrying automatically"), ts.error ?: ts.state)
                         else -> StatusCard(Palette.standby, tr("正在连接 Tailscale…", "Connecting to Tailscale…"),
                             known?.let { tr("用上次的登录（${it.dnsName ?: it.ip}），不用重新登录。", "Using the saved login (${it.dnsName ?: it.ip}); no new login needed.") } ?: tr("通常几秒钟。", "Usually a few seconds."))

@@ -52,7 +52,19 @@ object Tailnet {
         /** 1.3 beta4: when this node's login runs out (epoch ms, 0 = never / unknown), and how old the login link is. */
         val keyExpiry: Long = 0L,
         val linkAgeS: Int = 0,
+        /**
+         * 1.3 beta6: "Running" only means logged in. Whether the node can be reached is whether the coordination
+         * server is in touch and the home relay is connected; [flaps] = times either went down in the last 10 min.
+         */
+        val controlOk: Boolean = true,
+        val relayOk: Boolean = true,
+        val relay: String? = null,
+        val flaps: Int = 0,
+        val problem: String? = null,
+        val downS: Int = 0,
     ) {
+        /** Logged in and actually reachable. */
+        val linkUp get() = loggedIn && controlOk && relayOk
         /** The server's host for messages: "controlplane.tailscale.com" or the user's own (Headscale). */
         val serverName get() = control?.let { runCatching { java.net.URI(it).host }.getOrNull() ?: it } ?: "controlplane.tailscale.com"
         val ownServer get() = control != null
@@ -62,6 +74,8 @@ object Tailnet {
             .put("dns_name", dnsName ?: JSONObject.NULL).put("tailnet", tailnet ?: JSONObject.NULL)
             .put("peers_online", online).put("error", error ?: JSONObject.NULL).put("last_peer", lastPeer ?: JSONObject.NULL)
             .put("control", control ?: "tailscale").put("login_error", loginError ?: JSONObject.NULL)
+            .put("control_ok", controlOk).put("relay_ok", relayOk).put("relay", relay ?: JSONObject.NULL)
+            .put("flaps_10m", flaps).put("problem", problem ?: JSONObject.NULL)
     }
 
     /**
@@ -71,7 +85,7 @@ object Tailnet {
      */
     enum class Phase(val key: String) {
         OFF("off"), SERVICE_OFF("service_off"), STARTING("starting"), NEEDS_LOGIN("needs_login"), EXPIRED("login_expired"),
-        NEEDS_APPROVAL("needs_approval"), CONNECTED("connected"), ERROR("error")
+        NEEDS_APPROVAL("needs_approval"), CONNECTED("connected"), UNSTABLE("unstable"), ERROR("error")
     }
 
     /** The last login that worked with the current control server. */
@@ -100,6 +114,7 @@ object Tailnet {
         return when {
             ApiConfig.tailnetMode != Mode.BUILTIN -> Phase.OFF
             !HostService.isAlive -> Phase.SERVICE_OFF
+            s.loggedIn && !s.linkUp -> Phase.UNSTABLE
             s.loggedIn -> Phase.CONNECTED
             s.state == "NeedsMachineAuth" -> Phase.NEEDS_APPROVAL
             s.state == "NeedsLogin" -> if (known(ctx) != null) Phase.EXPIRED else Phase.NEEDS_LOGIN
@@ -119,7 +134,8 @@ object Tailnet {
             Phase.NEEDS_LOGIN -> tr("Tailscale 要登录", "Tailscale: log in")
             Phase.EXPIRED -> tr("Tailscale 要重新登录", "Tailscale: log in again")
             Phase.NEEDS_APPROVAL -> tr("等待批准这台设备", "Waiting for approval")
-            Phase.CONNECTED -> "Tailscale · ${_status.value.ip}"
+            Phase.CONNECTED -> "Tailscale · ${_status.value.ip}" + if (_status.value.flaps >= 2) tr("（10 分钟内掉线 ${_status.value.flaps} 次）", " (dropped ${_status.value.flaps}× in 10 min)") else ""
+            Phase.UNSTABLE -> tr("Tailscale 断开了，重连中", "Tailscale dropped, reconnecting")
             Phase.ERROR -> tr("Tailscale 出错，重试中", "Tailscale error, retrying")
         }
     }
@@ -134,6 +150,7 @@ object Tailnet {
         return _status.value.json().put("phase", p.key).put("summary", line(ctx)).put("last_ip", k?.ip ?: JSONObject.NULL)
             .put("key_expiry", _status.value.keyExpiry.takeIf { it > 0 }?.let { it / 1000 } ?: JSONObject.NULL)
             .put("user_action", when (p) {
+                Phase.UNSTABLE -> tr("手机上的 Tailscale 节点和服务器或中继断开了（${_status.value.problem ?: "原因未知"}），正在自动重连；一直这样请用户看手机网络、代理或 VPN", "The phone's Tailscale node lost the server or relay (${_status.value.problem ?: "cause unknown"}) and is reconnecting; if it keeps happening, ask the user to check the phone's network, proxy or VPN")
                 Phase.NEEDS_LOGIN, Phase.EXPIRED -> tr("请用户在 Agent-VScreen › 接入 agent 里登录 Tailscale", "Ask the user to log in to Tailscale under Agent-VScreen › Connect")
                 Phase.NEEDS_APPROVAL -> tr("请用户在 Tailscale / Headscale 控制台批准这台设备", "Ask the user to approve this device in the Tailscale / Headscale console")
                 else -> JSONObject.NULL
@@ -150,6 +167,13 @@ object Tailnet {
     @Volatile private var stdin: OutputStreamWriter? = null
     @Volatile private var wanted = false
     @Volatile private var restarts = 0
+    /**
+     * 1.3 beta6: which supervisor owns the node. Before, a stop followed quickly by a start (the service restarted,
+     * the switch flipped, the built-in mode turned off and on) could leave the old supervisor alive: the interrupt
+     * meant to end it was swallowed by Process.waitFor, and it started a second bridge on the same state directory.
+     * Two nodes with one identity take turns on the control server and the relay: online for a while, then gone.
+     */
+    @Volatile private var gen = 0
     private var supervisor: Thread? = null
 
     fun binary(ctx: Context): File = File(ctx.applicationInfo.nativeLibraryDir, "libtsbridge.so")
@@ -169,13 +193,15 @@ object Tailnet {
     @Synchronized private fun start(ctx: Context) {
         wanted = true
         if (supervisor?.isAlive == true) return
-        supervisor = Thread({ supervise(ctx) }, "vscreen-tailnet").apply { isDaemon = true; start() }
+        val g = ++gen
+        supervisor = Thread({ supervise(ctx, g) }, "vscreen-tailnet").apply { isDaemon = true; start() }
     }
 
     @Synchronized fun stop() {
         wanted = false
+        gen++
         com.kilon.agentvscreen.host.quiet("Tailnet:98") { stdin?.apply { write("quit\n"); flush() } }
-        proc?.let { p -> Thread { Thread.sleep(1500); runCatching { p.destroy() } }.apply { isDaemon = true }.start() }
+        proc?.let { p -> Thread { if (!runCatching { p.waitFor(3, java.util.concurrent.TimeUnit.SECONDS) }.getOrDefault(false)) runCatching { p.destroyForcibly() } }.apply { isDaemon = true }.start() }
         supervisor?.interrupt(); supervisor = null
         _status.value = Status()
     }
@@ -219,18 +245,26 @@ object Tailnet {
         sync(ctx)
     }
 
-    private fun supervise(ctx: Context) {
+    private fun supervise(ctx: Context, g: Int) {
         val bin = binary(ctx)
-        while (wanted && !Thread.currentThread().isInterrupted) {
+        while (wanted && g == gen) {
+            // Never two nodes on one identity: the previous bridge must be gone before the next starts.
+            proc?.let { old ->
+                if (old.isAlive) {
+                    AppLogger.info(TAG, "waiting for the previous bridge to exit")
+                    if (!runCatching { old.waitFor(5, java.util.concurrent.TimeUnit.SECONDS) }.getOrDefault(false)) { runCatching { old.destroyForcibly(); old.waitFor(2, java.util.concurrent.TimeUnit.SECONDS) } }
+                }
+            }
+            if (!wanted || g != gen) break
             if (!bin.canExecute()) {
                 _status.value = Status(state = "Error", error = tr("内置 Tailscale 组件缺失（$bin）", "Built-in Tailscale component missing ($bin)")); return
             }
             val t0 = System.currentTimeMillis()
-            runCatching { runOnce(ctx, bin) }.onFailure { e ->
+            runCatching { runOnce(ctx, bin, g) }.onFailure { e ->
                 AppLogger.warning(TAG, "bridge: ${e.javaClass.simpleName}: ${e.message}")
                 _status.value = _status.value.copy(running = false, state = "Error", error = e.message)
             }
-            if (!wanted) break
+            if (!wanted || g != gen) break
             if (System.currentTimeMillis() - t0 > 60_000) restarts = 0
             val wait = (1_000L shl restarts.coerceAtMost(5)).coerceAtMost(30_000L)
             restarts++
@@ -239,7 +273,7 @@ object Tailnet {
         }
     }
 
-    private fun runOnce(ctx: Context, bin: File) {
+    private fun runOnce(ctx: Context, bin: File, g: Int) {
         val dir = stateDir(ctx).apply { mkdirs() }
         val pb = ProcessBuilder(bin.absolutePath).directory(dir)
         val env = pb.environment()
@@ -253,8 +287,10 @@ object Tailnet {
         ApiConfig.tailnetControlUrl?.let { env["TSB_CONTROL_URL"] = it }
         // An auth key is only needed until the node is registered; it is dropped as soon as the node runs.
         ApiConfig.tailnetAuthKey?.let { env["TSB_AUTHKEY"] = it }
-        val p = pb.start()
-        proc = p
+        val p = synchronized(this) {
+            if (g != gen || !wanted) return
+            pb.start().also { proc = it }
+        }
         stdin = OutputStreamWriter(p.outputStream)
         _status.value = _status.value.copy(running = true, error = null)
         AppLogger.info(TAG, "bridge started (pid-less child), host=${ApiConfig.tailnetHostname}")
@@ -263,6 +299,7 @@ object Tailnet {
         }, "vscreen-tailnet-err").apply { isDaemon = true }.start()
         p.inputStream.bufferedReader().forEachLine { line ->
             val o = runCatching { JSONObject(line) }.getOrNull() ?: return@forEachLine
+            if (g != gen) return@forEachLine // a bridge on its way out says nothing about the current one
             val st = Status(
                 running = true,
                 state = o.optString("state", "Unknown"),
@@ -280,14 +317,20 @@ object Tailnet {
                 loginError = o.optString("login_error").takeIf { it.isNotBlank() },
                 keyExpiry = o.optLong("key_expiry") * 1000L,
                 linkAgeS = o.optInt("link_age_s"),
+                controlOk = o.optBoolean("control_ok", true), relayOk = o.optBoolean("relay_ok", true),
+                relay = o.optString("relay").takeIf { it.isNotBlank() }, flaps = o.optInt("flaps"),
+                problem = o.optString("problem").takeIf { it.isNotBlank() }, downS = o.optInt("down_s"),
             )
+            if (st.loggedIn && st.linkUp != _status.value.linkUp && _status.value.loggedIn)
+                AppLogger.info(TAG, if (st.linkUp) "link up (relay ${st.relay})" else "link down: ${st.problem ?: "relay ${st.relay}"}")
             if (st.loggedIn) remember(ctx, st)
             if (st.state != _status.value.state) AppLogger.info(TAG, "state ${st.state}${st.ip?.let { " $it" } ?: ""}${st.error?.let { " ($it)" } ?: ""}")
             if (st.loggedIn && ApiConfig.tailnetAuthKey != null) ApiConfig.tailnetAuthKey = null
             _status.value = st
         }
         val code = runCatching { p.waitFor() }.getOrDefault(-1)
-        proc = null; stdin = null
+        if (g != gen) return
+        synchronized(this) { if (proc === p) { proc = null; stdin = null } }
         _status.value = _status.value.copy(running = false, state = if (wanted) "Restarting" else "Stopped",
             error = if (code != 0 && wanted) tr("内置 Tailscale 退出（$code）", "Built-in Tailscale exited ($code)") else null)
     }

@@ -122,6 +122,11 @@ The app speaks Chinese or English (the **Language** card on the home page: Syste
 
 The token equals control of the phone, so the app never offers a public link.
 
+## 1.3.0-beta6 (pre-release)
+
+- **Built-in Tailscale no longer drops in and out**: when the service or the built-in Tailscale was stopped and started again quickly (more common since 1.3: hide, wake, the switch), the old node could stay alive next to the new one. Two nodes with one identity took turns on the server and the relay, so the phone was online for a while and then gone. Now one node runs at a time: the app waits for the old one to exit, and the node itself refuses to start while another holds its state.
+- **The Tailscale state is the real one**: "Connected" means the phone is in touch with the server and its relay, not only logged in. When either drops, the app and `status` say "dropped, reconnecting" with the cause, the relay in use and how often it dropped in the last 10 minutes; the relay and control events go to the diagnostics log.
+
 ## 1.3.0-beta5 (pre-release)
 
 - **Seeing your own taps**: the [Meanwhile] sheet now has one frame just before each action, with a ring and number where it touched (a line for a drag) and the step written under it; the next frame, or [Now], is what it led to. Before, the dot was drawn on the frame after the action, and no sheet came when nothing changed, which is exactly when a wrong tap needs checking. Now a stretch that touched the screen always comes with its sheet.

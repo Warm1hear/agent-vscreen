@@ -45,6 +45,11 @@ object AgentNews {
             "The [Meanwhile] sheet now has one frame before each action, with a ring and number where you touched (a line for a drag); the result is the next frame or [Now]. It also comes when a tap changed nothing, to check whether you hit the wrong place.",
             "New command vscreen frames: look back at the recording. By default the stretch of the last reply; --last 2m longer, --every 0.3s denser, --from 14:03:10 --to 14:03:30 a given stretch, --big larger; many frames come as several pictures.",
         )),
+        Entry(19, "1.3.0-beta6", listOf(
+            "status 的 remote.phase 多了 unstable：登录还在，但手机现在连不上 Tailscale 服务器或中继；remote 里有 control_ok、relay_ok、relay、flaps_10m、problem。连不上时照 user_action 告诉用户。",
+        ), listOf(
+            "status.remote.phase can now be unstable: still logged in, but the phone cannot reach the Tailscale server or relay right now; remote has control_ok, relay_ok, relay, flaps_10m and problem. When it cannot be reached, tell the user what user_action says.",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */

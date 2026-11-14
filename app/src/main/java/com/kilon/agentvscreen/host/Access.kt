@@ -46,6 +46,7 @@ object Access {
                     Tailnet.Phase.EXPIRED -> tr("要重新登录", "log in again")
                     Tailnet.Phase.NEEDS_APPROVAL -> tr("等批准", "awaiting approval")
                     Tailnet.Phase.ERROR -> tr("出错，重试中", "error, retrying")
+                    Tailnet.Phase.UNSTABLE -> tr("断开了，重连中", "dropped, reconnecting")
                     Tailnet.Phase.OFF -> tr("没开", "off")
                 }, p == Tailnet.Phase.CONNECTED, remoteInUse)
             }
