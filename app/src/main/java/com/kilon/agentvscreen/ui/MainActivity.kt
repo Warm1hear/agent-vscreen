@@ -1,5 +1,14 @@
 package com.kilon.agentvscreen.ui
 
+import androidx.compose.animation.togetherWith
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.TaskAlt
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.ui.draw.rotate
 import android.content.ClipData
@@ -104,10 +113,12 @@ import kotlinx.coroutines.withContext
 
 /** Home: is it running, is it set up, how an agent connects, the few settings, and diagnostics. */
 class MainActivity : ComponentActivity() {
+    companion object { const val EXTRA_PAGE = "page" }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        setContent { AvsTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { Home() } } }
+        setContent { AvsTheme { Surface(Modifier.fillMaxSize(), color = Color.Transparent) { Home() } } }
     }
 
     override fun onResume() {
@@ -137,6 +148,35 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    internal enum class Page { CONNECT, PERMS, SCREEN, SCHEDULE, LOG, SETUP, DIAG }
+
+    /** 1.3 beta3: the long words, each behind the "?" of the place it belongs to. */
+    private object H {
+        val where get() = tr("同一台手机上的 agent（Termux、Minis、Operit 等）直接连本机 127.0.0.1:${ApiConfig.port}，什么都不用设。\n\n电脑、云端或另一台手机上的 agent 通过 Tailscale 连进来：只有你自己 Tailscale 网络里的设备能连，走加密隧道，局域网和公网都连不到，令牌照样要。“内置”不用装 Tailscale App，“外部 App”用这台手机上已装的 Tailscale。",
+            "Agents on this phone (Termux, Minis, Operit, ...) connect to 127.0.0.1:${ApiConfig.port} directly; nothing to set up.\n\nAgents on a computer, in the cloud or on another phone connect through Tailscale: only devices in your own Tailscale network can, through an encrypted tunnel; the local network and the internet cannot, and the token is still required. \"Built-in\" needs no Tailscale app; \"External app\" uses the Tailscale app already on this phone.")
+        val how get() = tr("命令行：带终端的 agent。把“给 agent 的话”发给它，它会装好 vscreen 命令，并把“我能在手机上后台操作应用”记进长期记忆，以后的新对话里也会用。只给安装命令的话，大多数 agent 装完就忘了。\n\nMCP：支持 MCP 的 agent。发给它的话里有 MCP 配置（streamable HTTP，每条命令一个工具，截图附在结果里）和能力说明。\n\nHTTP：自己写调用代码的 agent 应用。返回 JSON（ok、code、next、text、images、steps、screen、notes），完整说明在 GET /v2/help。\n\n能力说明也可以直接贴进 agent 的“自定义指令”或“记忆”设置。",
+            "Shell: agents with a terminal. Send them the message: it installs the vscreen command and has the agent save \"I can operate apps on the phone in the background\" in its long-term memory, so new conversations use it too. With only the install command, most agents forget it.\n\nMCP: agents with MCP. The message has the MCP config (streamable HTTP, one tool per command, screenshots attached) and the ability note.\n\nHTTP: agent apps that write their own calls. Replies are JSON (ok, code, next, text, images, steps, screen, notes); full reference at GET /v2/help.\n\nYou can also paste the ability note into the agent's custom instructions or memory setting.")
+        val token get() = tr("令牌只给你信任的 agent：拿到它就能在副屏上操作你的应用。服务只接受本机（和打开远程时你 Tailscale 网络里的设备），网页调用一律拒绝。换新令牌后旧的立即失效，各 agent 要重新接入。",
+            "Give the token only to agents you trust: with it they can operate your apps on the screen. Only this phone (and, with remote access on, devices in your Tailscale network) can connect; calls from web pages are always refused. A new token stops the old one at once; every agent has to connect again.")
+        val autonomy get() = tr("放手跑：agent 自己做完整件事，只有真正付钱的那一步（支付、付款、提交订单、转账、充值）会在手机上问你。\n\n谨慎：除了付钱，去购买的步骤、删除和卸载这类不可撤销的按钮、强制结束应用、把你正在用的应用接到后台，也都先问你。\n\n两档都会：每一步记进操作日志；你设为“每次询问”的应用一定先问；悬浮窗上随时可以停止或接管。没答复的确认 60 秒后这一步不做，agent 会来找你。",
+            "Hands-off: the agent does the whole job; only the step that actually spends money (pay, place order, transfer, top up) asks you on the phone.\n\nCareful: besides paying, steps toward a purchase, irreversible buttons such as delete or uninstall, force-stopping an app and taking the app you are using to the background also ask you first.\n\nEither way: every step is logged; apps set to \"ask every time\" always ask; you can stop or take over from the floating window at any time. A confirmation left unanswered for 60 s skips that step and the agent comes to you.")
+        val rules get() = tr("禁止操作：AI 不能在后台打开、读屏或操作这个应用。\n只读：AI 可以打开、看和滚动，但不能点击、输入或滑动。\n每次询问：AI 要点击或输入前，手机上先弹确认，你允许后 5 分钟内不再问。\n\n只在后台副屏里生效，不影响你自己用。",
+            "Blocked: the AI cannot open, read or operate the app in the background.\nRead-only: the AI can open, look and scroll, but not tap, type or swipe.\nAsk every time: before the AI taps or types, the phone asks you; once allowed it does not ask again for 5 minutes.\n\nApplies only to the background screen, not to your own use.")
+        val tokens get() = tr("给每个 agent 单独发一个令牌：可以只给“只看”或“可操作”的权限，单独撤销，日志里也分得清是谁做的。不同令牌的 agent 互相抢不了对方的会话。\n\n免确认：这段时间里这个令牌连付款也不再问你（仍会记进日志）。只在你盯着它付款时开。",
+            "Give each agent its own token: it can be limited to \"look only\" or \"operate\", revoked alone, and the log shows who did what. Agents with different tokens cannot take each other's sessions.\n\nNo confirmations: during this period this token is not asked even about payments (still logged). Turn it on only while you watch it pay.")
+        val window get() = tr("有副屏时在所有应用上方显示。拖动移动，双指缩放，推到屏幕边上收成胶囊，长按画面 1 秒接管。agent 在等你回答时，胶囊会变成紫色的问号。",
+            "Shown above all apps while there is a screen. Drag to move, pinch to resize, push to an edge to fold it into a tab, hold the picture 1 s to take over. While an agent waits for your answer, the tab turns into a violet question mark.")
+        val idle get() = tr("一轮结束后暂停副屏渲染，页面保留，下一条命令自动恢复。个别应用恢复时会重新加载，遇到可以关掉。", "Pauses rendering after a turn ends; the page is kept and the next command resumes it. A few apps reload on resume: turn this off if you see that.")
+        val mute get() = tr("副屏里的应用不从手机放声音（视频、直播）。应用移到主屏、副屏释放时恢复声音；App 异常退出后，下次连接时先恢复。", "Apps on the background screen make no sound on the phone (videos, live streams). Their sound comes back when they move to the main screen or the screen is released; after a crash it is restored on the next connection.")
+        val turn get() = tr("agent 安静多久算这一轮结束：之后副屏省电暂停，10 分钟后释放。agent 也可以用 vscreen done 马上结束。", "How long the agent stays quiet before its turn ends: the screen then pauses to save power and is released after 10 minutes. The agent can also end at once with vscreen done.")
+        val schedule get() = tr("agent 的定时任务要用手机时，可以用 vscreen schedule 预约时间。到点前 3 分钟这里会拉起服务并检查，没准备好会通知你。\n\n服务暂停时，下一个预约到点会自动打开；完全关闭时，到点不会打开，只通知你。",
+            "An agent whose timed task uses the phone can book the time with vscreen schedule. 3 minutes before, the service is started and checked here, and you are notified if it is not ready.\n\nWhile the service is paused, the next booking turns it on; while it is off, a booking only notifies you.")
+        val audit get() = tr("每条命令都记在这里：谁（哪个令牌、哪台设备）、什么时候、做了什么、结果。输入的文字只记字数。", "Every command is recorded here: who (which token, which device), when, what, and the result. Typed text is recorded as a length only.")
+        val events get() = tr("盯守看到条件时的事件默认只放进队列（agent 用 vscreen events 取）。填了包名才会另外广播给那一个应用，别的应用收不到。", "When a watch sees its condition the event is only queued by default (agents collect it with vscreen events). With a package here it is also broadcast to that one app; no other app receives it.")
+        val setup get() = tr("只用 Shizuku 这一条可共享的特权通道：不占用 adb，不改无线调试，不重启 adbd。每一项都只把本应用“加进去”，不动别的应用的设置。你的 agent 自己的 adb / Shizuku 照常用。", "Uses only Shizuku, a privilege channel that can be shared: adb is not taken, wireless debugging is not changed, adbd is not restarted. Each item only adds this app and leaves other apps' settings alone. Your agent's own adb / Shizuku keep working.")
+        val diag get() = tr("出问题时把诊断信息发给开发者：版本、配置状态和最近日志（不含令牌、不含你输入的字）。", "When something goes wrong, send this to the developer: version, setup state and recent log (no token, nothing you typed).")
+    }
+
     @Composable
     private fun Home() {
         val scope = rememberCoroutineScope()
@@ -147,8 +187,8 @@ class MainActivity : ComponentActivity() {
         var setupLog by remember { mutableStateOf<List<String>>(emptyList()) }
         var busy by remember { mutableStateOf(false) }
         var serviceOn by remember { mutableStateOf(Prefs.serviceOn(this)) }
-        var setupOpen by remember { mutableStateOf(false) }
         var liveProblem by remember { mutableStateOf(com.kilon.agentvscreen.host.Liveness.problem()) }
+        var page by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(intent?.getStringExtra(EXTRA_PAGE)?.let { p -> Page.entries.firstOrNull { it.name == p } }) }
         LaunchedEffect(tick) {
             while (true) {
                 items = withContext(Dispatchers.IO) { runCatching { BackgroundOperation.refreshStatus(); Setup.check(this@MainActivity) }.getOrDefault(items) }
@@ -157,173 +197,213 @@ class MainActivity : ComponentActivity() {
                 delay(2_000)
             }
         }
+        androidx.activity.compose.BackHandler(enabled = page != null) { page = null }
         val allOk = items.isNotEmpty() && items.filter { it.key != "accessibility" }.all { it.ok }
-        Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            ConsentCards()
-            // 1.3 beta2: on / paused / off all go through ServiceControl. Turning it off while an agent has a booking
-            // asks once: pause until that booking, or off for good (the booking then only notifies you).
-            var askOff by remember { mutableStateOf<Long?>(null) }
-            Hero(s, serviceOn) { on ->
-                if (on) { ServiceControl.turnOn(this@MainActivity, "switch"); serviceOn = true }
-                else ServiceControl.nextBooking(this@MainActivity)?.let { askOff = it } ?: run {
-                    ServiceControl.turnOff(this@MainActivity, untilNextBooking = false, why = "switch"); serviceOn = false
-                }
-                tick++
-            }
-            askOff?.let { at ->
-                val hm = ServiceControl.hhmm(at)
-                androidx.compose.material3.AlertDialog(
-                    onDismissRequest = { askOff = null },
-                    title = { Text(tr("关掉服务", "Turn the service off")) },
-                    text = { Text(tr("agent 预约了 $hm 用手机。暂停：到 $hm 自动打开，预约照常。完全关闭：到点不会打开，只通知你。",
-                        "An agent booked the phone for $hm. Pause: it turns itself on at $hm and the booking works. Off: it stays off and the booking only notifies you.")) },
-                    confirmButton = { TextButton(onClick = { askOff = null; ServiceControl.turnOff(this@MainActivity, true, "switch"); serviceOn = false; tick++ }) { Text(tr("暂停到 $hm", "Pause until $hm")) } },
-                    dismissButton = { TextButton(onClick = { askOff = null; ServiceControl.turnOff(this@MainActivity, false, "switch"); serviceOn = false; tick++ }) { Text(tr("完全关闭", "Turn off")) } },
-                )
-            }
 
-            if (s.userStopped) Banner(
-                tr("你停止了 AI", "You stopped the AI"), run {
-                    val at = if (s.stoppedAt > 0) java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(java.util.Date(s.stoppedAt)) else null
-                    tr("你在悬浮窗上按了“停止 AI”${at?.let { "（$it）" } ?: ""}。在你允许之前，agent 的每个操作都会被拒绝，它也会被告知来找你。关掉悬浮窗不会解除它。",
-                        "You pressed \"Stop AI\" on the floating window${at?.let { " ($it)" } ?: ""}. Until you allow it, every action of the agent is refused and it is told to come to you. Closing the floating window does not lift it.")
-                }, Palette.stopped,
-                tr("允许继续", "Allow again"),
-            ) { BackgroundOperation.userResume() }
-            if (s.windowHidden && s.displayId != null && !s.userStopped) Banner(
-                tr("小窗已收起", "Floating window hidden"), tr("AI 还在后台工作。下一轮开始时小窗会自己回来，也可以现在打开。", "The AI is still working in the background. The window comes back by itself on the next turn, or open it now."), Palette.standby, tr("显示小窗", "Show window"),
-            ) { BackgroundOperation.showWindow() }
-
-            liveProblem?.let { p ->
-                Banner(tr("后台运行受限", "Background running restricted"), p, Palette.stopped, tr("去设置", "Settings")) {
-                    val opened = com.kilon.agentvscreen.host.Liveness.openBackgroundSettings(this@MainActivity)
-                    liveProblem = com.kilon.agentvscreen.host.Liveness.problem(); tick++
-                    Toast.makeText(this@MainActivity, tr("已打开：$opened。把 Agent-VScreen 设为允许自启动、关联启动和后台活动", "Opened: $opened. Allow Agent-VScreen to auto-start, be started by other apps and run in the background"), Toast.LENGTH_LONG).show()
-                }
-            }
-
-            LanguageCard()
-
-            // ── setup ──
-            val done = items.count { it.ok }
-            Block(
-                title = tr("首次配置", "First-time setup"),
-                trailing = { Text("$done/${items.size}", color = if (allOk) Palette.takeover else MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold) },
-                onHeader = if (allOk) ({ setupOpen = !setupOpen }) else null,
-                open = if (allOk) setupOpen else null,
-            ) {
-                if (allOk && !setupOpen) {
-                    Text(tr("全部就绪。只用 Shizuku：不占用 adb、不改无线调试，你的 agent 自己的 adb / Shizuku 照常用。", "All set. Shizuku only: adb and wireless debugging stay untouched, so your agent's own adb / Shizuku keep working."), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    return@Block
-                }
-                Text(tr("只用 Shizuku 这一条可共享的特权通道：不占用 adb，不改无线调试，不重启 adbd。每一项都只把本应用“加进去”，不动别的应用的设置。", "Uses only Shizuku, a privilege channel that can be shared: adb is not taken, wireless debugging is not changed, adbd is not restarted. Each item only adds this app and leaves other apps' settings alone."),
-                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                items.forEachIndexed { i, it -> StepRow(i + 1, it) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                    when (sh.state) {
-                        ShizukuManager.State.NEED_PERMISSION -> Button(onClick = { ShizukuManager.requestPermission(); tick++ }) { Text(tr("授权 Shizuku", "Grant Shizuku")) }
-                        ShizukuManager.State.NOT_RUNNING -> Button(onClick = { ShizukuManager.openShizukuApp(this@MainActivity) }) { Text(tr("打开 Shizuku 启动", "Open Shizuku to start it")) }
-                        ShizukuManager.State.NOT_INSTALLED -> Button(onClick = { ShizukuManager.openInstallPage(this@MainActivity) }) { Text(tr("安装 Shizuku", "Install Shizuku")) }
-                        ShizukuManager.State.READY -> Button(enabled = !busy && items.any { !it.ok }, onClick = {
-                            busy = true
-                            scope.launch { setupLog = withContext(Dispatchers.IO) { Setup.grantAll(this@MainActivity) }; busy = false; Overlay.refresh(); tick++ }
-                        }) { Text(if (busy) tr("配置中…", "Setting up…") else tr("一键配置其余项", "Set up the rest")) }
+        Box(Modifier.fillMaxSize().backdrop()) {
+            androidx.compose.animation.AnimatedContent(
+                page, label = "page",
+                transitionSpec = {
+                    if (targetState != null) (androidx.compose.animation.slideInHorizontally { it / 4 } + androidx.compose.animation.fadeIn()) togetherWith androidx.compose.animation.fadeOut()
+                    else androidx.compose.animation.fadeIn() togetherWith (androidx.compose.animation.slideOutHorizontally { it / 4 } + androidx.compose.animation.fadeOut())
+                },
+            ) { p ->
+                Column(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    when (p) {
+                        null -> Dashboard(s, serviceOn, { serviceOn = it }, items, allOk, liveProblem, { liveProblem = it }, tick, { tick++ }) { page = it }
+                        Page.CONNECT -> { PageHeader(tr("接入 agent", "Connect an agent")) { page = null }; Connect() }
+                        Page.PERMS -> {
+                            PageHeader(tr("权限", "Permissions")) { page = null }
+                            Section(tr("agent 能自己做多少", "How much the agent does on its own"), H.autonomy) { AutonomyPanel() }
+                            Section(tr("应用限制", "App rules"), H.rules) { VScreenAppRules() }
+                            Section(tr("令牌", "Tokens"), H.tokens) { TokensPanel(ApiConfig.baseUrl) { l, t -> copy(l, t) } }
+                        }
+                        Page.SCREEN -> { PageHeader(tr("副屏与悬浮窗", "Screen and window")) { page = null }; ScreenPage(s) }
+                        Page.SCHEDULE -> {
+                            PageHeader(tr("定时预约", "Scheduled times"), H.schedule) { page = null }
+                            Section { SchedulesPanel(tick) }
+                        }
+                        Page.LOG -> {
+                            PageHeader(tr("操作日志", "Activity log"), H.audit) { page = null }
+                            Section { AuditPanel { l, t -> copy(l, t) } }
+                            Section(tr("事件广播", "Event broadcast"), H.events) { EventTargetRow() }
+                        }
+                        Page.SETUP -> {
+                            PageHeader(tr("首次配置", "First-time setup"), H.setup) { page = null }
+                            SetupPage(items, sh, busy, setupLog, { busy = it }, { setupLog = it }, scope, { liveProblem = it }) { tick++ }
+                        }
+                        Page.DIAG -> { PageHeader(tr("诊断", "Diagnostics"), H.diag) { page = null }; Diagnostics(items) }
                     }
-                    if (items.any { it.key == "vendor_bg" && !it.ok }) Button(onClick = {
-                        val opened = com.kilon.agentvscreen.host.Liveness.openBackgroundSettings(this@MainActivity)
-                    liveProblem = com.kilon.agentvscreen.host.Liveness.problem(); tick++
-                        Toast.makeText(this@MainActivity, tr("已打开：$opened。把 Agent-VScreen 改成手动管理，允许自启动、关联启动和后台活动", "Opened: $opened. Set Agent-VScreen to manual management and allow auto-start, start by other apps and background activity"), Toast.LENGTH_LONG).show()
-                        tick++
-                    }) { Text(tr("去设置后台管理", "Background management")) }
-                    OutlinedButton(onClick = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }) { Text(tr("无障碍设置", "Accessibility")) }
-                    if (!Settings.canDrawOverlays(this@MainActivity)) OutlinedButton(onClick = {
-                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-                    }) { Text(tr("悬浮窗权限", "Overlay permission")) }
                 }
-                setupLog.forEach { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-
-            Connect()
-
-            // ── permissions: how freely the agent works, per app, per agent ──
-            var tokensOpen by remember { mutableStateOf(false) }
-            Block(tr("权限", "Permissions")) {
-                SubTitle(tr("agent 能自己做多少", "How much the agent does on its own"))
-                AutonomyPanel()
-                SubTitle(tr("应用限制", "App rules"))
-                VScreenAppRules()
-                Disclosure(tr("令牌（给每个 agent 单独的权限）", "Tokens (separate permissions per agent)"), tokensOpen) { tokensOpen = !tokensOpen }
-                if (tokensOpen) TokensPanel(ApiConfig.baseUrl) { l, t -> copy(l, t) }
-            }
-
-            // ── settings: the window and how the screen runs ──
-            Block(tr("设置", "Settings")) {
-                SubTitle(tr("悬浮窗", "Floating window"))
-                Toggle(tr("显示悬浮窗", "Show the floating window"), tr("有副屏时在所有应用上方显示。拖动移动，双指缩放，贴边收起，长按画面 1 秒接管", "Shown above all apps while there is a screen. Drag to move, pinch to resize, push to an edge to fold, hold the picture 1 s to take over"), s.showPreview) { BackgroundOperation.setShowPreview(it); if (it) Overlay.refresh() }
-                SubTitle(tr("副屏", "Background screen"))
-                val idleSave by com.kilon.agentvscreen.core.VScreenStore.idlePowerSave.collectAsState()
-                Toggle(tr("空闲省电", "Idle power saving"), tr("一轮结束后暂停副屏渲染，页面保留，下一条命令自动恢复；个别应用恢复时会重新加载，遇到可以关掉", "Pauses rendering after a turn ends; the page is kept and the next command resumes it. A few apps reload on resume: turn this off if you see that"), idleSave) {
-                    BackgroundOperation.setIdlePowerSave(it)
-                }
-                var mute by remember { mutableStateOf(com.kilon.agentvscreen.core.VScreenMute.enabled) }
-                Toggle(tr("副屏静音", "Mute the background screen"), tr("副屏里的应用不从手机放声音（视频、直播）；应用移到主屏或副屏释放时恢复", "Apps on the background screen make no sound on the phone (videos, live streams); their sound comes back when they move to the main screen or the screen is released"), mute) {
-                    mute = it; com.kilon.agentvscreen.core.VScreenMute.enabled = it
-                }
-                Text(tr("一轮的长度", "Turn length"), fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                Text(tr("agent 安静多久算这轮结束：之后副屏省电暂停，10 分钟后释放（agent 也可以用 vscreen done 马上结束）", "How long the agent stays quiet before its turn ends: the screen then pauses to save power and is released after 10 minutes (the agent can also end at once with vscreen done)"),
-                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                var quiet by remember { mutableIntStateOf(ApiConfig.quietMinutes) }
-                val opts = listOf(1, 3, 5, 10, 30)
-                Segments(opts.map { tr("${it}分", "$it min") }, opts.indexOf(quiet)) { i -> ApiConfig.quietMinutes = opts[i]; quiet = opts[i] }
-                SubTitle(tr("识别和记录", "Reading and recording"))
-                Toggle(tr("精确文字识别", "Accurate text recognition"), tr("PP-OCR，在本机运行", "PP-OCR, runs on this phone"), s.accurateOcr) { BackgroundOperation.setAccurateOcr(it) }
-                Toggle(tr("后台录制", "Background recording"), tr("【这段时间】里的拼图", "The picture strip in [Meanwhile]"), s.recording) { BackgroundOperation.setRecording(it) }
-                SubTitle(tr("定时预约", "Scheduled times"))
-                SchedulesPanel(tick)
-            }
-
-            // ── what happened ──
-            var auditOpen by remember { mutableStateOf(false) }
-            Block(tr("操作日志", "Activity log"), onHeader = { auditOpen = !auditOpen }, open = auditOpen) {
-                if (auditOpen) { AuditPanel { l, t -> copy(l, t) }; EventTargetRow() }
-                else Text(tr("agent 做过的每条命令、每次确认：谁、什么时候、结果。", "Every command and confirmation: who, when, the result."), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-
-            Diagnostics(items)
-            Text(tr("Agent-VScreen ${BuildConfig.VERSION_NAME} ", "Agent-VScreen ${BuildConfig.VERSION_NAME}"), fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 12.dp))
         }
     }
 
-    /**
-     * Its own card just above the setup, folded to one bilingual line by default, so someone who cannot read the
-     * current language finds it without scrolling.
-     */
+    /** The home page: the switch and the screen, anything that needs you, then one tile per area. */
     @Composable
-    private fun LanguageCard() {
-        var open by remember { mutableStateOf(false) }
-        val names = listOf(tr("跟随系统", "System"), "中文", "English")
-        Block(
-            title = "语言 / Language",
-            trailing = { Text(names[I18n.Lang.entries.indexOf(I18n.choice)], color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold) },
-            onHeader = { open = !open },
-            open = open,
-        ) {
-            if (!open) return@Block
-            Text(tr("App 界面、悬浮窗、通知，以及给 agent 的话和命令的返回都会换成这种语言", "Used for the app, the floating window, notifications, and everything said to the agent (messages and command replies)"),
-                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Segments(names, I18n.Lang.entries.indexOf(I18n.choice)) { i ->
-                if (I18n.Lang.entries[i] == I18n.choice) return@Segments
-                I18n.choice = I18n.Lang.entries[i]
-                Overlay.refresh()
-                if (HostService.isAlive) HostService.start(this@MainActivity)
-                recreate()
+    private fun Dashboard(
+        s: BackgroundOperation.State, serviceOn: Boolean, setServiceOn: (Boolean) -> Unit, items: List<Setup.Item>, allOk: Boolean,
+        liveProblem: String?, setLiveProblem: (String?) -> Unit, tick: Int, bump: () -> Unit, open: (Page) -> Unit,
+    ) {
+        // 1.3 beta2: on / paused / off all go through ServiceControl. Turning it off while an agent has a booking
+        // asks once: pause until that booking, or off for good (the booking then only notifies you).
+        var askOff by remember { mutableStateOf<Long?>(null) }
+        Hero(s, serviceOn) { on ->
+            if (on) { ServiceControl.turnOn(this@MainActivity, "switch"); setServiceOn(true) }
+            else ServiceControl.nextBooking(this@MainActivity)?.let { askOff = it } ?: run {
+                ServiceControl.turnOff(this@MainActivity, untilNextBooking = false, why = "switch"); setServiceOn(false)
+            }
+            bump()
+        }
+        askOff?.let { at ->
+            val hm = ServiceControl.hhmm(at)
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { askOff = null },
+                title = { Text(tr("关掉服务", "Turn the service off")) },
+                text = { Text(tr("agent 预约了 $hm 用手机。暂停：到 $hm 自动打开，预约照常。完全关闭：到点不会打开，只通知你。",
+                    "An agent booked the phone for $hm. Pause: it turns itself on at $hm and the booking works. Off: it stays off and the booking only notifies you.")) },
+                confirmButton = { TextButton(onClick = { askOff = null; ServiceControl.turnOff(this@MainActivity, true, "switch"); setServiceOn(false); bump() }) { Text(tr("暂停到 $hm", "Pause until $hm")) } },
+                dismissButton = { TextButton(onClick = { askOff = null; ServiceControl.turnOff(this@MainActivity, false, "switch"); setServiceOn(false); bump() }) { Text(tr("完全关闭", "Turn off")) } },
+            )
+        }
+
+        // What needs you now.
+        val waiting = pendingAsks()
+        waiting.firstOrNull()?.let { HomeAskCard(it, waiting.size) }
+        if (s.userStopped) Banner(tr("你停止了 AI", "You stopped the AI"), tr("它的操作都会被拒绝，直到你允许", "Its actions are refused until you allow it"), Palette.stopped, tr("允许继续", "Allow again")) { BackgroundOperation.userResume() }
+        if (s.windowHidden && s.displayId != null && !s.userStopped) Banner(tr("小窗已收起", "Floating window hidden"), tr("AI 还在后台工作", "The AI is still working in the background"), Palette.standby, tr("显示小窗", "Show window")) { BackgroundOperation.showWindow() }
+        liveProblem?.let { p ->
+            Banner(tr("后台运行受限", "Background running restricted"), p, Palette.stopped, tr("去设置", "Settings")) {
+                val opened = com.kilon.agentvscreen.host.Liveness.openBackgroundSettings(this@MainActivity)
+                setLiveProblem(com.kilon.agentvscreen.host.Liveness.problem()); bump()
+                Toast.makeText(this@MainActivity, tr("已打开：$opened。把 Agent-VScreen 设为允许自启动、关联启动和后台活动", "Opened: $opened. Allow Agent-VScreen to auto-start, be started by other apps and run in the background"), Toast.LENGTH_LONG).show()
             }
         }
+        val done = items.count { it.ok }
+        if (items.isNotEmpty() && !allOk) Banner(tr("还差 ${items.size - done} 项配置", "${items.size - done} setup steps left"), tr("配好之后 agent 才能用副屏", "Agents can use the screen once it is set up"), MaterialTheme.colorScheme.primary, tr("去配置", "Set up")) { open(Page.SETUP) }
+
+        // One tile per area, each with the one fact worth seeing.
+        val ts by com.kilon.agentvscreen.host.Tailnet.status.collectAsState()
+        val rules by com.kilon.agentvscreen.core.VScreenStore.rules.collectAsState()
+        val bookings = remember(tick) { com.kilon.agentvscreen.host.Wake.list(this@MainActivity) }
+        val next = remember(tick) { ServiceControl.nextBooking(this@MainActivity) }
+        val lastLog = remember(tick) { runCatching { com.kilon.agentvscreen.host.Audit.tail(1).firstOrNull()?.optLong("at") }.getOrNull() }
+        val mode = ApiConfig.tailnetMode
+        val tiles = listOf(
+            Triple(Page.CONNECT, Icons.Filled.Link, tr("接入 agent", "Connect") to when {
+                mode == com.kilon.agentvscreen.host.Tailnet.Mode.OFF -> tr("仅本机", "This phone only")
+                mode == com.kilon.agentvscreen.host.Tailnet.Mode.BUILTIN && ts.loggedIn -> "Tailscale · ${ts.ip}"
+                mode == com.kilon.agentvscreen.host.Tailnet.Mode.BUILTIN -> tr("Tailscale 未登录", "Tailscale not logged in")
+                else -> tr("Tailscale App", "Tailscale app")
+            }),
+            Triple(Page.PERMS, Icons.Filled.Shield, tr("权限", "Permissions") to
+                ((if (ApiConfig.autonomy == "careful") tr("谨慎", "Careful") else tr("放手跑", "Hands-off")) + if (rules.isNotEmpty()) tr(" · ${rules.size} 条限制", " · ${rules.size} rules") else "")),
+            Triple(Page.SCREEN, Icons.Filled.PhoneAndroid, tr("副屏与悬浮窗", "Screen & window") to
+                ((if (com.kilon.agentvscreen.core.VScreenMute.enabled) tr("静音 · ", "Muted · ") else "") + tr("一轮 ${ApiConfig.quietMinutes} 分", "turn ${ApiConfig.quietMinutes} min"))),
+            Triple(Page.SCHEDULE, Icons.Filled.Schedule, tr("定时预约", "Schedules") to
+                (if (bookings.isEmpty()) tr("没有预约", "None") else tr("${bookings.size} 个", "${bookings.size}") + (next?.let { tr(" · 下次 ${ServiceControl.hhmm(it)}", " · next ${ServiceControl.hhmm(it)}") } ?: ""))),
+            Triple(Page.LOG, Icons.Filled.History, tr("操作日志", "Activity log") to
+                (lastLog?.takeIf { it > 0 }?.let { tr("最近 ", "Last ") + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(it)) } ?: tr("还没有记录", "Nothing yet"))),
+            Triple(Page.SETUP, Icons.Filled.TaskAlt, tr("首次配置", "Setup") to (if (items.isEmpty()) "…" else if (allOk) tr("$done/${items.size} 已就绪", "$done/${items.size} ready") else tr("还差 ${items.size - done} 项", "${items.size - done} left"))),
+        )
+        val colors = listOf(Color(0xFF6C5CE7), Color(0xFF0E9F6E), Color(0xFF0091C2), Color(0xFFB45CE0), Color(0xFF64748B), Color(0xFFE0803A))
+        tiles.chunked(2).forEachIndexed { r, row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                row.forEachIndexed { c, (pg, icon, words) ->
+                    val alert = (pg == Page.SETUP && items.isNotEmpty() && !allOk) ||
+                        (pg == Page.CONNECT && mode == com.kilon.agentvscreen.host.Tailnet.Mode.BUILTIN && !ts.loggedIn)
+                    Tile(icon, words.first, words.second, colors[r * 2 + c], Modifier.weight(1f), alert) { open(pg) }
+                }
+            }
+        }
+
+        // The rest, as a short list.
+        var lang by remember { mutableStateOf(false) }
+        val names = listOf(tr("跟随系统", "System"), "中文", "English")
+        Section {
+            NavRow("语言 / Language", names[I18n.Lang.entries.indexOf(I18n.choice)], Icons.Filled.Translate) { lang = true }
+            NavRow(tr("诊断", "Diagnostics"), null, Icons.Filled.BugReport) { open(Page.DIAG) }
+        }
+        if (lang) androidx.compose.material3.AlertDialog(
+            onDismissRequest = { lang = false }, title = { Text("语言 / Language") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Note(tr("App、悬浮窗、通知和给 agent 的话都用这种语言", "Used for the app, the window, notifications and everything said to the agent"))
+                    Segments(names, I18n.Lang.entries.indexOf(I18n.choice)) { i ->
+                        lang = false
+                        if (I18n.Lang.entries[i] == I18n.choice) return@Segments
+                        I18n.choice = I18n.Lang.entries[i]
+                        Overlay.refresh()
+                        if (HostService.isAlive) HostService.start(this@MainActivity)
+                        recreate()
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { lang = false }) { Text(tr("关闭", "Close")) } },
+        )
+        Text("Agent-VScreen ${BuildConfig.VERSION_NAME}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    }
+
+    @Composable
+    private fun ScreenPage(s: BackgroundOperation.State) {
+        Section(tr("悬浮窗", "Floating window")) {
+            SwitchRow(tr("显示悬浮窗", "Show the floating window"), tr("有副屏时显示在最上层", "On top while there is a screen"), s.showPreview, H.window) { BackgroundOperation.setShowPreview(it); if (it) Overlay.refresh() }
+        }
+        Section(tr("副屏", "Background screen")) {
+            val idleSave by com.kilon.agentvscreen.core.VScreenStore.idlePowerSave.collectAsState()
+            SwitchRow(tr("空闲省电", "Idle power saving"), tr("一轮结束后暂停渲染", "Pause rendering between turns"), idleSave, H.idle) { BackgroundOperation.setIdlePowerSave(it) }
+            var mute by remember { mutableStateOf(com.kilon.agentvscreen.core.VScreenMute.enabled) }
+            SwitchRow(tr("副屏静音", "Mute the background screen"), tr("副屏里的应用不出声", "Its apps make no sound"), mute, H.mute) { mute = it; com.kilon.agentvscreen.core.VScreenMute.enabled = it }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(tr("一轮的长度", "Turn length"), fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Help(tr("一轮的长度", "Turn length"), H.turn)
+            }
+            var quiet by remember { mutableIntStateOf(ApiConfig.quietMinutes) }
+            val opts = listOf(1, 3, 5, 10, 30)
+            Segments(opts.map { tr("${it}分", "$it min") }, opts.indexOf(quiet)) { i -> ApiConfig.quietMinutes = opts[i]; quiet = opts[i] }
+        }
+        Section(tr("识别和记录", "Reading and recording")) {
+            SwitchRow(tr("精确文字识别", "Accurate text recognition"), tr("PP-OCR，在本机运行", "PP-OCR, runs on this phone"), s.accurateOcr) { BackgroundOperation.setAccurateOcr(it) }
+            SwitchRow(tr("后台录制", "Background recording"), tr("【这段时间】里的拼图", "The picture strip in [Meanwhile]"), s.recording) { BackgroundOperation.setRecording(it) }
+        }
+    }
+
+    @Composable
+    private fun SetupPage(
+        items: List<Setup.Item>, sh: ShizukuManager.Snapshot, busy: Boolean, setupLog: List<String>, setBusy: (Boolean) -> Unit,
+        setLog: (List<String>) -> Unit, scope: kotlinx.coroutines.CoroutineScope, setLiveProblem: (String?) -> Unit, bump: () -> Unit,
+    ) {
+        Section(tr("只用 Shizuku，不占 adb", "Shizuku only, adb untouched")) {
+            items.forEachIndexed { i, it -> StepRow(i + 1, it) }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            when (sh.state) {
+                ShizukuManager.State.NEED_PERMISSION -> PrimaryAction(tr("授权 Shizuku", "Grant Shizuku")) { ShizukuManager.requestPermission(); bump() }
+                ShizukuManager.State.NOT_RUNNING -> PrimaryAction(tr("打开 Shizuku 启动", "Open Shizuku to start it")) { ShizukuManager.openShizukuApp(this@MainActivity) }
+                ShizukuManager.State.NOT_INSTALLED -> PrimaryAction(tr("安装 Shizuku", "Install Shizuku")) { ShizukuManager.openInstallPage(this@MainActivity) }
+                ShizukuManager.State.READY -> PrimaryAction(if (busy) tr("配置中…", "Setting up…") else tr("一键配置其余项", "Set up the rest"), enabled = !busy && items.any { !it.ok }) {
+                    setBusy(true)
+                    scope.launch { setLog(withContext(Dispatchers.IO) { Setup.grantAll(this@MainActivity) }); setBusy(false); Overlay.refresh(); bump() }
+                }
+            }
+            if (items.any { it.key == "vendor_bg" && !it.ok }) SecondaryAction(tr("去设置后台管理", "Background management")) {
+                val opened = com.kilon.agentvscreen.host.Liveness.openBackgroundSettings(this@MainActivity)
+                setLiveProblem(com.kilon.agentvscreen.host.Liveness.problem()); bump()
+                Toast.makeText(this@MainActivity, tr("已打开：$opened。把 Agent-VScreen 改成手动管理，允许自启动、关联启动和后台活动", "Opened: $opened. Set Agent-VScreen to manual management and allow auto-start, start by other apps and background activity"), Toast.LENGTH_LONG).show()
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }, modifier = Modifier.weight(1f)) { Text(tr("无障碍设置", "Accessibility")) }
+                if (!Settings.canDrawOverlays(this@MainActivity)) OutlinedButton(onClick = {
+                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                }, modifier = Modifier.weight(1f)) { Text(tr("悬浮窗权限", "Overlay permission")) }
+            }
+        }
+        setupLog.forEach { Note(it) }
     }
 
     @Composable
@@ -340,7 +420,7 @@ class MainActivity : ComponentActivity() {
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Agent-VScreen", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                        Text(tr("给任何手机 agent 用的后台副屏", "A background screen for any phone agent"), color = Color(0xB3FFFFFF), fontSize = 13.sp)
+                        Text(tr("给任何手机 agent 用的后台副屏", "A background screen for any phone agent"), color = Color(0xB3FFFFFF), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Switch(checked = serviceOn, onCheckedChange = setOn)
                 }
@@ -479,26 +559,22 @@ class MainActivity : ComponentActivity() {
         val base = if (remoteReady) remoteBase!! else ApiConfig.baseUrl
         val canCopy = where == 0 || remoteReady
 
-        Block(tr("接入 agent", "Connect an agent")) {
-            SubTitle(tr("1. agent 在哪", "1. Where the agent runs"))
+        Section(tr("agent 在哪", "Where the agent runs"), H.where) {
             Segments(listOf(tr("这台手机上", "On this phone"), tr("其它设备上（Tailscale）", "Another device (Tailscale)")), where) { where = it }
             if (where == 0) {
-                Hint(tr("同一台手机上的 agent（Termux、Minis、Operit 等）直接连本机 127.0.0.1:${ApiConfig.port}，什么都不用设。",
-                    "Agents on this phone (Termux, Minis, Operit, ...) connect to 127.0.0.1:${ApiConfig.port} directly; nothing to set up."))
+                Note(tr("本机的 agent 直接连 127.0.0.1:${ApiConfig.port}，不用设置", "Agents on this phone use 127.0.0.1:${ApiConfig.port}; nothing to set up"))
             } else {
                 Remote(ts, remoteBase, mode) { mode = it }
                 if (mode != com.kilon.agentvscreen.host.Tailnet.Mode.OFF) RemoteSafety()
             }
 
-            SubTitle(tr("2. 接入方式", "2. How it connects"))
+        }
+        Section(tr("接入方式", "How it connects"), H.how) {
             Segments(listOf(tr("命令行", "Shell"), "MCP", "HTTP"), tab) { tab = it; rawOpen = false }
-            Hint(when (tab) {
-                0 -> tr("带终端的 agent：把“给 agent 的话”发给它。它会装好 vscreen 命令，并把“我能在手机上后台操作应用”记进自己的长期记忆，以后的新对话里也会用。",
-                    "Agents with a terminal: send them the message. It installs the vscreen command and has the agent save \"I can operate apps on the phone in the background\" in its long-term memory, so new conversations use it too.")
-                1 -> tr("支持 MCP 的 agent：发给它的话里有 MCP 配置（streamable HTTP，每条命令一个工具，截图直接附在结果里）和要它记住的能力说明。",
-                    "Agents with MCP: the message has the MCP config (streamable HTTP, one tool per command, screenshots attached to results) and the ability note for it to remember.")
-                else -> tr("自己写调用代码的 agent 应用：发给它的话里有地址、令牌和能力说明。返回 JSON（ok、code、next、text、images、steps、screen、notes），完整说明 GET /v2/help。",
-                    "Agent apps that write their own calls: the message has the address, token and ability note. Replies are JSON (ok, code, next, text, images, steps, screen, notes); full reference at GET /v2/help.")
+            Note(when (tab) {
+                0 -> tr("带终端的 agent：装好 vscreen，并记住这个能力", "Agents with a terminal: installs vscreen and remembers it")
+                1 -> tr("支持 MCP 的 agent：MCP 配置和能力说明", "Agents with MCP: the MCP config and the ability note")
+                else -> tr("自己写调用的 agent：地址、令牌和说明", "Apps that write their own calls: address, token and notes")
             })
             if (where == 1) Hint(
                 if (remoteReady) tr("下面复制的内容用 Tailscale 地址 $remoteBase。", "What you copy below uses the Tailscale address $remoteBase.")
@@ -512,7 +588,6 @@ class MainActivity : ComponentActivity() {
                 AnimatedVisibility(rawOpen && canCopy) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (tab == 0) {
-                            Hint(tr("只把命令给 agent 的话，大多数 agent 装完就忘了，新对话里不知道有 vscreen。", "With only the command, most agents forget vscreen after installing it, and new conversations don't know about it."))
                             Code(ApiConfig.installLine(base)) { copy(tr("安装命令", "Install command"), ApiConfig.installLine(base)) }
                         } else Code(ApiConfig.mcpJson(base)) { copy(tr("MCP 配置", "MCP config"), ApiConfig.mcpJson(base)) }
                     }
@@ -521,10 +596,10 @@ class MainActivity : ComponentActivity() {
             SecondaryAction(tr("复制能力说明", "Copy ability note"), enabled = canCopy) {
                 copy(tr("能力说明", "Ability note"), when (tab) { 1 -> AgentGuide.memoryMcp(); 2 -> AgentGuide.memoryHttp(base); else -> AgentGuide.memory(base) })
             }
-            Hint(tr("能力说明也可以直接贴进 agent 的“自定义指令”或“记忆”设置。", "You can also paste the ability note into the agent's custom instructions or memory setting."))
             AgentMemoryRow(ledger)
 
-            SubTitle(tr("3. 令牌", "3. Token"))
+        }
+        Section(tr("令牌", "Token"), H.token) {
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(start = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -537,9 +612,7 @@ class MainActivity : ComponentActivity() {
                     Icon(Icons.Filled.Refresh, tr("换一个令牌", "New token"))
                 }
             }
-            Hint(if (mode == com.kilon.agentvscreen.host.Tailnet.Mode.OFF)
-                tr("令牌只给你信任的 agent：拿到它就能在副屏上操作你的应用。服务只监听本机，网页调用一律拒绝。", "Give the token only to agents you trust: with it they can operate your apps on the screen. The service listens only on this phone, and calls from web pages are always refused.")
-            else tr("令牌只给你信任的 agent：拿到它就能在副屏上操作你的应用。服务只接受本机和你 Tailscale 网络里的设备，网页调用一律拒绝。", "Give the token only to agents you trust: with it they can operate your apps on the screen. Only this phone and devices in your Tailscale network can connect, and calls from web pages are always refused."))
+            Note(tr("只给你信任的 agent", "Only for agents you trust"))
         }
     }
 
@@ -578,8 +651,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Remote(ts: com.kilon.agentvscreen.host.Tailnet.Status, remoteBase: String?, mode: com.kilon.agentvscreen.host.Tailnet.Mode, onMode: (com.kilon.agentvscreen.host.Tailnet.Mode) -> Unit) {
         val M = com.kilon.agentvscreen.host.Tailnet.Mode.entries
-        Hint(tr("电脑、云端或另一台手机上的 agent 通过 Tailscale 连进来：只有你自己 Tailscale 网络里的设备能连，走加密隧道，局域网和公网都连不到，令牌照样要。“内置”不用装 Tailscale App，“外部 App”用这台手机上已装的 Tailscale。",
-            "Agents on a computer, in the cloud or on another phone connect through Tailscale: only devices in your own Tailscale network can, through an encrypted tunnel; the local network and the internet cannot, and the token is still required. \"Built-in\" needs no Tailscale app; \"External app\" uses the Tailscale app already on this phone."))
+        Note(tr("其它设备经 Tailscale 连进来，只限你自己的网络", "Other devices connect through Tailscale, only from your own network"))
         Segments(listOf(tr("关", "Off"), tr("内置", "Built-in"), tr("外部 App", "External app")), M.indexOf(mode)) { i ->
             val m = M[i]
             onMode(m); ApiConfig.tailnetMode = m
@@ -667,8 +739,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Diagnostics(items: List<Setup.Item>) {
         var open by remember { mutableStateOf(false) }
-        Block(tr("诊断", "Diagnostics"), trailing = { Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null) }, onHeader = { open = !open }) {
-            Text(tr("出问题时把诊断信息发给开发者：版本、配置状态和最近日志（不含令牌、不含你输入的字）。", "When something goes wrong, send this to the developer: version, setup state and recent log (no token, nothing you typed)."), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Section {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { copy(tr("诊断信息", "Diagnostics"), diagnostics(items)) }) { Icon(Icons.Filled.ContentCopy, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text(tr("复制", "Copy")) }
                 OutlinedButton(onClick = {
@@ -678,6 +749,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }) { Icon(Icons.Filled.Share, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text(tr("分享", "Share")) }
             }
+            Disclosure(tr("最近日志", "Recent log"), open) { open = !open }
             AnimatedVisibility(open) {
                 SelectionContainer {
                     Text(AppLogger.tail(80), fontFamily = FontFamily.Monospace, fontSize = 10.sp, lineHeight = 13.sp,
@@ -724,8 +796,7 @@ class MainActivity : ComponentActivity() {
         var again by remember { mutableIntStateOf(0) }
         LaunchedEffect(tick, again) { list = withContext(Dispatchers.IO) { com.kilon.agentvscreen.host.Wake.list(this@MainActivity).also { com.kilon.agentvscreen.host.Wake.arm(this@MainActivity) } } }
         if (list.isEmpty()) {
-            Text(tr("没有。agent 的定时任务要用手机时，可以用 vscreen schedule 预约时间：到点前 3 分钟这里会拉起服务并检查，没准备好会通知你。", "None. An agent whose timed task uses the phone can book the time with vscreen schedule: 3 minutes before, the service is started and checked here, and you are notified if it is not ready."),
-                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Note(tr("还没有预约。agent 用 vscreen schedule 预约", "Nothing booked. Agents book with vscreen schedule"))
             return
         }
         list.forEach { e ->

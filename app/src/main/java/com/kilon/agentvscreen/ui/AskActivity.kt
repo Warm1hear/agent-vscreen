@@ -46,6 +46,30 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kilon.agentvscreen.host.UserAsk
 import com.kilon.agentvscreen.tr
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.style.TextOverflow
+import kotlinx.coroutines.delay
 import org.json.JSONObject
 import kotlin.math.roundToInt
 
@@ -54,20 +78,27 @@ import kotlin.math.roundToInt
  * background screen, drag a box on it, pick an option, or write a line. The answer goes back to the waiting `ask`.
  * Points are sent in background-screen coordinates (the same ones act uses), worked out from where the finger
  * landed on the picture as drawn.
+ *
+ * 1.3 beta3: redrawn in the app's glass look: who asks and how long the question stays open at the top, the question
+ * on its own card, the picture framed, options as lettered rows you pick and then send, and one bar at the bottom
+ * (send on the right, decline on the left) in the same place for every kind.
  */
 class AskActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val id = intent.getIntExtra("id", -1)
         val ask = UserAsk.byId(id)
-        setContent { AvsTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            if (ask == null || !ask.live) Gone() else Answer(ask)
+        setContent { AvsTheme { Surface(Modifier.fillMaxSize(), color = Color.Transparent) {
+            Box(Modifier.fillMaxSize().backdrop()) { if (ask == null || !ask.live) Gone() else Answer(ask) }
         } } }
     }
 
     @Composable
-    private fun Gone() = Column(Modifier.fillMaxSize().statusBarsPadding().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(tr("这个问题已经回答过或过期了", "This question was already answered or has expired"), fontSize = 16.sp)
+    private fun Gone() = Column(Modifier.fillMaxSize().statusBarsPadding().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        AskMark(48f, alpha = 0.5f)
+        Text(tr("这个问题已经回答过或过期了", "This question was already answered or has expired"), fontSize = 16.sp, fontWeight = FontWeight.Medium)
         Button(onClick = { finish() }) { Text(tr("关闭", "Close")) }
     }
 
@@ -84,64 +115,113 @@ class AskActivity : ComponentActivity() {
         var boxB by remember { mutableStateOf<Offset?>(null) }
         var view by remember { mutableStateOf(IntSize.Zero) }
         var text by remember { mutableStateOf("") }
+        var picked by remember { mutableIntStateOf(-1) }
+        var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+        LaunchedEffect(a.id) { while (true) { delay(1000); now = System.currentTimeMillis(); if (!a.live) { finish(); break } } }
         // From the picture as drawn (fills the width, keeps the aspect) to the screen's own coordinates.
         fun toScreen(o: Offset): Pair<Int, Int> {
             val w = view.width.coerceAtLeast(1); val h = view.height.coerceAtLeast(1)
             return (o.x / w * a.screenW).roundToInt().coerceIn(0, a.screenW - 1) to (o.y / h * a.screenH).roundToInt().coerceIn(0, a.screenH - 1)
         }
-        Column(
-            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(tr("agent「${a.tokenName}」在问你", "Agent \"${a.tokenName}\" asks you"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(a.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            when (a.kind) {
-                UserAsk.Kind.POINT, UserAsk.Kind.AREA -> {
-                    Text(if (a.kind == UserAsk.Kind.POINT) tr("在画面上点一下你说的地方", "Tap the place you mean on the picture")
-                        else tr("在画面上拖出一个框", "Drag a box on the picture"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (bmp == null) Text(tr("画面没取到", "No picture"), color = MaterialTheme.colorScheme.error)
-                    else Box(Modifier.fillMaxWidth().aspectRatio(bmp.width.toFloat() / bmp.height).onSizeChanged { view = it }
-                        .pointerInput(a.kind) {
-                            if (a.kind == UserAsk.Kind.POINT) detectTapGestures { point = it }
-                            else detectDragGestures(onDragStart = { boxA = it; boxB = it }) { c, _ -> boxB = c.position }
-                        }) {
-                        Image(bmp.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
-                        Canvas(Modifier.fillMaxSize()) {
-                            point?.let { p ->
-                                drawCircle(Color(0xFFFF3B30), radius = 22f, center = p, style = Stroke(5f))
-                                drawCircle(Color(0xFFFF3B30), radius = 5f, center = p)
+        val ready = when (a.kind) {
+            UserAsk.Kind.POINT -> point != null
+            UserAsk.Kind.AREA -> boxA != null && boxB != null && boxA != boxB
+            UserAsk.Kind.CHOOSE -> picked >= 0
+            UserAsk.Kind.CONFIRM -> true
+            else -> text.isNotBlank()
+        }
+        fun reply(): JSONObject = when (a.kind) {
+            UserAsk.Kind.POINT -> { val (x, y) = toScreen(point!!); JSONObject().put("kind", a.kind.key).put("x", x).put("y", y) }
+            UserAsk.Kind.AREA -> {
+                val (x1, y1) = toScreen(boxA!!); val (x2, y2) = toScreen(boxB!!)
+                JSONObject().put("kind", a.kind.key).put("x1", minOf(x1, x2)).put("y1", minOf(y1, y2)).put("x2", maxOf(x1, x2)).put("y2", maxOf(y1, y2))
+            }
+            UserAsk.Kind.CHOOSE -> JSONObject().put("kind", "choose").put("index", picked + 1).put("choice", a.options[picked])
+            else -> JSONObject().put("kind", "text").put("text", text.trim())
+        }
+
+        val accent = Color(0xFFB57BFF)
+
+        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
+            // Who asks, and how long the question stays open.
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                AskMark(30f)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(AskWords.who(a), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    @Suppress("UNUSED_EXPRESSION") now
+                    Text(tr("会话 ${a.session} · 还剩 ${AskWords.left(a)}", "Session ${a.session} · ${AskWords.left(a)} left"), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onClick = { finish() }) { Icon(Icons.Filled.Close, tr("稍后回答", "Answer later")) }
+            }
+
+            Column(
+                Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                // The question.
+                Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(24.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(a.title, fontSize = 21.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold)
+                    if (a.detail.isNotBlank()) Text(a.detail, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                when (a.kind) {
+                    UserAsk.Kind.POINT, UserAsk.Kind.AREA -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (a.kind == UserAsk.Kind.POINT) tr("在画面上点一下你说的地方", "Tap the place you mean")
+                                else tr("在画面上拖出一个框", "Drag a box on the picture"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                            if (point != null || boxA != null) TextButton(onClick = { point = null; boxA = null; boxB = null }) {
+                                Icon(Icons.Filled.Refresh, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text(tr("重来", "Redo"))
                             }
-                            val s = boxA; val e = boxB
-                            if (s != null && e != null) drawRect(Color(0xFFFF3B30), topLeft = Offset(minOf(s.x, e.x), minOf(s.y, e.y)),
-                                size = Size(kotlin.math.abs(e.x - s.x), kotlin.math.abs(e.y - s.y)), style = Stroke(5f))
+                        }
+                        if (bmp == null) Text(tr("画面没取到", "No picture"), color = MaterialTheme.colorScheme.error)
+                        else Box(
+                            Modifier.fillMaxWidth().padding(horizontal = 24.dp).shadow(16.dp, RoundedCornerShape(20.dp)).clip(RoundedCornerShape(20.dp))
+                                .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(20.dp))
+                                .aspectRatio(bmp.width.toFloat() / bmp.height).onSizeChanged { view = it }
+                                .pointerInput(a.kind) {
+                                    if (a.kind == UserAsk.Kind.POINT) detectTapGestures { point = it }
+                                    else detectDragGestures(onDragStart = { boxA = it; boxB = it }) { c, _ -> boxB = c.position }
+                                },
+                        ) {
+                            Image(bmp.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+                            Canvas(Modifier.fillMaxSize()) {
+                                point?.let { p ->
+                                    drawCircle(Color(0x55000000), radius = 34f, center = p)
+                                    drawCircle(accent, radius = 26f, center = p, style = Stroke(6f))
+                                    drawCircle(Color.White, radius = 7f, center = p)
+                                }
+                                val s = boxA; val e = boxB
+                                if (s != null && e != null) {
+                                    val tl = Offset(minOf(s.x, e.x), minOf(s.y, e.y)); val sz = Size(kotlin.math.abs(e.x - s.x), kotlin.math.abs(e.y - s.y))
+                                    drawRect(accent.copy(alpha = 0.22f), topLeft = tl, size = sz)
+                                    drawRect(accent, topLeft = tl, size = sz, style = Stroke(5f))
+                                }
+                            }
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val ready = if (a.kind == UserAsk.Kind.POINT) point != null else boxA != null && boxB != null && boxA != boxB
-                        Button(enabled = ready, onClick = {
-                            val r = JSONObject().put("kind", a.kind.key)
-                            if (a.kind == UserAsk.Kind.POINT) { val (x, y) = toScreen(point!!); r.put("x", x).put("y", y) }
-                            else {
-                                val (x1, y1) = toScreen(boxA!!); val (x2, y2) = toScreen(boxB!!)
-                                r.put("x1", minOf(x1, x2)).put("y1", minOf(y1, y2)).put("x2", maxOf(x1, x2)).put("y2", maxOf(y1, y2))
-                            }
-                            send(a, r)
-                        }) { Text(tr("就是这里", "This one")) }
-                        OutlinedButton(onClick = { send(a, null) }) { Text(tr("不回答", "Decline")) }
-                    }
+                    UserAsk.Kind.CHOOSE -> a.options.forEachIndexed { i, o -> OptionRow(i, o, selected = picked == i) { picked = i } }
+                    UserAsk.Kind.CONFIRM -> {}
+                    else -> OutlinedTextField(text, { text = it.take(500) }, Modifier.fillMaxWidth(), minLines = 4,
+                        placeholder = { Text(tr("写下你的回答", "Write your answer")) },
+                        supportingText = { Text("${text.length}/500") }, shape = RoundedCornerShape(18.dp))
                 }
-                UserAsk.Kind.CHOOSE -> {
-                    a.options.forEachIndexed { i, o ->
-                        Button(onClick = { send(a, JSONObject().put("kind", "choose").put("index", i + 1).put("choice", o)) }, modifier = Modifier.fillMaxWidth()) { Text(o) }
-                    }
-                    OutlinedButton(onClick = { send(a, null) }, modifier = Modifier.fillMaxWidth()) { Text(tr("都不是 / 不回答", "None / decline")) }
-                }
-                else -> {
-                    OutlinedTextField(text, { text = it.take(500) }, Modifier.fillMaxWidth(), label = { Text(tr("你的回答", "Your answer")) })
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(enabled = text.isNotBlank(), onClick = { send(a, JSONObject().put("kind", "text").put("text", text.trim())) }) { Text(tr("发送", "Send")) }
-                        OutlinedButton(onClick = { send(a, null) }) { Text(tr("不回答", "Decline")) }
-                    }
+            }
+
+            // One bar for every kind: decline on the left, send on the right.
+            Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp), lift = false).padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { send(a, null) }) { Text(when (a.kind) {
+                    UserAsk.Kind.CHOOSE -> tr("都不是 / 不回答", "None / decline")
+                    UserAsk.Kind.CONFIRM -> tr("拒绝", "Deny")
+                    else -> tr("不回答", "Decline")
+                }) }
+                Spacer(Modifier.weight(1f))
+                Button(enabled = ready, onClick = { if (a.kind == UserAsk.Kind.CONFIRM) { UserAsk.answer(this@AskActivity, a.id, true, null); finish() } else send(a, reply()) }, modifier = Modifier.height(48.dp)) {
+                    Text(when (a.kind) {
+                        UserAsk.Kind.POINT, UserAsk.Kind.AREA -> tr("就是这里", "This one")
+                        UserAsk.Kind.CONFIRM -> tr("允许", "Allow")
+                        else -> tr("发送", "Send")
+                    }, fontWeight = FontWeight.SemiBold)
                 }
             }
         }

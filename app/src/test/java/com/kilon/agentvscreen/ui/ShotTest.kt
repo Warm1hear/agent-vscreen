@@ -31,6 +31,26 @@ class ShotTest {
         com.kilon.agentvscreen.host.AppLogger.init(app)
         com.kilon.agentvscreen.api.ApiConfig.init(app)
         runCatching { com.kilon.agentvscreen.core.BackgroundOperation.init(app) }.onFailure { println("BO init: $it") }
+        // 1.3 beta3: the home page with a question waiting, and each second-level page.
+        com.kilon.agentvscreen.host.UserAsk.create(app, com.kilon.agentvscreen.host.UserAsk.Kind.CHOOSE, "shot", "这周末你想先动哪块？", "",
+            options = listOf("考研单词", "大创器件", "先歇着"))
+        for (page in listOf("CONNECT", "PERMS", "SCREEN", "SETUP")) {
+            val a = Robolectric.buildActivity(MainActivity::class.java, android.content.Intent().putExtra(MainActivity.EXTRA_PAGE, page)).setup().get()
+            repeat(20) { ShadowLooper.idleMainLooper(); Thread.sleep(50) }
+            val v = a.window.decorView
+            val b = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+            v.draw(Canvas(b))
+            FileOutputStream(File(out, "page-${page.lowercase()}.png")).use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+        run {
+            val ask = com.kilon.agentvscreen.host.UserAsk.open.value.first { it.kind == com.kilon.agentvscreen.host.UserAsk.Kind.CHOOSE }
+            val a = Robolectric.buildActivity(AskActivity::class.java, android.content.Intent().putExtra("id", ask.id)).setup().get()
+            repeat(20) { ShadowLooper.idleMainLooper(); Thread.sleep(50) }
+            val v = a.window.decorView
+            val b = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+            v.draw(Canvas(b))
+            FileOutputStream(File(out, "ask-choose.png")).use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
         for (night in listOf(false, true)) {
             if (night) org.robolectric.RuntimeEnvironment.setQualifiers("+night")
             val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
@@ -62,6 +82,7 @@ class OverlayShotTest {
             "stopped" to base.copy(userStopped = true),
             "idle" to base.copy(idle = true, powerSaving = true),
         )
+        com.kilon.agentvscreen.host.UserAsk.create(app, com.kilon.agentvscreen.host.UserAsk.Kind.CONFIRM, "shot", "副屏已经起来了，这次能正常看到这个提问框吗？", "")
         val a = Robolectric.buildActivity(androidx.activity.ComponentActivity::class.java).setup().get()
         val density = a.resources.displayMetrics.density
         Overlay.widthPx.floatValue = 150 * density
@@ -76,6 +97,11 @@ class OverlayShotTest {
                             }
                         }
                     }
+                }
+                androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+                    DockTab(Mode.STANDBY, true, 0)
+                    DockTab(Mode.STANDBY, true, 1)
+                    DockTab(Mode.STANDBY, true, 2)
                 }
             }
         }

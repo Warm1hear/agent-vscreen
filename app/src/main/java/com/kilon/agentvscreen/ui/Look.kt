@@ -51,8 +51,8 @@ object Palette {
     val standby = Color(0xFF7CC8FF)
     val idle = Color(0xFF94A3B8)
     val takeover = Color(0xFF34D399)
-    /** 1.3 beta2: an agent is waiting for the user's answer (amber: not standby blue, not the acting rainbow). */
-    val asking = Color(0xFFFFB020)
+    /** An agent is waiting for the user's answer: orchid, in the brand's violet family (not standby blue, not the turning rainbow). */
+    val asking = Color(0xFFD67BFF)
     val stopped = Color(0xFFFF5A5F)
     val brandA = Color(0xFF6C5CE7)
     val brandB = Color(0xFF00C2FF)

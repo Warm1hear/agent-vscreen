@@ -62,6 +62,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -808,7 +809,11 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
                 Modifier.fillMaxSize().clip(RoundedCornerShape(corner)).background(Palette.ink)
                     .onGloballyPositioned { c -> val b = c.boundsInRoot(); Overlay.frameRect.set(b.left, b.top, b.right, b.bottom) },
             ) {
-                if (picture != null) picture(owner) else VScreenLiveFrame(owner, Modifier.fillMaxSize(), interactive = false)
+                // 1.3 beta3: with a question open, the picture goes soft behind the glass card (frosted, not covered).
+                Box(Modifier.fillMaxSize().then(if (waiting.isNotEmpty()) Modifier.blur(10.dp) else Modifier)) {
+                    if (picture != null) picture(owner) else VScreenLiveFrame(owner, Modifier.fillMaxSize(), interactive = false)
+                }
+                if (waiting.isNotEmpty()) Box(Modifier.fillMaxSize().background(Color(0x40120F22)))
                 // A soft scrim under the pill and buttons keeps them readable on white pages.
                 Box(Modifier.fillMaxWidth().height((44 * k).dp).background(Brush.verticalGradient(listOf(Color(0x99000000), Color.Transparent))))
             }
@@ -849,7 +854,7 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
             }
 
             // Stopped: say what that means right on the window.
-            if (mode == Mode.STOPPED) {
+            if (mode == Mode.STOPPED && waiting.isEmpty()) {
                 Text(tr("已停止 AI：它的操作会被拒绝，点“交还 AI”或通知里的“允许继续”放开", "AI stopped: its actions are refused. Tap \"Hand back\" or \"Allow again\" in the notification to lift it"), color = Color.White, fontSize = (10 * k).sp, lineHeight = (13 * k).sp,
                     modifier = Modifier.align(Alignment.Center).padding(horizontal = (12 * k).dp).clip(RoundedCornerShape(10.dp)).background(Color(0xDD7F1D1D)).padding(horizontal = 8.dp, vertical = 5.dp))
             }
@@ -916,26 +921,23 @@ private fun RoundBtn(icon: ImageVector, desc: String, bg: Color, k: Float, key: 
  * colour as the big window (rainbow while the AI acts) — the app's own mark, so it reads as "the background screen".
  */
 @Composable
-private fun DockTab(mode: Mode, right: Boolean, asking: Int = 0) {
+internal fun DockTab(mode: Mode, right: Boolean, asking: Int = 0) {
     val shape = if (right) RoundedCornerShape(topStart = 30.dp, bottomStart = 30.dp) else RoundedCornerShape(topEnd = 30.dp, bottomEnd = 30.dp)
     val glass = listOf(Color(0xF0262A38), Color(0xF014161F))
     // 1.3 beta2: an agent is waiting for an answer: the folded tab says so by itself (the user may never open the
     // notification shade). Amber, pulsing, with a question mark where the little phone is: unlike standby and acting.
     if (asking > 0) {
+        // 1.3 beta3: the same glass as the window, an orchid edge that breathes, and the question mark in its place.
         val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "ask")
-        val pulse by t.animateFloat(0.35f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(700), androidx.compose.animation.core.RepeatMode.Reverse), label = "pulse")
+        val pulse by t.animateFloat(0.35f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(900), androidx.compose.animation.core.RepeatMode.Reverse), label = "pulse")
         Box(
             Modifier.width(Overlay.TAB_W.dp).height(Overlay.TAB_H.dp)
-                .shadow(12.dp, shape, ambientColor = Palette.asking, spotColor = Palette.asking)
-                .clip(shape)
-                .background(Brush.horizontalGradient(if (right) glass else glass.reversed()))
-                .border(1.5.dp, Palette.asking.copy(alpha = pulse), shape),
+                .shadow(14.dp, shape, ambientColor = Palette.asking, spotColor = Palette.asking)
+                .glassDark(shape)
+                .border(1.5.dp, Brush.verticalGradient(listOf(Color(0xFF8B7CFF).copy(alpha = pulse), Palette.asking.copy(alpha = pulse))), shape),
             contentAlignment = Alignment.Center,
         ) {
-            Box(
-                Modifier.offset(x = if (right) 2.dp else (-2).dp).size(18.dp).clip(CircleShape).background(Palette.asking.copy(alpha = 0.25f + 0.75f * pulse)),
-                contentAlignment = Alignment.Center,
-            ) { Text(if (asking > 1) "$asking" else "?", color = Color(0xFF1A1206), fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+            Box(Modifier.offset(x = if (right) 2.dp else (-2).dp)) { AskMark(18f, asking, 0.55f + 0.45f * pulse) }
         }
         return
     }
@@ -955,69 +957,6 @@ private fun DockTab(mode: Mode, right: Boolean, asking: Int = 0) {
         ) {
             // A navigation bar at its bottom: it reads as a phone screen, not an empty frame.
             Box(Modifier.padding(bottom = 2.dp).width(5.dp).height(1.2.dp).clip(RoundedCornerShape(1.dp)).background(Color(0xCCFFFFFF)))
-        }
-    }
-}
-
-
-/** 1.3 beta2: the questions agents are waiting on that are still open (re-checked every second: they expire). */
-@Composable
-internal fun pendingAsks(): List<com.kilon.agentvscreen.host.UserAsk.Ask> {
-    val open by com.kilon.agentvscreen.host.UserAsk.open.collectAsState()
-    var tick by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(open.isNotEmpty()) { while (open.isNotEmpty()) { delay(1000); tick++ } }
-    return remember(open, tick) { open.filter { it.live }.sortedByDescending { it.at } }
-}
-
-/**
- * 1.3 beta2: answer an agent's question on the window itself (the small window, or full screen): allow / deny, pick an
- * option, or open the answer page for a point, an area or a line of text. Same answers as the notification and the
- * card in the app ([com.kilon.agentvscreen.host.UserAsk.answer]).
- */
-@Composable
-internal fun AskQuick(a: com.kilon.agentvscreen.host.UserAsk.Ask, count: Int, k: Float, inOverlay: Boolean, modifier: Modifier = Modifier) {
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val kind = a.kind
-    @Composable fun Modifier.mark(key: String): Modifier = if (inOverlay) this.control("ask-$key") else this
-    fun answer(allow: Boolean, reply: org.json.JSONObject? = null) = com.kilon.agentvscreen.host.UserAsk.answer(ctx, a.id, allow, reply)
-    fun openPage() = ctx.startActivity(com.kilon.agentvscreen.host.UserAsk.answerIntent(ctx, a.id).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-    Column(
-        modifier.clip(RoundedCornerShape((14 * k).dp)).background(Color(0xF2181A24)).border(1.dp, Palette.asking, RoundedCornerShape((14 * k).dp))
-            .padding(horizontal = (10 * k).dp, vertical = (8 * k).dp),
-        verticalArrangement = Arrangement.spacedBy((6 * k).dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size((8 * k).dp).clip(CircleShape).background(Palette.asking))
-            Spacer(Modifier.width((5 * k).dp))
-            Text(tr("${a.tokenName} 在问你", "${a.tokenName} asks you") + if (count > 1) tr("（还有 ${count - 1} 个）", " (${count - 1} more)") else "",
-                color = Palette.asking, fontSize = (10 * k).sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Text(a.title, color = Color.White, fontSize = (12 * k).sp, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
-        if (a.detail.isNotBlank()) Text(a.detail, color = Color(0xB3FFFFFF), fontSize = (10 * k).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        @Composable fun Btn(key: String, label: String, primary: Boolean, onClick: () -> Unit) =
-            Box(Modifier.mark(key).clip(RoundedCornerShape(50)).background(if (primary) Palette.asking else Color(0x33FFFFFF)).clickable(onClick = onClick)
-                .padding(horizontal = (10 * k).dp, vertical = (5 * k).dp)) {
-                Text(label, color = if (primary) Color(0xFF1A1206) else Color.White, fontSize = (11 * k).sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        when (kind) {
-            com.kilon.agentvscreen.host.UserAsk.Kind.CONFIRM -> Row(horizontalArrangement = Arrangement.spacedBy((6 * k).dp)) {
-                Btn("yes", tr("允许", "Allow"), true) { answer(true) }
-                Btn("no", tr("拒绝", "Deny"), false) { answer(false) }
-            }
-            com.kilon.agentvscreen.host.UserAsk.Kind.CHOOSE -> Column(verticalArrangement = Arrangement.spacedBy((5 * k).dp)) {
-                a.options.take(4).forEachIndexed { i, o ->
-                    Btn("opt$i", o, i == 0) { answer(true, org.json.JSONObject().put("kind", "choose").put("index", i + 1).put("choice", o)) }
-                }
-                Btn("skip", tr("不回答", "Decline"), false) { answer(false) }
-            }
-            else -> Row(horizontalArrangement = Arrangement.spacedBy((6 * k).dp)) {
-                Btn("go", when (kind) {
-                    com.kilon.agentvscreen.host.UserAsk.Kind.POINT -> tr("去点一下", "Point it out")
-                    com.kilon.agentvscreen.host.UserAsk.Kind.AREA -> tr("去框一块", "Mark an area")
-                    else -> tr("去回答", "Answer")
-                }, true) { openPage() }
-                Btn("skip", tr("不回答", "Decline"), false) { answer(false) }
-            }
         }
     }
 }

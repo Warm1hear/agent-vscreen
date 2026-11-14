@@ -90,8 +90,6 @@ fun TokensPanel(base: String, copy: (String, String) -> Unit) {
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { delay(20_000); tick++ } }
     val fmt = remember { SimpleDateFormat("MM-dd HH:mm", Locale.ROOT) }
-    Small(tr("给每个 agent 单独发一个令牌：可以只给“只看”或“可操作”的权限，单独撤销，日志里也分得清是谁做的。不同令牌的 agent 互相抢不了对方的会话。",
-        "Give each agent its own token: it can be limited to \"look only\" or \"operate\", revoked alone, and the log shows who did what. Agents with different tokens cannot take each other's sessions."))
     list.forEach { t ->
         @Suppress("UNUSED_EXPRESSION") tick
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -106,8 +104,6 @@ fun TokensPanel(base: String, copy: (String, String) -> Unit) {
             }
         }
     }
-    Small(tr("免确认：这段时间里这个令牌连付款也不再问你（仍会记进日志）。只在你盯着它付款时开。",
-        "No confirmations: during this period this token is not asked even about payments (they are still logged). Turn it on only while you watch it pay."))
     OutlinedButton(onClick = { adding = true }, modifier = Modifier.fillMaxWidth()) { Text(tr("新建令牌", "New token")) }
 
     if (adding) {
@@ -159,10 +155,8 @@ private fun scopeHint(s: String) = when (s) {
 fun AutonomyPanel() {
     var level by remember { mutableStateOf(ApiConfig.autonomy) }
     val levels = listOf(
-        "auto" to (tr("放手跑（推荐）", "Hands-off (recommended)") to tr("agent 自己做完整件事，不打扰你。只有真正付钱的那一步（支付、付款、提交订单、转账、充值）会在手机上问你。",
-            "The agent does the whole job without interrupting you. Only the step that actually spends money (pay, place order, transfer, top up) asks you on the phone.")),
-        "careful" to (tr("谨慎", "Careful") to tr("除了付钱，去购买的步骤、删除和卸载这类不可撤销的按钮、强制结束应用、把你正在用的应用接到后台，也都先问你。",
-            "Besides paying, steps toward a purchase, irreversible buttons such as delete or uninstall, force-stopping an app and taking the app you are using to the background also ask you first.")),
+        "auto" to (tr("放手跑（推荐）", "Hands-off (recommended)") to tr("只有付钱的那一步问你", "Only the paying step asks you")),
+        "careful" to (tr("谨慎", "Careful") to tr("购买、删除、卸载等也先问你", "Buying, deleting, uninstalling also ask first")),
     )
     levels.forEach { (key, words) ->
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
@@ -175,8 +169,6 @@ fun AutonomyPanel() {
             }
         }
     }
-    Small(tr("两档都会：每一步记进操作日志；你设为“每次询问”的应用一定先问；悬浮窗上随时可以停止或接管。没答复的确认 60 秒后这一步不做，agent 会来找你。",
-        "Either way: every step goes into the activity log; apps you set to \"ask every time\" always ask; you can stop or take over from the floating window at any time. A confirmation left unanswered for 60 s skips that step and the agent comes to you."))
 }
 
 /** Safety of access from other devices: signed requests only, the allowed devices, a self-hosted name suffix. */
@@ -188,8 +180,7 @@ fun RemoteSafety() {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.weight(1f)) {
             Text(tr("只接受签名请求", "Signed requests only"), fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            Small(tr("经“外部 App”来的请求必须签名，令牌本身不上网络，回复也带校验。经“内置”Tailscale 来的请求由 Tailscale 认出是哪台设备并加密，带令牌即可（MCP 客户端也能直接用），不受这个开关影响。",
-                "Requests through the external Tailscale app must be signed: the token itself never travels, and replies are verified too. Requests through the built-in Tailscale come from a device Tailscale has identified, over its encrypted tunnel: a token is enough (MCP clients work too), whatever this switch says."))
+            Small(tr("经外部 App 来的请求要签名；内置不受影响", "Requests via the external app must be signed; built-in is not affected"))
         }
         Switch(checked = signed, onCheckedChange = { signed = it; ApiConfig.remoteSigned = it; Audit.security("remote_signed", it.toString()) })
     }
@@ -206,8 +197,6 @@ fun EventTargetRow() {
     var target by remember { mutableStateOf(ApiConfig.eventTarget.orEmpty()) }
     OutlinedTextField(target, { target = it.trim(); ApiConfig.eventTarget = it.trim().ifEmpty { null } }, singleLine = true, modifier = Modifier.fillMaxWidth(),
         label = { Text(tr("事件广播发给哪个应用（包名，留空 = 不广播）", "App that receives event broadcasts (package; empty = none)")) })
-    Small(tr("盯守看到条件时的事件默认只放进队列（agent 用 vscreen events 取）。填了包名才会另外广播给那一个应用，别的应用收不到。",
-        "When a watch sees its condition the event is only queued by default (agents collect it with vscreen events). With a package here it is also broadcast to that one app; no other app receives it."))
 }
 
 /** What agents did: every command with who, when, the result (typed text is never stored). */
@@ -222,7 +211,6 @@ fun AuditPanel(copy: (String, String) -> Unit) {
         "consent" -> tr("确认：", "confirm: ") + "${o.optString("what")} → ${o.optString("answer")}"
         else -> "${o.optString("what")} ${o.optString("detail")}"
     }
-    Small(tr("每条命令都记在这里：谁（哪个令牌、哪台设备）、什么时候、做了什么、结果。输入的文字只记字数。", "Every command is recorded here: who (which token, which device), when, what, and the result. Typed text is recorded as a length only."))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = { n++ }) { Text(tr("刷新", "Refresh")) }
         OutlinedButton(onClick = { copy(tr("操作日志", "Activity log"), rows.joinToString("\n") { line(it) }) }) { Text(tr("复制", "Copy")) }
