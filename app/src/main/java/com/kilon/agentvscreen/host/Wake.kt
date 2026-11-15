@@ -181,14 +181,17 @@ object Wake {
         /** 1.3 beta2: the start of the last window already opened (checked and told), so it is never opened twice. */
         @Volatile var opened: Long = 0L
         @Volatile var last: JSONObject? = null
-        fun json(): JSONObject = JSONObject().put("name", name).put("when", text).put("means", spec.describe()).put("for_min", forMin)
+        /** 1.3.0-beta15: the user's switch in the app (like an alarm's). Off: kept, never opened. */
+        @Volatile var on: Boolean = true
+        fun json(): JSONObject = JSONObject().put("name", name).put("when", text).put("means", spec.describe()).put("for_min", forMin).put("on", on)
             .put("session", session).put("by", by).put("next_at", if (nextAt > 0) nextAt / 1000 else JSONObject.NULL)
             .put("next_local", if (nextAt > 0) java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(nextAt)) else JSONObject.NULL)
             .put("last_check", last ?: JSONObject.NULL)
         fun store(): JSONObject = JSONObject().put("name", name).put("when", text).put("for", forMin).put("session", session).put("by", by).put("at", at)
-            .put("opened", opened).also { o -> last?.let { o.put("last", it) } }
+            .put("opened", opened).put("on", on).also { o -> last?.let { o.put("last", it) } }
         /** The next window start not yet opened and not over at [now] (null: none left). */
         fun pending(now: Long): Long? {
+            if (!on) return null
             var t = next(spec, now - forMin * 60_000L) ?: return null
             while (t <= opened) t = next(spec, t) ?: return null
             return t
@@ -215,7 +218,7 @@ object Wake {
                     // A one-off is stored with its date; it parses whatever today is (and is dropped by arm() once over).
                     val spec = runCatching { parse(o.getString("when"), nowMs = 0L) }.getOrNull() ?: continue
                     entries += Entry(o.getString("name"), o.getString("when"), spec, o.optInt("for", DEFAULT_FOR_MIN), o.optString("session", "default"), o.optString("by", "main"), o.optLong("at"))
-                        .also { e -> e.last = o.optJSONObject("last"); e.opened = o.optLong("opened") }
+                        .also { e -> e.last = o.optJSONObject("last"); e.opened = o.optLong("opened"); e.on = o.optBoolean("on", true) }
                 }
             }
             loaded = true
@@ -252,6 +255,27 @@ object Wake {
         return Added(e, false)
     }
 
+    /**
+     * 1.3.0-beta15: the user changed [name] in the app (time, days, window length, switch), like editing an alarm. The
+     * agent that booked it and its session stay; a new time starts fresh (nothing counts as opened yet).
+     * Throws [BadSpec] for a time that cannot be read (or a one-off already past).
+     */
+    fun edit(ctx: Context, name: String, text: String, forMin: Int, on: Boolean): Entry {
+        load(ctx)
+        val spec = parse(text)
+        val e = synchronized(lock) {
+            val old = entries.firstOrNull { it.name == name } ?: throw BadSpec(tr("这个预约已经不在了", "this schedule is gone"))
+            val n = Entry(name, spec.canonical().ifEmpty { text.trim() }, spec, forMin.coerceIn(1, MAX_FOR_MIN), old.session, old.by, old.at)
+            n.on = on; n.last = old.last
+            if (spec == old.spec && n.forMin == old.forMin) n.opened = old.opened
+            entries[entries.indexOf(old)] = n
+            n
+        }
+        save(ctx); arm(ctx)
+        AppLogger.info(TAG, "edited by the user: $name")
+        return e
+    }
+
     fun remove(ctx: Context, name: String): Int {
         load(ctx)
         val n = synchronized(lock) { val before = entries.size; if (name == "all") entries.clear() else entries.removeAll { it.name == name }; before - entries.size }
@@ -279,7 +303,7 @@ object Wake {
         // 1.3 beta2: "next" is the first window that has not ended (one in progress stays next, it does not jump to
         // tomorrow), and the alarm is for the first window not opened yet. Before, any change of the list re-armed the
         // window in progress and it was opened (and announced) again each time.
-        list.forEach { e -> e.nextAt = next(e.spec, now - e.forMin * 60_000L) ?: 0L }
+        list.forEach { e -> e.nextAt = if (e.on) next(e.spec, now - e.forMin * 60_000L) ?: 0L else 0L }
         val first = list.mapNotNull { e -> e.pending(now)?.let { it - LEAD_MS } }.minOrNull()
         val pi = alarmIntent(ctx)
         if (first == null) { am.cancel(pi); return }

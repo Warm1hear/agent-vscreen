@@ -96,7 +96,7 @@ internal fun AskMark(size: Float, count: Int = 1, alpha: Float = 1f) {
 @Composable
 internal fun AskQuick(a: UserAsk.Ask, count: Int, k: Float, inOverlay: Boolean, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
-    @Composable fun Modifier.mark(key: String): Modifier = if (inOverlay) this.control("ask-$key") else this
+    @Suppress("UNUSED_PARAMETER") fun Modifier.mark(key: String): Modifier = this
     val shape = RoundedCornerShape((18 * k).dp)
     Column(
         modifier.glassDark(shape).padding(horizontal = (12 * k).dp, vertical = (11 * k).dp),
@@ -135,9 +135,13 @@ internal fun AskQuick(a: UserAsk.Ask, count: Int, k: Float, inOverlay: Boolean, 
                     modifier = Modifier.align(Alignment.End).mark("skip").clip(RoundedCornerShape(50)).clickable { AskWords.answer(ctx, a, false) }
                         .padding(horizontal = (8 * k).dp, vertical = (3 * k).dp))
             }
-            else -> Row(horizontalArrangement = Arrangement.spacedBy((8 * k).dp)) {
-                GlassPill(AskWords.go(a.kind), true, k, Modifier.weight(1.3f).mark("go")) { AskWords.openPage(ctx, a) }
-                GlassPill(tr("不回答", "Decline"), false, k, Modifier.weight(1f).mark("skip")) { AskWords.answer(ctx, a, false) }
+            // 1.3.0-beta16: one wide main button and a quiet "decline" under it: fits the smallest window (side by side,
+            // "不回答" was cut to "不回答…").
+            else -> Column(verticalArrangement = Arrangement.spacedBy((4 * k).dp)) {
+                GlassPill(AskWords.go(a.kind), true, k, Modifier.fillMaxWidth().mark("go")) { AskWords.openPage(ctx, a) }
+                Text(tr("不回答", "Decline"), color = Color(0x99FFFFFF), fontSize = (11 * k).sp, maxLines = 1, softWrap = false,
+                    modifier = Modifier.align(Alignment.End).mark("skip").clip(RoundedCornerShape(50)).clickable { AskWords.answer(ctx, a, false) }
+                        .padding(horizontal = (8 * k).dp, vertical = (3 * k).dp))
             }
         }
     }

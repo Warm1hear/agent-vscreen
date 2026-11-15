@@ -729,6 +729,8 @@ private fun VScreenOffloadHandler.doAction(sid: String, d: VScreenDisplay, step:
                             else tr("无障碍没开，确认不了字落在哪。看截图核对，字进去了再发后面的步骤", "Accessibility is off, so where the text landed can't be confirmed. Check the screenshot, and send the next steps once the text is in")
                         tr("按 ${f.method} 发了 ${step.text.length} 个字；", "sent ${step.text.length} characters by ${f.method}; ") + if (f.checked) tr("没有获得焦点的输入框", "no focused input box") else tr("读不到输入框", "input box unreadable")
                     }
+                    f.unreadable -> tr("按 ${f.method} 发了 ${step.text.length} 个字；输入框$where 的内容读不出来（网页或自绘的框，读到的还是原来的“${f.field.take(40)}”），看截图核对",
+                        "sent ${step.text.length} characters by ${f.method}; the input box$where cannot be read back (a web page or self-drawn box still reads \"${f.field.take(40)}\"); check the screenshot")
                     f.password -> tr("输入 ${step.text.length} 个字（${f.method}）；密码框$where 现在 ${f.field.length} 个字符", "typed ${step.text.length} characters (${f.method}); password box$where now holds ${f.field.length} characters")
                     !f.field.contains(step.text) -> {
                         missCode = "TYPE_FAILED"

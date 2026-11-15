@@ -91,7 +91,10 @@ object VScreenTyping {
      */
     /** What typing did: the method, the field it went to (bounds, id) and what that field reads afterwards. */
     /** [checked] false = accessibility could not look at the screen, so [field] null says nothing about focus. */
-    class TypeFact(val method: String, val field: String?, val bounds: Rect?, val fieldId: String?, val checked: Boolean = true, val password: Boolean = false)
+    class TypeFact(val method: String, val field: String?, val bounds: Rect?, val fieldId: String?, val checked: Boolean = true, val password: Boolean = false,
+                   /** 1.3.0-beta16: keys or paste went out, but the field reads exactly what it read before (a web page or a
+                    *  self-drawn box whose accessibility text is its placeholder): its content cannot be read back. */
+                   val unreadable: Boolean = false)
 
     /** The field that has input focus now, as "id@l,t,r,b" (null: none / not visible to accessibility). */
     fun focusedFieldKey(displayId: Int): String? = runCatching {
@@ -127,8 +130,10 @@ object VScreenTyping {
                     "check which element in [Now] is \"input\", or act differently (e.g. tap number keys on the screen)"))
         }
         val before = node?.let { fieldText(it) }.orEmpty()
+        val rawBefore = node?.text?.toString()
+        var wrote = false
         val method = when {
-            node != null && svc!!.setNodeText(node, if (append) before + text else text) -> tr("无障碍写入", "accessibility write")
+            node != null && svc!!.setNodeText(node, if (append) before + text else text) -> { wrote = true; tr("无障碍写入", "accessibility write") }
             text.all { it.code in 32..126 } -> {
                 val r = VScreenShell.typeKeys(displayId, text)
                 if (!r.ok) throw ActionError(r.code, r.message)
@@ -151,7 +156,8 @@ object VScreenTyping {
         // A password box gives its length only: what is in it never leaves the phone.
         val now = after?.let { if (it.isPassword) "•".repeat(fieldText(it).length) else fieldText(it) }
         val ab = after?.let { n -> Rect().also { n.getBoundsInScreen(it) } }
-        return TypeFact(method, now, ab, after?.viewIdResourceName?.substringAfterLast('/'), password = after?.isPassword == true)
+        val unreadable = !wrote && after != null && !after.isPassword && now?.contains(text) != true && after.text?.toString() == rawBefore
+        return TypeFact(method, now, ab, after?.viewIdResourceName?.substringAfterLast('/'), password = after?.isPassword == true, unreadable = unreadable)
     }
 
     /** Put [text] on the clipboard and press PASTE on [displayId]'s focused field. */

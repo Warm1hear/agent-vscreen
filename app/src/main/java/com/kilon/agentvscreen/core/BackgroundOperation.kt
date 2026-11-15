@@ -530,6 +530,13 @@ object BackgroundOperation {
         synchronized(lock) { s.ownerSessionId?.let { tasks[it]?.rereadRequired = true } }
         _state.update { it.copy(userStopped = false, stoppedAt = 0L, takeoverSessionId = null) }
         AppLogger.info(TAG, "user allowed the AI to continue")
+        // 1.3.0-beta16: the agent hears it (vscreen events) instead of finding out on its next call.
+        if (s.takeoverSessionId != null || s.userStopped) s.ownerSessionId?.let { sid ->
+            appContext?.let { c -> com.kilon.agentvscreen.host.quiet("handback-event") {
+                com.kilon.agentvscreen.api.EventHub.post(c, sid, "handback", if (s.userStopped) "resume" else "takeover",
+                    tr("用户把副屏交还给你了：先看一眼现在的画面再继续", "The user handed the screen back to you: look at it before going on"))
+            } }
+        }
     }
 
     /**

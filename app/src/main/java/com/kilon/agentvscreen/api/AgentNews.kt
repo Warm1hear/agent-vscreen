@@ -104,6 +104,15 @@ object AgentNews {
         ), listOf(
             "Typing in a lesson is recorded as what the box finally reads (the full screen box mirrors the screen's field, edits and deletes included); replay writes it whole with type.",
         )),
+        Entry(29, "1.3.0-beta16", listOf(
+            "用户可以在 App 里像闹钟一样改预约的时间、重复、保持时长，或关掉开关（schedule 列表里 on: false 的预约保留但不触发）。用户保存的示教在 App 里能看到和删除。",
+            "用户回答了问题（ask/point/area/teach，包括示教做完）或把副屏交还给你时，会给发起的会话发一条事件（events 能收到）；有问题在等用户、或用户正接管副屏时，events --wait 也会等。示教点“完成”会同时交还副屏。",
+            "type 在网页或自绘的输入框里读不回内容时（读到的还是原来的占位字），回执说“读不出来，看截图核对”，不再报 TYPE_FAILED。",
+        ), listOf(
+            "The user can now change a schedule's time, repeat and window in the app like an alarm, or switch it off (on: false in the schedule list: kept, not fired). Saved lessons are listed in the app and can be deleted there.",
+            "When the user answers a question (ask/point/area/teach, a finished lesson too) or hands the screen back, the asking session gets an event (events receives it); events --wait also waits while a question is open or the user holds the screen. Done on a lesson also hands the screen back.",
+            "When type cannot read a web or self-drawn box back (it still reads its old placeholder), the receipt says it cannot be read back (check the screenshot) instead of TYPE_FAILED.",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */

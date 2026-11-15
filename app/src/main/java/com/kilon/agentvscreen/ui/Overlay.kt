@@ -23,6 +23,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -156,9 +160,14 @@ object Overlay {
     internal val holdAt = mutableStateOf(Offset.Zero)
     internal val hintAt = mutableLongStateOf(0L)
     internal val closeArmedAt = mutableLongStateOf(0L)
-    internal val frameRect = RectF()
-    internal val pillRect = RectF()
-    internal val controls = HashMap<String, RectF>()
+    /** 1.3.0-beta16: what the current touch is, said by the picture layer (see GestureFrame). */
+    @Volatile internal var pictureDown = false
+    @Volatile internal var pictureLive = false
+    @Volatile internal var pictureHeld = false
+    @Volatile internal var frameClaimed = false
+
+    /** A question card hangs below the window, or above it when the window sits too low for it. */
+    internal fun cardAbove(): Boolean { val l = lp ?: return false; return l.y + winH() + dp(190f) > screenH() - bottomMargin() }
 
     /** Our full-screen page is in front: it shows the same picture, so the floating window steps aside. */
     private val fullscreenOpen = MutableStateFlow(false)
@@ -285,7 +294,6 @@ object Overlay {
         runCatching { hostWm?.removeView(v) }.onFailure { AppLogger.warning("Overlay", "removeView: ${it.message}") }
         placeQueued = false
         root = null; hostWm = null; owner?.destroy(); owner = null
-        controls.clear()
     }
 
     // 1.2.0-beta2: the window's width is remembered per orientation of the background screen. One number for both
@@ -339,7 +347,7 @@ object Overlay {
     }
 
     // ---- Where the window comes to rest (release, fling, rotation). ----
-    private const val FOLD = 0.2f      // this much of the window past an edge → fold into a tab
+    private const val FOLD = 0.5f      // half the window past a side edge (on release) → fold into a tab
     private const val GLIDE_S = 0.2f   // inertia: where a fling would carry the window (velocity × this)
     private var anim: android.animation.ValueAnimator? = null
 
@@ -387,41 +395,10 @@ object Overlay {
      */
     internal fun fling(vx: Float, vy: Float, fingerY: Float? = null) {
         val l = lp ?: return
-        val sw = screenW().toFloat(); val sh = screenH().toFloat()
-        val w = winW(); val h = winH()
         val px = l.x + vx * GLIDE_S; val py = l.y + vy * GLIDE_S
-        val cx = px + w / 2; val cy = py + h / 2
-        val ax = abs(vx); val ay = abs(vy)
-        val diagonal = min(ax, ay) / max(ax, ay).coerceAtLeast(1f) > 0.35f
-        val towardCornerX = (vx < 0 && cx < sw * 0.4f) || (vx > 0 && cx > sw * 0.6f)
-        val towardCornerY = (vy < 0 && cy < sh * 0.4f) || (vy > 0 && cy > sh * 0.6f)
-        when {
-            diagonal && towardCornerX && towardCornerY -> toCorner(right = vx > 0, bottom = vy > 0)
-            isMini() && prefs().contains("w_full") && cx in sw * 0.25f..sw * 0.75f && cy in sh * 0.2f..sh * 0.8f -> grow(px, py)
-            else -> restAt(px, py, fingerY?.let { it + vy * GLIDE_S })
-        }
-    }
-
-    private fun toCorner(right: Boolean, bottom: Boolean) {
-        if (!isMini()) prefs().edit().putFloat("w_full", widthPx.floatValue).apply()
-        val mw = clampWidth(0f)
-        val k = (mw + dp(12f)) / winW()
-        val nw = mw + dp(12f); val nh = winH() * k
-        val m = dp(10f)
-        val x = if (right) screenW() - nw - m else m
-        val y = if (bottom) screenH() - nh - bottomMargin() else topMargin()
-        AppLogger.info("Overlay", "fling to ${if (bottom) "bottom" else "top"}-${if (right) "right" else "left"} corner: smallest")
-        animateTo(x.toInt(), y.toInt(), mw, 300L)
-    }
-
-    private fun grow(px: Float, py: Float) {
-        val fw = clampWidth(prefs().getFloat("w_full", widthPx.floatValue))
-        val k = (fw + dp(12f)) / winW()
-        val nw = fw + dp(12f); val nh = winH() * k
-        val sw = screenW().toFloat(); val sh = screenH().toFloat()
-        val x = (px + winW() / 2 - nw / 2).coerceIn(0f, (sw - nw).coerceAtLeast(0f))
-        val y = (py + winH() / 2 - nh / 2).coerceIn(topMargin(), (sh - nh - bottomMargin()).coerceAtLeast(topMargin()))
-        animateTo(x.toInt(), y.toInt(), fw, 300L)
+        // 1.3.0-beta16: a fling only moves the window (it used to shrink it into a corner or grow it back): the size
+        // changes by pinching only. Flung half past an edge, it folds there (decided now, at the release).
+        restAt(px, py, fingerY?.let { it + vy * GLIDE_S })
     }
 
     /**
@@ -435,7 +412,6 @@ object Overlay {
         val side: Boolean? = when {
             px < -w * FOLD -> false
             px + w > sw + w * FOLD -> true
-            py < -h * FOLD || py + h > sh + h * FOLD -> px + w / 2 > sw / 2
             else -> null
         }
         if (side != null) {
@@ -532,7 +508,6 @@ object Overlay {
         runCatching { c.startActivity(Intent(c, FullscreenActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
 
-    internal fun hitControl(x: Float, y: Float) = controls.values.any { it.contains(x, y) }
 
     private class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
         private val reg = LifecycleRegistry(this)
@@ -557,61 +532,31 @@ internal fun pictureToScreen(lx: Float, ly: Float, frame: RectF): Pair<Int, Int>
 }
 
 /**
- * All window gestures, on raw coordinates. Events go to the Compose buttons only when the finger went down on one and
- * stays put; anything that becomes a drag / pinch / hold is ours (the buttons get a cancel).
+ * 1.3.0-beta16: window gestures only (REVIEW-OVERLAY-GESTURES-1.3, P0). Every touch goes to the content first; the
+ * content decides what it means: buttons are buttons, and ONLY the picture layer sends fingers to the background
+ * screen (it says so in [Overlay.pictureLive]). This frame takes a touch back only to move the window (a drag that is
+ * not a live finger, or a long press anywhere but the picture) or to resize it (two fingers). No lists of rectangles.
  */
 @SuppressLint("ViewConstructor")
 private class GestureFrame(ctx: Context) : FrameLayout(ctx) {
-    private enum class Claim { NONE, MOVE, PINCH, LIVE, HELD }
+    private enum class Claim { NONE, MOVE, PINCH }
 
-    /** A point of the window as a point of the background screen (kept inside the picture). */
-    private fun onScreen(x: Float, y: Float): Pair<Int, Int>? {
-        val f = Overlay.frameRect
-        if (f.width() <= 1f || f.height() <= 1f) return null
-        return pictureToScreen(x.coerceIn(f.left, f.right - 1), y.coerceIn(f.top, f.bottom - 1), f)
-    }
     private val slop = ViewConfiguration.get(ctx).scaledTouchSlop.toFloat()
     private val main = Handler(Looper.getMainLooper())
     private var claim = Claim.NONE
-    private var onControl = false
-    private var onPill = false
     private var downRaw = Offset.Zero
-    private var downLocal = Offset.Zero
-    private var lastLocal = Offset.Zero
-    private var downAt = 0L
     private var winX = 0; private var winY = 0
     private var pinchDist = 0f; private var pinchW = 0f; private var pinchMid = Offset.Zero
     private var childGotDown = false
-    /** Recent raw positions while moving the window (time ms, x, y): the release speed for inertia. */
-    private val trail = ArrayDeque<Triple<Long, Float, Float>>()
+    private var velocity: android.view.VelocityTracker? = null
     private val flingMin = ViewConfiguration.get(ctx).scaledMinimumFlingVelocity.toFloat().coerceAtLeast(Overlay.dp(450f))
 
-    private fun releaseSpeed(): Pair<Float, Float>? {
-        val now = SystemClock.uptimeMillis()
-        while (trail.size > 2 && now - trail.first().first > 100L) trail.removeFirst()
-        if (trail.size < 2) return null
-        val a = trail.first(); val b = trail.last()
-        val dt = (b.first - a.first).coerceAtLeast(8L) / 1000f
-        return (b.second - a.second) / dt to (b.third - a.third) / dt
-    }
-
-    private val holdTick = object : Runnable {
-        override fun run() {
-            if (claim != Claim.NONE) return
-            val p = ((SystemClock.uptimeMillis() - downAt - 150L) / 850f).coerceIn(0f, 1f)
-            Overlay.hold.floatValue = p
-            if (p >= 1f) {
-                claim = Claim.HELD
-                Overlay.hold.floatValue = 0f
-                val s = BackgroundOperation.state.value
-                val owner = s.ownerSessionId
-                if (owner != null) {
-                    if (s.userStopped) BackgroundOperation.userResume()
-                    BackgroundOperation.beginTakeover(owner)
-                    performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
-                }
-            } else main.postDelayed(this, 16L)
-        }
+    /** A long press on the bar, a card or the action row picks the window up (the picture's long press is take over). */
+    private val lift = Runnable {
+        if (claim != Claim.NONE || Overlay.pictureDown) return@Runnable
+        cancelChildren()
+        claim = Claim.MOVE
+        performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
     }
 
     override fun onWindowVisibilityChanged(visibility: Int) {
@@ -626,60 +571,55 @@ private class GestureFrame(ctx: Context) : FrameLayout(ctx) {
         post { if (Overlay.docked.value) Overlay.dock(Overlay.dockRight.value) else Overlay.settle() }
     }
 
-    private fun takenOver(): Boolean = BackgroundOperation.state.value.let { it.takeoverSessionId != null && it.takeoverSessionId == it.ownerSessionId }
-
-    private fun stopHold() { main.removeCallbacks(holdTick); Overlay.hold.floatValue = 0f }
-
-    private fun cancelChildren(ev: MotionEvent) {
+    /** The window takes the touch: the content gets a cancel (a live finger on the screen is cancelled, not tapped). */
+    private fun cancelChildren() {
         if (!childGotDown) return
         childGotDown = false
-        val c = MotionEvent.obtain(ev); c.action = MotionEvent.ACTION_CANCEL
+        Overlay.frameClaimed = true
+        val now = SystemClock.uptimeMillis()
+        val c = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0f, 0f, 0)
         super.dispatchTouchEvent(c); c.recycle()
+    }
+
+    private fun track(ev: MotionEvent) {
+        val raw = MotionEvent.obtain(ev); raw.setLocation(ev.rawX, ev.rawY)
+        velocity?.addMovement(raw); raw.recycle()
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         val docked = Overlay.docked.value
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) { velocity?.recycle(); velocity = android.view.VelocityTracker.obtain() }
+        track(ev)
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 claim = Claim.NONE
-                Overlay.stopAnim(); trail.clear()
-                downRaw = Offset(ev.rawX, ev.rawY); downLocal = Offset(ev.x, ev.y); lastLocal = downLocal
-                downAt = SystemClock.uptimeMillis()
+                Overlay.stopAnim()
+                downRaw = Offset(ev.rawX, ev.rawY)
                 winX = Overlay.lp?.x ?: 0; winY = Overlay.lp?.y ?: 0
-                onControl = !docked && Overlay.hitControl(ev.x, ev.y)
-                onPill = !docked && Overlay.pillRect.contains(ev.x, ev.y)
+                Overlay.pictureDown = false; Overlay.pictureLive = false; Overlay.pictureHeld = false; Overlay.frameClaimed = false
                 childGotDown = false
-                if (onControl) { childGotDown = true; super.dispatchTouchEvent(ev) }
-                else if (!docked && takenOver() && !onPill && Overlay.frameRect.contains(ev.x, ev.y)) {
-                    // 1.2.0-beta2: while the user controls the screen, the finger on the picture IS a finger on the
-                    // screen, from the moment it lands (see UserTouch). Nothing is replayed after the fact.
-                    val owner = BackgroundOperation.state.value.ownerSessionId
-                    val p = onScreen(ev.x, ev.y)
-                    if (owner != null && p != null && com.kilon.agentvscreen.core.UserTouch.down(owner, p.first, p.second)) claim = Claim.LIVE
-                }
-                else if (!docked && !takenOver() && Overlay.frameRect.contains(ev.x, ev.y)) {
-                    Overlay.holdAt.value = downLocal
-                    main.postDelayed(holdTick, 150L)
+                if (!docked) {
+                    childGotDown = true
+                    super.dispatchTouchEvent(ev)
+                    main.postDelayed(lift, 400L)
                 }
                 return true
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
-                if (!docked && ev.pointerCount == 2 && claim != Claim.HELD) {
-                    stopHold(); cancelChildren(ev)
-                    if (claim == Claim.LIVE) com.kilon.agentvscreen.core.UserTouch.cancel()
+                if (!docked && ev.pointerCount == 2 && !Overlay.pictureHeld) {
+                    main.removeCallbacks(lift)
+                    cancelChildren()
                     claim = Claim.PINCH
                     pinchDist = dist(ev).coerceAtLeast(1f)
                     pinchW = Overlay.widthPx.floatValue
                     pinchMid = midRaw(ev)
                     winX = Overlay.lp?.x ?: 0; winY = Overlay.lp?.y ?: 0
-                }
+                } else if (claim == Claim.NONE && childGotDown) super.dispatchTouchEvent(ev)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 val raw = Offset(ev.rawX, ev.rawY)
-                lastLocal = Offset(ev.x, ev.y)
                 when (claim) {
-                    Claim.LIVE -> onScreen(ev.x, ev.y)?.let { com.kilon.agentvscreen.core.UserTouch.move(it.first, it.second) }
                     Claim.PINCH -> if (ev.pointerCount >= 2) {
                         val nw = Overlay.clampWidth(pinchW * dist(ev) / pinchDist)
                         val k = nw / pinchW
@@ -687,72 +627,59 @@ private class GestureFrame(ctx: Context) : FrameLayout(ctx) {
                         Overlay.place((pinchMid.x - (pinchMid.x - winX) * k).roundToInt(), (pinchMid.y - (pinchMid.y - winY) * k).roundToInt())
                     }
                     Claim.MOVE -> {
-                        trail.addLast(Triple(SystemClock.uptimeMillis(), raw.x, raw.y)); if (trail.size > 12) trail.removeFirst()
-                        val sw = Overlay.screenW()
                         if (docked) {
-                            // The tab rides its edge under the finger (with a little give inward); pulled well inward it
-                            // opens right under the finger and keeps following — never a jump on release.
+                            // The tab rides its edge under the finger; pulled well inward it opens under the finger.
                             val right = Overlay.dockRight.value
+                            val sw = Overlay.screenW()
                             val inward = if (right) sw - raw.x else raw.x
                             if (inward > Overlay.dp(72f)) {
                                 Overlay.undockAt(raw.x, raw.y)
                                 downRaw = raw; winX = Overlay.lp?.x ?: 0; winY = Overlay.lp?.y ?: 0
                             } else Overlay.dockLive(right, raw.y, (inward - Overlay.dp(Overlay.TAB_W)).coerceIn(0f, Overlay.dp(16f)))
                         } else {
+                            // Moving only moves: folding is decided when the finger lifts, never on the way.
                             val d = raw - downRaw
                             Overlay.place(winX + d.x.roundToInt(), winY + d.y.roundToInt())
-                            // Folding follows the finger: within ~110 dp of a side edge the window shrinks toward the
-                            // finger; at the edge it is tab-sized and becomes the tab right there, still under the finger.
-                            val edge = Overlay.dp(16f); val zone = Overlay.dp(110f)
-                            val dist = min(raw.x, sw - raw.x)
-                            if (dist <= edge) Overlay.dockLive(raw.x > sw / 2f, raw.y, 0f)
-                            else Overlay.shrinkLive(ev.x, ev.y, ((zone - dist) / (zone - edge)).coerceIn(0f, 1f))
                         }
                     }
-                    Claim.NONE -> if (hypot(raw.x - downRaw.x, raw.y - downRaw.y) > slop) {
-                        stopHold(); cancelChildren(ev)
-                        claim = Claim.MOVE
-                        if (claim == Claim.MOVE && docked) winX = Overlay.lp?.x ?: 0
-                    } else if (onControl) super.dispatchTouchEvent(ev)
-                    else -> {}
+                    Claim.NONE -> when {
+                        Overlay.pictureLive || Overlay.pictureHeld -> super.dispatchTouchEvent(ev)
+                        hypot(raw.x - downRaw.x, raw.y - downRaw.y) > slop -> {
+                            main.removeCallbacks(lift); cancelChildren()
+                            claim = Claim.MOVE
+                        }
+                        childGotDown -> super.dispatchTouchEvent(ev)
+                    }
                 }
                 return true
             }
-            MotionEvent.ACTION_POINTER_UP -> return true
+            MotionEvent.ACTION_POINTER_UP -> { if (claim == Claim.NONE && childGotDown) super.dispatchTouchEvent(ev); return true }
             MotionEvent.ACTION_UP -> {
-                stopHold()
-                val ms = SystemClock.uptimeMillis() - downAt
+                main.removeCallbacks(lift)
                 when (claim) {
-                    Claim.PINCH -> Overlay.save()
+                    Claim.PINCH -> { Overlay.save(); Overlay.settle() }
                     Claim.MOVE -> if (docked) {
-                        // Let go as a tab: it settles flat on its edge where it is.
                         Overlay.lp?.let { Overlay.dock(Overlay.dockRight.value, it.y) }
                     } else {
-                        // A finger that stopped before lifting leaves only old samples: no fling.
-                        val stale = trail.lastOrNull()?.let { SystemClock.uptimeMillis() - it.first > 60L } ?: true
-                        trail.addLast(Triple(SystemClock.uptimeMillis(), ev.rawX, ev.rawY))
-                        val v = if (stale) null else releaseSpeed()
-                        Overlay.resetShrink()
+                        val v = velocity?.let { it.computeCurrentVelocity(1000); it.xVelocity to it.yVelocity }
                         if (v != null && hypot(v.first, v.second) > flingMin) Overlay.fling(v.first, v.second, ev.rawY) else Overlay.settle(ev.rawY)
                     }
-                    Claim.LIVE -> { val p = onScreen(ev.x, ev.y); com.kilon.agentvscreen.core.UserTouch.up(p?.first ?: -1, p?.second ?: -1) }
-                    Claim.HELD -> {}
                     Claim.NONE -> when {
-                        onControl -> super.dispatchTouchEvent(ev)
                         docked -> Overlay.undock()
-                        else -> Overlay.hintAt.longValue = SystemClock.uptimeMillis()
+                        childGotDown -> super.dispatchTouchEvent(ev)
                     }
                 }
                 claim = Claim.NONE; childGotDown = false
+                velocity?.recycle(); velocity = null
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
-                stopHold(); cancelChildren(ev)
-                if (claim == Claim.LIVE) com.kilon.agentvscreen.core.UserTouch.cancel()
+                main.removeCallbacks(lift); cancelChildren()
                 if (claim == Claim.MOVE) {
-                    if (Overlay.docked.value) Overlay.lp?.let { Overlay.dock(Overlay.dockRight.value, it.y) } else { Overlay.resetShrink(); Overlay.settle() }
+                    if (Overlay.docked.value) Overlay.lp?.let { Overlay.dock(Overlay.dockRight.value, it.y) } else Overlay.settle()
                 }
                 claim = Claim.NONE
+                velocity?.recycle(); velocity = null
                 return true
             }
         }
@@ -769,13 +696,6 @@ private class GestureFrame(ctx: Context) : FrameLayout(ctx) {
 }
 
 private val PAD = 7.dp
-
-/** Report a button's bounds so the gesture frame lets its taps through. */
-@Composable
-internal fun Modifier.control(key: String): Modifier {
-    DisposableEffect(key) { onDispose { Overlay.controls.remove(key) } }
-    return this.onGloballyPositioned { c -> val b = c.boundsInRoot(); Overlay.controls[key] = RectF(b.left, b.top, b.right, b.bottom) }
-}
 
 @Composable
 internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (@Composable (String) -> Unit)? = null) {
@@ -808,128 +728,151 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
         else -> Palette.word(mode)
     }
 
-    Box(Modifier.padding(PAD)) {
-        Box(Modifier.width(w).height(h).glowBorder(mode, corner, pad = PAD - 1.dp)) {
-            Box(
-                Modifier.fillMaxSize().clip(RoundedCornerShape(corner)).background(Palette.ink)
-                    .onGloballyPositioned { c -> val b = c.boundsInRoot(); Overlay.frameRect.set(b.left, b.top, b.right, b.bottom) },
-            ) {
-                // 1.3 beta3: with a question open, the picture goes soft behind the glass card (frosted, not covered).
-                Box(Modifier.fillMaxSize().then(if (waiting.isNotEmpty()) Modifier.blur(10.dp) else Modifier)) {
-                    if (picture != null) picture(owner) else VScreenLiveFrame(owner, Modifier.fillMaxSize(), interactive = false)
+    // 1.3.0-beta16 (REVIEW-OVERLAY-GESTURES-1.3, P0): the picture is sacred. The window is a bar on top (title, full
+    // screen, close: hold or drag it anywhere to move the window), the picture, and an action row under it; a question
+    // card hangs OUTSIDE the window (below it, or above when there is no room below). Nothing is drawn over the picture.
+    val asking = waiting.firstOrNull()
+    val cardAbove = remember(asking?.id) { asking != null && Overlay.cardAbove() }
+    LaunchedEffect(asking?.id) { delay(80); Overlay.settle() }
+    val bar = Color(0xE612141C)
+
+    Column(Modifier.padding(PAD).width(w), verticalArrangement = Arrangement.spacedBy((6 * k).dp)) {
+        if (asking != null && cardAbove) AskQuick(asking, waiting.size, k, inOverlay = true, modifier = Modifier.fillMaxWidth())
+        Box(Modifier.width(w).glowBorder(mode, corner, pad = PAD - 1.dp)) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(corner)).background(Palette.ink)) {
+                // The bar.
+                Row(Modifier.fillMaxWidth().height((32 * k).dp).background(bar).padding(start = (10 * k).dp, end = (4 * k).dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size((7 * k).dp).clip(CircleShape).background(if (mode == Mode.ACTING) Brush.sweepGradient(Palette.rainbow) else Brush.linearGradient(listOf(Palette.of(mode), Palette.of(mode)))))
+                    Spacer(Modifier.width((6 * k).dp))
+                    Text(title, color = Color.White, fontSize = (11 * k).sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                    RoundBtn(Icons.Filled.OpenInFull, tr("全屏", "Full screen"), Color.Transparent, k) { Overlay.openFull() }
+                    RoundBtn(Icons.Filled.Close, if (mode == Mode.ACTING || mode == Mode.STANDBY || mode == Mode.TAKEOVER) tr("隐藏小窗", "Hide window") else tr("关闭副屏", "Close screen"),
+                        Color.Transparent, k) { Overlay.closeTapped() }
                 }
-                if (waiting.isNotEmpty()) Box(Modifier.fillMaxSize().background(Color(0x40120F22)))
-                // A soft scrim under the pill and buttons keeps them readable on white pages.
-                Box(Modifier.fillMaxWidth().height((44 * k).dp).background(Brush.verticalGradient(listOf(Color(0x99000000), Color.Transparent))))
-            }
-
-            // Title pill (drag handle while you hold the screen).
-            Row(
-                Modifier.align(Alignment.TopStart).padding(start = (8 * k).dp, top = (8 * k).dp).widthIn(max = w - (78 * k).dp)
-                    .clip(RoundedCornerShape(50)).background(Color(0xCC12141C))
-                    .onGloballyPositioned { c -> val b = c.boundsInRoot(); Overlay.pillRect.set(b.left, b.top, b.right, b.bottom) }
-                    .padding(horizontal = (8 * k).dp, vertical = (4 * k).dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size((7 * k).dp).clip(CircleShape).background(if (mode == Mode.ACTING) Brush.sweepGradient(Palette.rainbow) else Brush.linearGradient(listOf(Palette.of(mode), Palette.of(mode)))))
-                Spacer(Modifier.width((5 * k).dp))
-                Text(title, color = Color.White, fontSize = (11 * k).sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-            }
-
-            // Buttons, top right: full screen, close. Same places in every state.
-            Row(Modifier.align(Alignment.TopEnd).padding(end = (6 * k).dp, top = (6 * k).dp)) {
-                RoundBtn(Icons.Filled.OpenInFull, tr("全屏", "Full screen"), Color(0xCC12141C), k, "full") { Overlay.openFull() }
-                Spacer(Modifier.width((5 * k).dp))
-                RoundBtn(Icons.Filled.Close, if (mode == Mode.ACTING || mode == Mode.STANDBY || mode == Mode.TAKEOVER) tr("隐藏小窗", "Hide window") else tr("关闭副屏", "Close screen"),
-                    Color(0xCC12141C), k, "close") { Overlay.closeTapped() }
-            }
-
-            // Stop the AI: its own labelled place, bottom left, only while the AI has the screen.
-            if (mode == Mode.ACTING || mode == Mode.STANDBY) {
-                Row(
-                    Modifier.align(Alignment.BottomStart).padding(start = (8 * k).dp, bottom = (8 * k).dp).control("stop")
-                        .clip(RoundedCornerShape(50)).background(Palette.stopped).clickable { BackgroundOperation.userStop() }
-                        .padding(horizontal = (10 * k).dp, vertical = (5 * k).dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Filled.Stop, null, tint = Color.White, modifier = Modifier.size((13 * k).dp))
-                    Spacer(Modifier.width((3 * k).dp))
-                    Text(tr("停止 AI", "Stop AI"), color = Color.White, fontSize = (11 * k).sp, fontWeight = FontWeight.SemiBold)
+                // The picture: the only layer whose fingers reach the background screen.
+                Box(Modifier.width(w).height(h)) { PictureLayer(owner, k, picture) }
+                // The action row, when there is something to do.
+                val action: Triple<String, Color, () -> Unit>? = when {
+                    teachN != null && mode == Mode.TAKEOVER -> Triple(tr("完成", "Done") + " · $teachN", Palette.asking) { com.kilon.agentvscreen.cmd.Teach.finish(octx.applicationContext) }
+                    mode == Mode.ACTING || mode == Mode.STANDBY -> Triple(tr("停止 AI", "Stop AI"), Palette.stopped) { BackgroundOperation.userStop() }
+                    mode == Mode.TAKEOVER || mode == Mode.STOPPED -> Triple(tr("交还 AI", "Hand back"), Palette.takeover) { BackgroundOperation.userResume() }
+                    else -> null
+                }
+                if (action != null) Row(Modifier.fillMaxWidth().background(bar).padding(horizontal = (8 * k).dp, vertical = (6 * k).dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                    if (mode == Mode.STOPPED) Text(tr("已停止 AI", "AI stopped"), color = Color(0xFFFCA5A5), fontSize = (10.5f * k).sp, maxLines = 1, modifier = Modifier.weight(1f))
+                    val dark = action.second == Palette.takeover
+                    Row(
+                        Modifier.clip(RoundedCornerShape(50)).background(action.second).clickable(onClick = action.third)
+                            .padding(horizontal = (14 * k).dp, vertical = (5 * k).dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(if (dark) Icons.Filled.SmartToy else Icons.Filled.Stop, null, tint = if (dark) Color(0xFF052E1C) else Color.White, modifier = Modifier.size((13 * k).dp))
+                        Spacer(Modifier.width((4 * k).dp))
+                        Text(action.first, color = if (dark) Color(0xFF052E1C) else Color.White, fontSize = (11.5f * k).sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    }
                 }
             }
+        }
+        if (asking != null && !cardAbove) AskQuick(asking, waiting.size, k, inOverlay = true, modifier = Modifier.fillMaxWidth())
+    }
+}
 
-            // Stopped: say what that means right on the window.
-            if (mode == Mode.STOPPED && waiting.isEmpty()) {
-                Text(tr("已停止 AI：它的操作会被拒绝，点“交还 AI”或通知里的“允许继续”放开", "AI stopped: its actions are refused. Tap \"Hand back\" or \"Allow again\" in the notification to lift it"), color = Color.White, fontSize = (10 * k).sp, lineHeight = (13 * k).sp,
-                    modifier = Modifier.align(Alignment.Center).padding(horizontal = (12 * k).dp).clip(RoundedCornerShape(10.dp)).background(Color(0xDD7F1D1D)).padding(horizontal = 8.dp, vertical = 5.dp))
-            }
-
-            // Recording a lesson: Done, bottom centre (hand back comes after the review).
-            if (teachN != null && mode == Mode.TAKEOVER) {
-                Row(
-                    Modifier.align(Alignment.BottomCenter).padding(bottom = (10 * k).dp).control("teach-done")
-                        .clip(RoundedCornerShape(50)).background(Palette.asking).clickable { com.kilon.agentvscreen.cmd.Teach.stop(octx.applicationContext) }
-                        .padding(horizontal = (12 * k).dp, vertical = (6 * k).dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Filled.Stop, null, tint = Color.White, modifier = Modifier.size((14 * k).dp))
-                    Spacer(Modifier.width((4 * k).dp))
-                    Text(tr("完成", "Done") + " · $teachN", color = Color.White, fontSize = (12 * k).sp, fontWeight = FontWeight.SemiBold)
+/**
+ * The picture. Taken over: a finger here IS a finger on the background screen from the moment it lands (UserTouch),
+ * cancelled (never tapped) when the window takes the touch back for a pinch. Not taken over: hold 0.5 s to take over
+ * (a ring shows it filling), a tap shows the gesture hint, a drag is the window's (the frame takes it).
+ */
+@Composable
+private fun PictureLayer(owner: String, k: Float, picture: (@Composable (String) -> Unit)?) {
+    var hold by remember { mutableFloatStateOf(0f) }
+    var holdAt by remember { mutableStateOf(Offset.Zero) }
+    val density = LocalDensity.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Box(Modifier.fillMaxSize().pointerInput(owner) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            Overlay.pictureDown = true
+            val frame = RectF(0f, 0f, size.width.toFloat(), size.height.toFloat())
+            fun screen(p: Offset) = pictureToScreen(p.x.coerceIn(0f, frame.right - 1f), p.y.coerceIn(0f, frame.bottom - 1f), frame)
+            val st = BackgroundOperation.state.value
+            val taken = st.takeoverSessionId != null && st.takeoverSessionId == st.ownerSessionId
+            if (taken) {
+                val p0 = screen(down.position) ?: return@awaitEachGesture
+                if (!com.kilon.agentvscreen.core.UserTouch.down(owner, p0.first, p0.second)) return@awaitEachGesture
+                Overlay.pictureLive = true
+                var ended = false
+                try {
+                    while (true) {
+                        val ev = awaitPointerEvent()
+                        val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!ch.pressed) {
+                            if (!Overlay.frameClaimed) { val p = screen(ch.position); com.kilon.agentvscreen.core.UserTouch.up(p?.first ?: -1, p?.second ?: -1); ended = true }
+                            break
+                        }
+                        screen(ch.position)?.let { com.kilon.agentvscreen.core.UserTouch.move(it.first, it.second) }
+                        ch.consume()
+                    }
+                } finally {
+                    if (!ended) com.kilon.agentvscreen.core.UserTouch.cancel()
+                    Overlay.pictureLive = false
                 }
-            } else
-            // Hand back, bottom centre.
-            if (mode == Mode.TAKEOVER || mode == Mode.STOPPED) {
-                Row(
-                    Modifier.align(Alignment.BottomCenter).padding(bottom = (10 * k).dp).control("handback")
-                        .clip(RoundedCornerShape(50)).background(Palette.takeover).clickable { BackgroundOperation.userResume() }
-                        .padding(horizontal = (12 * k).dp, vertical = (6 * k).dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Filled.SmartToy, null, tint = Color(0xFF052E1C), modifier = Modifier.size((14 * k).dp))
-                    Spacer(Modifier.width((4 * k).dp))
-                    Text(tr("交还 AI", "Hand back"), color = Color(0xFF052E1C), fontSize = (12 * k).sp, fontWeight = FontWeight.SemiBold)
-                }
+            } else {
+                holdAt = down.position
+                val t0 = SystemClock.uptimeMillis()
+                var held = false
+                var up = false
+                try {
+                    while (true) {
+                        val ev = withTimeoutOrNull(16L) { awaitPointerEvent() }
+                        if (Overlay.frameClaimed) break
+                        if (!held) {
+                            hold = ((SystemClock.uptimeMillis() - t0 - 100L) / 400f).coerceIn(0f, 1f)
+                            if (hold >= 1f) {
+                                held = true; hold = 0f; Overlay.pictureHeld = true
+                                if (BackgroundOperation.state.value.userStopped) BackgroundOperation.userResume()
+                                BackgroundOperation.beginTakeover(owner)
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            }
+                        }
+                        if (ev == null) continue
+                        val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!ch.pressed) { up = true; break }
+                    }
+                } finally { hold = 0f }
+                if (up && !held && !Overlay.frameClaimed) Overlay.hintAt.longValue = SystemClock.uptimeMillis()
             }
+        }
+    }) {
+        if (picture != null) picture(owner) else VScreenLiveFrame(owner, Modifier.fillMaxSize(), interactive = false)
 
-            // 1.3 beta2: a question from an agent, answered right here.
-            waiting.firstOrNull()?.let { a ->
-                AskQuick(a, waiting.size, k, inOverlay = true, modifier = Modifier.align(Alignment.Center).padding(horizontal = (8 * k).dp))
-            }
+        // Gesture hint (a tap on the picture while the AI has the screen).
+        var now by remember { mutableLongStateOf(SystemClock.uptimeMillis()) }
+        LaunchedEffect(Overlay.hintAt.longValue) { now = SystemClock.uptimeMillis(); delay(3100); now = SystemClock.uptimeMillis() }
+        val showHint = Overlay.hintAt.longValue > 0 && now - Overlay.hintAt.longValue < 2500
+        AnimatedVisibility(showHint, Modifier.align(Alignment.Center), enter = fadeIn(), exit = fadeOut()) {
+            Text(tr("长按 0.5 秒接管 · 双指缩放 · 拖出屏幕一半收起", "Hold 0.5 s to take over · pinch to resize · drag half off screen to fold"), color = Color.White, fontSize = (11 * k).sp,
+                modifier = Modifier.padding(8.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xDD12141C)).padding(horizontal = 10.dp, vertical = 6.dp))
+        }
 
-            // Messages: gesture hints.
-            var now by remember { mutableLongStateOf(SystemClock.uptimeMillis()) }
-            LaunchedEffect(Overlay.hintAt.longValue) { now = SystemClock.uptimeMillis(); delay(3100); now = SystemClock.uptimeMillis() }
-            val hint = when {
-                Overlay.hintAt.longValue > 0 && now - Overlay.hintAt.longValue < 2500 -> tr("长按 1 秒接管 · 双指缩放 · 拖到边缘收起 · × 关闭", "Hold 1 s to take over · pinch to resize · drag to an edge to dock · × closes")
-                else -> null
+        // Hold-to-take-over ring.
+        if (hold > 0f) {
+            val ringR = with(density) { (28 * k).dp.toPx() }
+            Canvas(Modifier.fillMaxSize()) {
+                drawCircle(Color(0x66000000), ringR + 6f, holdAt)
+                drawArc(Palette.takeover, -90f, 360f * hold, false, topLeft = Offset(holdAt.x - ringR, holdAt.y - ringR),
+                    size = androidx.compose.ui.geometry.Size(ringR * 2, ringR * 2), style = Stroke(width = 6f, cap = StrokeCap.Round))
             }
-            AnimatedVisibility(hint != null, Modifier.align(Alignment.Center), enter = fadeIn(), exit = fadeOut()) {
-                Text(hint ?: "", color = Color.White, fontSize = (11 * k).sp,
-                    modifier = Modifier.padding(8.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xDD12141C)).padding(horizontal = 10.dp, vertical = 6.dp))
-            }
-
-            // Hold-to-take-over ring.
-            val p = Overlay.hold.floatValue
-            if (p > 0f) {
-                val at = Overlay.holdAt.value
-                val ringR = with(density) { (28 * k).dp.toPx() }
-                Canvas(Modifier.fillMaxSize()) {
-                    val c = Offset(at.x - Overlay.frameRect.left, at.y - Overlay.frameRect.top)
-                    drawCircle(Color(0x66000000), ringR + 6f, c)
-                    drawArc(Palette.takeover, -90f, 360f * p, false, topLeft = Offset(c.x - ringR, c.y - ringR),
-                        size = androidx.compose.ui.geometry.Size(ringR * 2, ringR * 2), style = Stroke(width = 6f, cap = StrokeCap.Round))
-                }
-                Icon(Icons.Filled.PanTool, null, tint = Color.White, modifier = Modifier.offset {
-                    IntOffset((at.x - Overlay.frameRect.left).roundToInt() - 24, (at.y - Overlay.frameRect.top).roundToInt() - 24) }.size(16.dp))
-            }
+            Icon(Icons.Filled.PanTool, null, tint = Color.White, modifier = Modifier.offset { IntOffset(holdAt.x.roundToInt() - 24, holdAt.y.roundToInt() - 24) }.size(16.dp))
         }
     }
 }
 
 @Composable
-private fun RoundBtn(icon: ImageVector, desc: String, bg: Color, k: Float, key: String, onClick: () -> Unit) {
+private fun RoundBtn(icon: ImageVector, desc: String, bg: Color, k: Float, onClick: () -> Unit) {
     Box(
-        Modifier.size((28 * k).dp).control(key).clip(CircleShape).background(bg).clickable(onClick = onClick),
+        Modifier.size((30 * k).dp).clip(CircleShape).background(bg).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, desc, tint = Color.White, modifier = Modifier.size((15 * k).dp)) }
 }

@@ -120,6 +120,8 @@ object UserAsk {
             else -> if (allow) "answered ${a.kind.key}" else "declined"
         }
         Audit.consent(a.tokenName, a.session, "${a.title} — ${a.detail}", what)
+        told(ctx, a, if (allow) tr("用户已回答（${a.kind.key}）：把同一条命令再发一次取结果", "The user answered (${a.kind.key}): send the same command again for the result")
+            else tr("用户没有回答（${a.kind.key}）", "The user declined (${a.kind.key})"))
         quiet("ask-cancel") { ctx.getSystemService(NotificationManager::class.java)?.cancel(noteId(id)) }
     }
 
@@ -137,9 +139,21 @@ object UserAsk {
         }
         ended.forEach { a ->
             Audit.consent(a.tokenName, a.session, "${a.title} — ${a.detail}", "ended: $reason")
+            ctx?.let { told(it, a, tr("副屏已关闭（$reason），这个请求结束了", "The background screen was closed ($reason); this request ended")) }
             ctx?.let { c -> quiet("ask-ended") { c.getSystemService(NotificationManager::class.java)?.cancel(noteId(a.id)) } }
         }
     }
+
+    /**
+     * 1.3.0-beta16: an answer is also an event for the session that asked (`vscreen events`), so an agent that is not
+     * blocked in the command hears about it (a lesson finished, a point picked) without polling.
+     */
+    private fun told(ctx: Context, a: Ask, text: String) = quiet("ask-event") {
+        com.kilon.agentvscreen.api.EventHub.post(ctx, a.session, "ask", a.title.take(60), text)
+    }
+
+    /** Questions of [session] still waiting for the user (events can wait for their answers). */
+    fun openFor(session: String): Int = synchronized(lock) { asks.count { it.session == session && it.live } }
 
     /** Why a declined question ended without the user (the screen went away), or null when the user declined. */
     fun endedWhy(a: Ask): String? = a.reply?.optString("ended")?.takeIf { it.isNotBlank() }

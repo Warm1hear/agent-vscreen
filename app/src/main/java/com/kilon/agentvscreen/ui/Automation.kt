@@ -1,0 +1,352 @@
+package com.kilon.agentvscreen.ui
+
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
+import android.content.Context
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.kilon.agentvscreen.core.VScreenMap
+import com.kilon.agentvscreen.host.Wake
+import com.kilon.agentvscreen.tr
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.time.LocalDate
+
+/*
+ * 1.3.0-beta15: the "定时与示教" page. Schedules look and work like alarms (a big time, a switch, tap to change it);
+ * the lessons the user saved are listed by app, each opening to its steps.
+ */
+
+private fun hm(m: Int) = "%02d:%02d".format(m / 60, m % 60)
+
+private val DAY_KEYS = listOf("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+private fun dayLabels() = listOf(tr("一", "M"), tr("二", "T"), tr("三", "W"), tr("四", "T"), tr("五", "F"), tr("六", "S"), tr("日", "S"))
+
+/** What the editor holds; [text] is the same words an agent would book with (`Wake.parse` reads it). */
+private data class Draft(
+    val kind: Int, // 0 = at these times, 1 = every N minutes, 2 = one day only
+    val days: Int, val times: List<Int>, val every: Int, val from: Int, val to: Int,
+    val date: LocalDate, val forMin: Int, val on: Boolean,
+) {
+    private fun dayWord() = if (days == 0x7F) "daily" else DAY_KEYS.filterIndexed { i, _ -> days and (1 shl i) != 0 }.joinToString(",")
+    fun text(): String = when (kind) {
+        1 -> "${dayWord()} every ${every}m from ${hm(from)} to ${hm(to)}"
+        2 -> "$date " + times.joinToString(",") { hm(it) }
+        else -> "${dayWord()} " + times.joinToString(",") { hm(it) }
+    }
+
+    companion object {
+        fun of(e: Wake.Entry): Draft {
+            val s = e.spec
+            val kind = if (s.date != null) 2 else if (s.everyMin > 0) 1 else 0
+            return Draft(kind, s.days, s.times.ifEmpty { listOf(8 * 60) }, s.everyMin.takeIf { it > 0 } ?: 120, s.fromMin, s.toMin,
+                s.date ?: LocalDate.now(), e.forMin, e.on)
+        }
+    }
+}
+
+private fun pickTime(ctx: Context, at: Int, done: (Int) -> Unit) =
+    TimePickerDialog(ctx, { _, h, m -> done(h * 60 + m) }, (at / 60) % 24, at % 60, true).show()
+
+/** The schedules, one alarm-like card each. */
+@Composable
+internal fun SchedulesCards(tick: Int) {
+    val ctx = LocalContext.current
+    var list by remember { mutableStateOf(Wake.list(ctx)) }
+    var again by remember { mutableIntStateOf(0) }
+    var editing by remember { mutableStateOf<Wake.Entry?>(null) }
+    LaunchedEffect(tick, again) { list = withContext(Dispatchers.IO) { Wake.arm(ctx); Wake.list(ctx) } }
+    if (list.isEmpty()) { Note(tr("还没有预约。agent 用 vscreen schedule 预约", "Nothing booked. Agents book with vscreen schedule")); return }
+    list.forEach { e ->
+        val j = e.json()
+        val big = when {
+            e.spec.everyMin > 0 -> tr("每 ${e.spec.everyMin} 分钟", "Every ${e.spec.everyMin} min")
+            else -> e.spec.times.joinToString("  ") { hm(it) }
+        }
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.06f))
+                .clickable { editing = e }.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f).alpha(if (e.on) 1f else 0.45f)) {
+                Text(big, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(e.spec.describe() + tr(" · 保持 ${e.forMin} 分钟", " · ${e.forMin} min"), fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text((if (e.on) tr("下次 ${j.optString("next_local", "—")}", "Next ${j.optString("next_local", "—")}") else tr("已关闭", "Off")) + " · ${e.name} · ${e.by}",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Switch(checked = e.on, onCheckedChange = { v ->
+                runCatching { Wake.edit(ctx, e.name, e.text, e.forMin, v) }; again++
+            })
+        }
+    }
+    editing?.let { e -> ScheduleEditor(e, onClose = { editing = null; again++ }) }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    var d by remember(e.name) { mutableStateOf(Draft.of(e)) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var askDelete by remember { mutableStateOf(false) }
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.padding(horizontal = 18.dp).fillMaxWidth().glass(RoundedCornerShape(28.dp))
+                .verticalScroll(rememberScrollState()).padding(20.dp).animateContentSize(),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(tr("调整预约", "Edit schedule"), fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text(e.name, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            // How it repeats.
+            Segmented(listOf(tr("按时间", "At times"), tr("按间隔", "Interval"), tr("仅一次", "Once")), d.kind) { d = d.copy(kind = it); error = null }
+
+            when (d.kind) {
+                1 -> {
+                    Group(tr("间隔", "Every")) {
+                        Stepper("${d.every} " + tr("分钟", "min"), { d = d.copy(every = (d.every - 30).coerceAtLeast(Wake.MIN_EVERY_MIN)) }, { d = d.copy(every = (d.every + 30).coerceAtMost(24 * 60)) })
+                    }
+                    Group(tr("时段", "Between")) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            TimeChip(hm(d.from)) { pickTime(ctx, d.from) { d = d.copy(from = it) } }
+                            Text("–", fontSize = 18.sp)
+                            TimeChip(if (d.to >= 1440) "24:00" else hm(d.to)) { pickTime(ctx, d.to.coerceAtMost(1439)) { d = d.copy(to = if (it == 0) 1440 else it) } }
+                        }
+                    }
+                }
+                else -> Group(tr("时间", "Times")) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        d.times.forEachIndexed { i, t ->
+                            TimeChip(hm(t), onRemove = if (d.times.size > 1) ({ d = d.copy(times = d.times.filterIndexed { k, _ -> k != i }) }) else null) {
+                                pickTime(ctx, t) { n -> d = d.copy(times = (d.times.filterIndexed { k, _ -> k != i } + n).distinct().sorted()) }
+                            }
+                        }
+                        if (d.times.size < 24) Box(
+                            Modifier.clip(RoundedCornerShape(50)).border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(50))
+                                .clickable { pickTime(ctx, (d.times.lastOrNull() ?: 480) + 60) { n -> d = d.copy(times = (d.times + n).distinct().sorted()) } }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                        ) { Icon(Icons.Filled.Add, tr("加一个时间", "Add a time"), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)) }
+                    }
+                }
+            }
+
+            if (d.kind == 2) Group(tr("日期", "Day")) {
+                TimeChip("${d.date.monthValue}-${d.date.dayOfMonth}") {
+                    DatePickerDialog(ctx, { _, y, m, day -> d = d.copy(date = LocalDate.of(y, m + 1, day)) }, d.date.year, d.date.monthValue - 1, d.date.dayOfMonth)
+                        .apply { datePicker.minDate = System.currentTimeMillis() - 1000 }.show()
+                }
+            } else Group(tr("重复", "Repeat")) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    dayLabels().forEachIndexed { i, l ->
+                        val on = d.days and (1 shl i) != 0
+                        Box(
+                            Modifier.size(36.dp).clip(CircleShape)
+                                .background(if (on) Glass.accent else Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f), MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))))
+                                .clickable { val n = d.days xor (1 shl i); if (n != 0) d = d.copy(days = n) },
+                            contentAlignment = Alignment.Center,
+                        ) { Text(l, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (on) Color.White else MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(tr("每天", "Daily") to 0x7F, tr("工作日", "Weekdays") to 0x1F, tr("周末", "Weekends") to 0x60).forEach { (w, m) ->
+                        Text(w, fontSize = 12.sp, color = if (d.days == m) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (d.days == m) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier.clip(RoundedCornerShape(50)).clickable { d = d.copy(days = m) }.padding(horizontal = 8.dp, vertical = 4.dp))
+                    }
+                }
+            }
+
+            Group(tr("每次保持", "Keep ready for")) {
+                Stepper("${d.forMin} " + tr("分钟", "min"), { d = d.copy(forMin = (d.forMin - 1).coerceAtLeast(1)) }, { d = d.copy(forMin = (d.forMin + 1).coerceAtMost(Wake.MAX_FOR_MIN)) })
+            }
+
+            SwitchRow(tr("启用", "On"), checked = d.on) { d = d.copy(on = it) }
+
+            error?.let { Text(it, fontSize = 13.sp, color = Palette.stopped) }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { askDelete = true }) { Text(tr("删除", "Delete"), color = Palette.stopped) }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onClose) { Text(tr("取消", "Cancel")) }
+                Spacer(Modifier.width(6.dp))
+                Box(
+                    Modifier.clip(RoundedCornerShape(50)).background(Glass.accent).clickable {
+                        try { Wake.edit(ctx, e.name, d.text(), d.forMin, d.on); onClose() }
+                        catch (x: Wake.BadSpec) { error = x.message }
+                    }.padding(horizontal = 22.dp, vertical = 10.dp),
+                ) { Text(tr("保存", "Save"), color = Color.White, fontWeight = FontWeight.SemiBold) }
+            }
+        }
+    }
+    if (askDelete) AlertDialog(
+        onDismissRequest = { askDelete = false },
+        title = { Text(tr("删除这个预约？", "Delete this schedule?")) },
+        text = { Text(tr("${e.by} 预约的「${e.name}」会被删掉，到点不再拉起服务。", "\"${e.name}\" booked by ${e.by} goes; the service is no longer started for it.")) },
+        confirmButton = { TextButton(onClick = { Wake.remove(ctx, e.name); askDelete = false; onClose() }) { Text(tr("删除", "Delete"), color = Palette.stopped) } },
+        dismissButton = { TextButton(onClick = { askDelete = false }) { Text(tr("取消", "Cancel")) } },
+    )
+}
+
+@Composable
+private fun Group(title: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+        content()
+    }
+}
+
+@Composable
+private fun Segmented(items: List<String>, selected: Int, onPick: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)).padding(4.dp)) {
+        items.forEachIndexed { i, s ->
+            Box(
+                Modifier.weight(1f).clip(RoundedCornerShape(50)).then(if (i == selected) Modifier.background(Glass.accent) else Modifier)
+                    .clickable { onPick(i) }.padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(s, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (i == selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+    }
+}
+
+@Composable
+private fun TimeChip(label: String, onRemove: (() -> Unit)? = null, onClick: () -> Unit) {
+    Row(
+        Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)).clickable(onClick = onClick)
+            .padding(start = 16.dp, end = if (onRemove != null) 6.dp else 16.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+        if (onRemove != null) Box(Modifier.padding(start = 4.dp).size(28.dp).clip(CircleShape).clickable(onClick = onRemove), contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.Close, tr("去掉", "Remove"), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun Stepper(value: String, minus: () -> Unit, plus: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        RoundIcon(Icons.Filled.Remove, tr("减少", "Less"), minus)
+        Text(value, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.heightIn(min = 28.dp))
+        RoundIcon(Icons.Filled.Add, tr("增加", "More"), plus)
+    }
+}
+
+@Composable
+private fun RoundIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Box(Modifier.size(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(icon, label, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+    }
+}
+
+/** The lessons saved on this phone, by app; each opens to its steps. */
+@Composable
+internal fun LessonsList(tick: Int) {
+    val ctx = LocalContext.current
+    var again by remember { mutableIntStateOf(0) }
+    var all by remember { mutableStateOf<List<Pair<String, VScreenMap.Segment>>>(emptyList()) }
+    LaunchedEffect(tick, again) { all = withContext(Dispatchers.IO) { VScreenMap.allSegments() } }
+    var open by remember { mutableStateOf<String?>(null) }
+    var askDelete by remember { mutableStateOf<Pair<String, VScreenMap.Segment>?>(null) }
+    if (all.isEmpty()) { Note(tr("还没有保存的示教。agent 发 teach 请你演示，或在全屏页点录制", "No saved lessons yet. An agent asks with teach, or tap record on the full screen page")); return }
+    all.groupBy { it.first }.forEach { (pkg, list) ->
+        val label = remember(pkg) { runCatching { ctx.packageManager.getApplicationLabel(ctx.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg) }
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        list.forEach { (p, s) ->
+            val key = "$p/${s.name}"
+            val steps = remember(s.steps) { s.steps.split(';').map { it.trim() }.filter { it.isNotEmpty() } }
+            val isOpen = open == key
+            val turn by androidx.compose.animation.core.animateFloatAsState(if (isOpen) 180f else 0f, label = "lesson")
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.06f))
+                    .clickable { open = if (isOpen) null else key }.padding(horizontal = 14.dp, vertical = 12.dp).animateContentSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(s.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(tr("${steps.size} 步", "${steps.size} steps") + (if (s.uses > 0) tr(" · 用过 ${s.uses} 次", " · used ${s.uses}×") else "") +
+                            " · " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(s.at)),
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Filled.KeyboardArrowDown, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.rotate(turn))
+                }
+                if (isOpen) {
+                    steps.forEachIndexed { i, st ->
+                        Row(verticalAlignment = Alignment.Top) {
+                            Box(Modifier.size(22.dp).clip(CircleShape).background(Glass.accent), contentAlignment = Alignment.Center) {
+                                Text("${i + 1}", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Text(st, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f))
+                        }
+                    }
+                    Row {
+                        Text(tr("agent 用：act \"use ${s.name}\"", "Agents run it with: act \"use ${s.name}\""), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f).align(Alignment.CenterVertically))
+                        TextButton(onClick = { askDelete = p to s }) { Text(tr("删除", "Delete"), color = Palette.stopped) }
+                    }
+                }
+            }
+        }
+    }
+    askDelete?.let { (p, s) ->
+        AlertDialog(
+            onDismissRequest = { askDelete = null },
+            title = { Text(tr("删除示教「${s.name}」？", "Delete lesson \"${s.name}\"?")) },
+            text = { Text(tr("agent 以后不能再用 use ${s.name} 重放它。", "Agents can no longer replay it with use ${s.name}.")) },
+            confirmButton = { TextButton(onClick = { VScreenMap.deleteSegment(p, s.name); askDelete = null; again++ }) { Text(tr("删除", "Delete"), color = Palette.stopped) } },
+            dismissButton = { TextButton(onClick = { askDelete = null }) { Text(tr("取消", "Cancel")) } },
+        )
+    }
+}

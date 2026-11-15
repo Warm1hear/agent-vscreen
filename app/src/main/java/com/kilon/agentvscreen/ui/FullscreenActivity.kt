@@ -38,6 +38,14 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.animation.animateContentSize
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -65,7 +73,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -172,9 +179,18 @@ class FullscreenActivity : ComponentActivity() {
             Teach.beginFor(a)
         }
 
-        Box(Modifier.fillMaxSize().background(Color(0xFF07080D))) {
+        // 1.3.0-beta16: the picture gets the space between the top block and the bottom block, measured: nothing (the
+        // request card, a question, the typing box) is ever drawn over it, so no tap meant for those lands on the
+        // screen and no part of the screen (a search box at its top) is hidden.
+        val density = LocalDensity.current
+        var rootH by remember { mutableFloatStateOf(0f) }
+        var topEdge by remember { mutableFloatStateOf(0f) }
+        var bottomEdge by remember { mutableFloatStateOf(0f) }
+        val brief = if (recording) Teach.brief() else null
+        Box(Modifier.fillMaxSize().background(Color(0xFF07080D)).onSizeChanged { rootH = it.height.toFloat() }) {
             // The picture, fitted, with its border.
-            BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(top = 56.dp, bottom = if (typing) 140.dp else 96.dp, start = 14.dp, end = 14.dp),
+            BoxWithConstraints(Modifier.fillMaxSize().padding(top = with(density) { topEdge.toDp() } + 6.dp,
+                bottom = with(density) { (rootH - bottomEdge).coerceAtLeast(0f).toDp() } + 6.dp, start = 14.dp, end = 14.dp),
                 contentAlignment = Alignment.Center) {
                 val aspect = Overlay.aspect()
                 val boxAspect = maxWidth / maxHeight
@@ -232,8 +248,9 @@ class FullscreenActivity : ComponentActivity() {
                 }
             }
 
-            // Top bar.
-            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Top block: the bar, and the request card when it sits at the top.
+            Column(Modifier.fillMaxWidth().statusBarsPadding().onGloballyPositioned { topEdge = it.boundsInRoot().bottom }) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Circle(Icons.Filled.CloseFullscreen, tr("退出全屏", "Exit full screen"), Color(0x33FFFFFF)) { if (Teach.recordingFor(session)) Teach.stop(applicationContext); finish() }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
@@ -245,6 +262,11 @@ class FullscreenActivity : ComponentActivity() {
                         Text(word, color = Color(0xCCFFFFFF), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
+                // The request folded into a ball: it lives here, in the bar, not over the picture.
+                if (brief != null && BriefPlace.ball) {
+                    Box(Modifier.size(44.dp).clip(CircleShape).clickable { BriefPlace.ball = false; BriefPlace.open = true }, contentAlignment = Alignment.Center) { AskMark(30f) }
+                    Spacer(Modifier.width(8.dp))
+                }
                 when (mode) {
                     Mode.ACTING, Mode.STANDBY -> Pill(tr("停止 AI", "Stop AI"), Icons.Filled.Stop, Palette.stopped, Color.White) { BackgroundOperation.userStop() }
                     else -> Circle(Icons.Filled.Close, tr("关闭副屏", "Close screen"), Color(0x33FFFFFF)) {
@@ -254,8 +276,7 @@ class FullscreenActivity : ComponentActivity() {
             }
 
             // 1.3.0-beta14: what the agent asked to be shown, in full, while the user shows it.
-            if (recording) Teach.brief()?.let { (who, what) ->
-                TeachBrief(who, what, Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp, start = 18.dp, end = 18.dp))
+            if (brief != null && !BriefPlace.ball && !BriefPlace.bottom) TeachBrief(brief.first, brief.second, Modifier.padding(start = 14.dp, end = 14.dp, bottom = 4.dp))
             }
 
             // Hint.
@@ -267,8 +288,10 @@ class FullscreenActivity : ComponentActivity() {
             }
 
             // Bottom bar.
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding().navigationBarsPadding().padding(12.dp),
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding().navigationBarsPadding().padding(12.dp)
+                .onGloballyPositioned { bottomEdge = it.boundsInRoot().top },
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (brief != null && !BriefPlace.ball && BriefPlace.bottom) TeachBrief(brief.first, brief.second, Modifier)
                 // 1.3 beta2: an agent's question, answered without leaving the full screen.
                 val waiting = pendingAsks().filter { !(recording && it.kind == UserAsk.Kind.TEACH) }
                 waiting.firstOrNull()?.let { a -> AskQuick(a, waiting.size, 1.15f, inOverlay = false, modifier = Modifier.fillMaxWidth()) }
@@ -322,7 +345,7 @@ class FullscreenActivity : ComponentActivity() {
                         if (!typing) Circle(Icons.AutoMirrored.Filled.Backspace, tr("删除", "Delete"), Color(0x22FFFFFF)) { vscreenUserInput(session) { Teach.key("del"); VScreenShell.key(it, "del") } }
                         if (!typing) Circle(Icons.AutoMirrored.Filled.KeyboardReturn, tr("回车", "Enter"), Color(0x22FFFFFF)) { vscreenUserInput(session) { Teach.key("enter"); VScreenShell.key(it, "enter") } }
                         // 示教: record what you do here as steps an agent can run again.
-                        if (recording) Pill(tr("完成", "Done") + " · $teachN", Icons.Filled.Stop, Palette.asking, Color.White) { Teach.stop(applicationContext) }
+                        if (recording) Pill(tr("完成", "Done") + " · $teachN", Icons.Filled.Stop, Palette.asking, Color.White) { Teach.finish(applicationContext) }
                         else {
                             Circle(Icons.Filled.FiberManualRecord, tr("示教：录下接下来的操作", "Teach: record what you do next"), Color(0x22FFFFFF)) {
                                 if (Teach.start(session, null, null)) toast(tr("开始录制：照常操作，做完点“完成”", "Recording: do it as usual, then tap Done"))
@@ -408,14 +431,40 @@ private class FieldMirror(private val session: String) {
     }
 }
 
-/** The agent's request, on dark glass with the orchid edge; tap to fold it to one line. */
+/** Where the request card is (kept while the app runs): top or bottom, open or one line, or a ball in the bar. */
+private object BriefPlace {
+    var open by mutableStateOf(true)
+    var bottom by mutableStateOf(false)
+    var ball by mutableStateOf(false)
+}
+
+/**
+ * The agent's request, on dark glass with the orchid edge, in its own space above or below the picture.
+ * Tap: open / one line. Drag up or down: move it to the top or the bottom. Swipe sideways: fold it into a ball in the bar.
+ */
 @Composable
 private fun TeachBrief(who: String?, what: String, modifier: Modifier) {
-    var open by remember(what) { mutableStateOf(true) }
+    val open = BriefPlace.open
     val shape = RoundedCornerShape(if (open) 22.dp else 50.dp)
+    var dx by remember { mutableFloatStateOf(0f) }
+    var dy by remember { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current
+    val far = with(density) { 64.dp.toPx() }
     Column(
-        modifier.fillMaxWidth().glassDark(shape).border(1.2.dp, Brush.linearGradient(listOf(Color(0xFF8B7CFF), Palette.asking)), shape)
-            .clickable { open = !open }.padding(horizontal = 14.dp, vertical = if (open) 12.dp else 8.dp),
+        modifier.fillMaxWidth().animateContentSize()
+            .graphicsLayer { translationX = dx; translationY = dy * 0.5f; alpha = 1f - (kotlin.math.abs(dx) / (far * 3)).coerceIn(0f, 0.6f) }
+            .pointerInput(Unit) {
+                detectDragGestures(onDragEnd = {
+                    when {
+                        kotlin.math.abs(dx) > far -> BriefPlace.ball = true
+                        dy > far -> BriefPlace.bottom = true
+                        dy < -far -> BriefPlace.bottom = false
+                    }
+                    dx = 0f; dy = 0f
+                }, onDragCancel = { dx = 0f; dy = 0f }) { ch, d -> ch.consume(); dx += d.x; dy += d.y }
+            }
+            .glassDark(shape).border(1.2.dp, Brush.linearGradient(listOf(Color(0xFF8B7CFF), Palette.asking)), shape)
+            .clickable { BriefPlace.open = !open }.padding(horizontal = 14.dp, vertical = if (open) 12.dp else 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -429,7 +478,7 @@ private fun TeachBrief(who: String?, what: String, modifier: Modifier) {
         }
         if (open) {
             Text(what, color = Color.White, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
-            Text(tr("照常操作，做完点下面的“完成”", "Do it as usual, then tap Done below"), color = Color(0x99FFFFFF), fontSize = 11.5.sp)
+            Text(tr("做完点“完成”。点卡片收起，上下拖换位置，左右滑收成小球", "Tap Done when finished. Tap to fold, drag up/down to move, swipe sideways for a ball"), color = Color(0x99FFFFFF), fontSize = 11.5.sp)
         }
     }
 }

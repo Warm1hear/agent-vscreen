@@ -132,6 +132,14 @@ internal object VScreenMap {
         return s
     }
 
+    /** 1.3.0-beta15: every saved segment of every app (the app's "saved lessons" page), newest first. */
+    @Synchronized fun allSegments(): List<Pair<String, Segment>> {
+        val pkgs = dir()?.listFiles { f -> f.isFile && f.name.endsWith(".json") }.orEmpty().mapNotNull { f ->
+            runCatching { JSONObject(f.readText()).optString("package").ifEmpty { null } }.getOrNull()
+        }
+        return pkgs.flatMap { p -> load(p).segments.map { p to it } }.sortedByDescending { it.second.at }
+    }
+
     @Synchronized fun markUsed(pkg: String, name: String) {
         val m = load(pkg)
         m.segments.firstOrNull { it.name == name }?.let { it.uses++; save(m) }

@@ -14,7 +14,9 @@ internal fun VScreenOffloadHandler.eventsCmd(sid: String?, args: OffloadArgs): N
     val want = boundedMs("wait", args.getLong("wait") ?: 0L, 0L, 120_000L)
     // 1.1: events come only from this session's running --keep wake watches. With none running, waiting cannot bring
     // anything, so the reply says that at once instead of silently returning early or uselessly blocking.
-    val watching = VScreenRules.running().count { it.spec.wake && it.spec.sid == s }
+    // 1.3.0-beta16: a question waiting for the user and the user holding the screen bring events too (answer, hand back).
+    val watching = VScreenRules.running().count { it.spec.wake && it.spec.sid == s } + com.kilon.agentvscreen.host.UserAsk.openFor(s) +
+        (if (com.kilon.agentvscreen.core.BackgroundOperation.state.value.let { it.ownerSessionId == s && (it.takeoverSessionId != null || it.userStopped) }) 1 else 0)
     val t0 = android.os.SystemClock.elapsedRealtime()
     val again = args.hasFlag("again")
     val evs = EventHub.take(s, if (watching > 0) want else 0L, again)

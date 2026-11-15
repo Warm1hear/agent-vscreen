@@ -185,6 +185,12 @@ internal object Teach {
         }, "vscreen-teach-stop").apply { isDaemon = true }.start()
     }
 
+    /** 1.3.0-beta16: "Done": stop recording AND hand the screen back (one tap, not Done then Hand back). */
+    fun finish(ctx: Context) {
+        stop(ctx)
+        if (BackgroundOperation.state.value.takeoverSessionId != null) BackgroundOperation.userResume()
+    }
+
     /** For tests: stop and wait for the steps. */
     internal fun stopNow(): Result? {
         stop(null)

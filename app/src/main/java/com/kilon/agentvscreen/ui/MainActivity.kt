@@ -171,8 +171,10 @@ class MainActivity : ComponentActivity() {
         val idle get() = tr("一轮结束后暂停副屏渲染，页面保留，下一条命令自动恢复。个别应用恢复时会重新加载，遇到可以关掉。", "Pauses rendering after a turn ends; the page is kept and the next command resumes it. A few apps reload on resume: turn this off if you see that.")
         val mute get() = tr("副屏里的应用不从手机放声音（视频、直播）。应用移到主屏、副屏释放时恢复声音；App 异常退出后，下次连接时先恢复。", "Apps on the background screen make no sound on the phone (videos, live streams). Their sound comes back when they move to the main screen or the screen is released; after a crash it is restored on the next connection.")
         val turn get() = tr("agent 安静多久算这一轮结束：之后副屏省电暂停，10 分钟后释放。agent 也可以用 vscreen done 马上结束。", "How long the agent stays quiet before its turn ends: the screen then pauses to save power and is released after 10 minutes. The agent can also end at once with vscreen done.")
-        val schedule get() = tr("agent 的定时任务要用手机时，可以用 vscreen schedule 预约时间。到点前 3 分钟这里会拉起服务并检查，没准备好会通知你。\n\n服务暂停时，下一个预约到点会自动打开；完全关闭时，到点不会打开，只通知你。",
-            "An agent whose timed task uses the phone can book the time with vscreen schedule. 3 minutes before, the service is started and checked here, and you are notified if it is not ready.\n\nWhile the service is paused, the next booking turns it on; while it is off, a booking only notifies you.")
+        val lessons get() = tr("你在副屏上演示过、保存下来的操作。agent 用 act \"use 名字\" 照着做一遍；点开能看到每一步，用不到的可以删掉。\n\n示教在全屏页录：agent 用 teach 请你演示，或者你接管后自己点录制。",
+            "What you showed on the background screen and saved. An agent runs one with act \"use name\"; open one to see its steps, delete the ones you no longer need.\n\nLessons are recorded on the full screen page: an agent asks with teach, or you take over and tap record.")
+        val schedule get() = tr("agent 的定时任务要用手机时，可以用 vscreen schedule 预约时间。到点前 3 分钟这里会拉起服务并检查，没准备好会通知你。\n\n服务暂停时，下一个预约到点会自动打开；完全关闭时，到点不会打开，只通知你。\n\n点开一条可以像闹钟一样改时间、重复和保持时长；关掉开关会保留这条预约，但到点不触发。",
+            "An agent whose timed task uses the phone can book the time with vscreen schedule. 3 minutes before, the service is started and checked here, and you are notified if it is not ready.\n\nWhile the service is paused, the next booking turns it on; while it is off, a booking only notifies you.\n\nOpen one to change its time, repeat and length like an alarm; switching it off keeps it but it does not fire.")
         val audit get() = tr("每条命令都记在这里：谁（哪个令牌、哪台设备）、什么时候、做了什么、结果。输入的文字只记字数。", "Every command is recorded here: who (which token, which device), when, what, and the result. Typed text is recorded as a length only.")
         val events get() = tr("盯守看到条件时的事件默认只放进队列（agent 用 vscreen events 取）。填了包名才会另外广播给那一个应用，别的应用收不到。", "When a watch sees its condition the event is only queued by default (agents collect it with vscreen events). With a package here it is also broadcast to that one app; no other app receives it.")
         val setup get() = tr("只用 Shizuku 这一条可共享的特权通道：不占用 adb，不改无线调试，不重启 adbd。每一项都只把本应用“加进去”，不动别的应用的设置。你的 agent 自己的 adb / Shizuku 照常用。", "Uses only Shizuku, a privilege channel that can be shared: adb is not taken, wireless debugging is not changed, adbd is not restarted. Each item only adds this app and leaves other apps' settings alone. Your agent's own adb / Shizuku keep working.")
@@ -226,8 +228,9 @@ class MainActivity : ComponentActivity() {
                         }
                         Page.SCREEN -> { PageHeader(tr("副屏与悬浮窗", "Screen and window")) { page = null }; ScreenPage(s) }
                         Page.SCHEDULE -> {
-                            PageHeader(tr("定时预约", "Scheduled times"), H.schedule) { page = null }
-                            Section { SchedulesPanel(tick) }
+                            PageHeader(tr("定时与示教", "Schedules & lessons")) { page = null }
+                            Section(tr("定时预约", "Schedules"), H.schedule) { SchedulesCards(tick) }
+                            Section(tr("已保存的示教", "Saved lessons"), H.lessons) { LessonsList(tick) }
                         }
                         Page.LOG -> {
                             PageHeader(tr("操作日志", "Activity log"), H.audit) { page = null }
@@ -290,6 +293,7 @@ class MainActivity : ComponentActivity() {
         val ts by com.kilon.agentvscreen.host.Tailnet.status.collectAsState()
         val rules by com.kilon.agentvscreen.core.VScreenStore.rules.collectAsState()
         val bookings = remember(tick) { com.kilon.agentvscreen.host.Wake.list(this@MainActivity) }
+        val lessons = remember(tick) { runCatching { com.kilon.agentvscreen.core.VScreenMap.allSegments().size }.getOrDefault(0) }
         val next = remember(tick) { ServiceControl.nextBooking(this@MainActivity) }
         val lastLog = remember(tick) { runCatching { com.kilon.agentvscreen.host.Audit.tail(1).firstOrNull()?.optLong("at") }.getOrNull() }
         val mode = ApiConfig.tailnetMode
@@ -300,8 +304,9 @@ class MainActivity : ComponentActivity() {
                 ((if (ApiConfig.autonomy == "careful") tr("谨慎", "Careful") else tr("放手跑", "Hands-off")) + if (rules.isNotEmpty()) tr(" · ${rules.size} 条限制", " · ${rules.size} rules") else "")),
             Triple(Page.SCREEN, Icons.Filled.PhoneAndroid, tr("副屏与悬浮窗", "Screen & window") to
                 ((if (com.kilon.agentvscreen.core.VScreenMute.enabled) tr("静音 · ", "Muted · ") else "") + tr("一轮 ${ApiConfig.quietMinutes} 分", "turn ${ApiConfig.quietMinutes} min"))),
-            Triple(Page.SCHEDULE, Icons.Filled.Schedule, tr("定时预约", "Schedules") to
-                (if (bookings.isEmpty()) tr("没有预约", "None") else tr("${bookings.size} 个", "${bookings.size}") + (next?.let { tr(" · 下次 ${ServiceControl.hhmm(it)}", " · next ${ServiceControl.hhmm(it)}") } ?: ""))),
+            Triple(Page.SCHEDULE, Icons.Filled.Schedule, tr("定时与示教", "Schedules & lessons") to
+                ((if (bookings.isEmpty()) tr("没有预约", "No schedules") else (next?.let { tr("下次 ${ServiceControl.hhmm(it)}", "Next ${ServiceControl.hhmm(it)}") } ?: tr("${bookings.size} 个预约", "${bookings.size} schedules"))) +
+                    tr(" · ${lessons} 段示教", " · $lessons lessons"))),
             Triple(Page.LOG, Icons.Filled.History, tr("操作日志", "Activity log") to
                 (lastLog?.takeIf { it > 0 }?.let { tr("最近 ", "Last ") + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(it)) } ?: tr("还没有记录", "Nothing yet"))),
             Triple(Page.SETUP, Icons.Filled.TaskAlt, tr("首次配置", "Setup") to (if (items.isEmpty()) "…" else if (allOk) tr("$done/${items.size} 已就绪", "$done/${items.size} ready") else tr("还差 ${items.size - done} 项", "${items.size - done} left"))),
@@ -853,30 +858,6 @@ class MainActivity : ComponentActivity() {
     }
 
     /** 1.3: the times agents booked with `vscreen schedule`, their last check, and a way to remove them. */
-    @Composable
-    private fun SchedulesPanel(tick: Int) {
-        var list by remember { mutableStateOf(com.kilon.agentvscreen.host.Wake.list(this@MainActivity)) }
-        var again by remember { mutableIntStateOf(0) }
-        LaunchedEffect(tick, again) { list = withContext(Dispatchers.IO) { com.kilon.agentvscreen.host.Wake.list(this@MainActivity).also { com.kilon.agentvscreen.host.Wake.arm(this@MainActivity) } } }
-        if (list.isEmpty()) {
-            Note(tr("还没有预约。agent 用 vscreen schedule 预约", "Nothing booked. Agents book with vscreen schedule"))
-            return
-        }
-        list.forEach { e ->
-            val j = e.json()
-            val last = j.optJSONObject("last_check")
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("${e.name} · ${e.spec.describe()}", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    Text(tr("下次 ${j.optString("next_local", "—")} · 保持 ${e.forMin} 分钟 · ${e.by}", "Next ${j.optString("next_local", "—")} · ${e.forMin} min · ${e.by}") +
-                        (last?.let { if (it.optBoolean("ready")) tr(" · 上次检查正常", " · last check OK") else tr(" · 上次检查没通过", " · last check failed") } ?: ""),
-                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                TextButton(onClick = { com.kilon.agentvscreen.host.Wake.remove(this@MainActivity, e.name); again++ }) { Text(tr("删除", "Remove")) }
-            }
-        }
-    }
-
     @Composable
     private fun Block(title: String, trailing: (@Composable () -> Unit)? = null, onHeader: (() -> Unit)? = null, open: Boolean? = null, content: @Composable () -> Unit) {
         Column(
