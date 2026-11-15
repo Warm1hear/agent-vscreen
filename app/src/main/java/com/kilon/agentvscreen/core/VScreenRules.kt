@@ -252,16 +252,20 @@ internal object VScreenRules {
         override fun onBind(intent: Intent?): IBinder? = null
 
         override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+            // 1.3.0: a service started with startForegroundService must call startForeground on EVERY start, even one
+            // that only ends it. A watch whose condition held at once ended 7 ms after it began; this start then found
+            // no watch and stopped without startForeground, and Android killed the whole app
+            // (ForegroundServiceDidNotStartInTimeException). So: foreground first, then decide.
+            val list = running()
+            runCatching {
+                com.kilon.agentvscreen.host.Fg.start(this, NOTE_ID, notification(this, list))
+            }.onFailure { AppLogger.warning(TAG, "startForeground: ${it.message}") }
+            pendingAt = 0L
             if (intent?.action == ACTION_STOP) {
                 stopAll(tr("用户在通知里点了全部停止", "The user tapped Stop all in the notification"))
                 stopSelfSafely(); return START_NOT_STICKY
             }
-            val list = running()
-            if (list.isEmpty()) { stopSelfSafely(); return START_NOT_STICKY }
-            val n = notification(this, list)
-            runCatching {
-                com.kilon.agentvscreen.host.Fg.start(this, NOTE_ID, n)
-            }.onFailure { AppLogger.warning(TAG, "startForeground: ${it.message}") }
+            if (running().isEmpty()) { stopSelfSafely(); return START_NOT_STICKY }
             if (wake == null) runCatching {
                 wake = (getSystemService(Context.POWER_SERVICE) as PowerManager)
                     .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "agentvscreen:rules").apply { setReferenceCounted(false); acquire(12 * 3_600_000L + 60_000L) }
@@ -285,6 +289,9 @@ internal object VScreenRules {
             private const val CHANNEL = "vscreen_rules"
             private const val NOTE_ID = 7299
             @Volatile var lastStartError: String? = null
+            /** A startForegroundService was sent and its onStartCommand has not run yet: it must not be stopped from outside. */
+            @Volatile private var pendingAt = 0L
+            private val pending get() = pendingAt > 0 && android.os.SystemClock.elapsedRealtime() - pendingAt < 10_000L
 
             private fun notification(ctx: Context, list: List<Live>): android.app.Notification {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -309,11 +316,13 @@ internal object VScreenRules {
             fun refresh(ctx: Context) {
                 val list = running()
                 val i = Intent(ctx, RuleService::class.java)
-                if (list.isEmpty()) { runCatching { ctx.stopService(i) }; return }
+                // A start on its way stops the service itself once it has gone foreground (see onStartCommand).
+                if (list.isEmpty()) { if (!pending) runCatching { ctx.stopService(i) }; return }
                 lastStartError = runCatching {
+                    pendingAt = android.os.SystemClock.elapsedRealtime()
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i) else ctx.startService(i)
                     null
-                }.getOrElse { "${it.javaClass.simpleName}: ${it.message}" }
+                }.getOrElse { pendingAt = 0L; "${it.javaClass.simpleName}: ${it.message}" }
                 if (lastStartError != null) {
                     AppLogger.warning(TAG, "keep service not started: $lastStartError")
                     // At least show what is being watched.

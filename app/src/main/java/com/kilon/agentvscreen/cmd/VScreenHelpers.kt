@@ -250,6 +250,11 @@ internal fun VScreenOffloadHandler.collectCmd(sid: String?, args: OffloadArgs): 
             cancelled = e.code
             why = tr("在第 $scanned 屏停下（${e.code}：${e.message}）", "stopped at screen $scanned (${e.code}: ${e.message})")
         }
+        // 1.3.0: a bar found only on a later screen (a header that collapses first, then the tab bar stays) was
+        // already taken as entries from the earlier screens. Whatever reads exactly like a fixed bar's words goes.
+        val barWords = (prevEls ?: emptyList()).filter { e -> fixed.any { f -> Math.abs(f.centerX() - e.box.centerX()) <= 16 && Math.abs(f.centerY() - e.box.centerY()) <= 16 } }
+            .map { VScreenOcr.norm(it.text) }.filter { it.isNotEmpty() }.toSet()
+        if (barWords.isNotEmpty()) for (k in keys.indices.reversed()) if (keys[k] in barWords) { keys.removeAt(k); entries.removeAt(k) }
         chrome = fixed.size
         val sb = StringBuilder(tr("收集了 ${entries.size} 条，看了 $scanned 屏，停下原因：$why（控件文字为主、OCR 补充，可能有错字；一张卡片或一行列表是一条，同一条在几屏里重复出现只记一次" + (if (chrome > 0) "；不随滚动移动的吸顶栏、标签栏、底栏（$chrome 处）不算条目" else "") + "）\n",
             "Collected ${entries.size} items over $scanned screens, stopped because: $why (widget text first, OCR fills in, may have typos; one card or list row is one item, an item repeated across screens is counted once" + (if (chrome > 0) "; $chrome bars that stay in place while scrolling (top, tabs, bottom) are not items" else "") + ")\n"))

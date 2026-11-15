@@ -151,6 +151,9 @@ object VScreenPerception {
      * 1.3: the areas of [displayId] that keep moving on their own right now (a playing video, a carousel), or null.
      * Taken before an action, it tells the waits what not to wait for (see [MotionTrack]).
      */
+    /** 1.3.0: an action of ours on [displayId] just happened (its motion is not the page's own). */
+    fun noteAction(displayId: Int, spanMs: Long = 0L) { val now = SystemClock.elapsedRealtime(); watcher(displayId)?.motion?.action(now - spanMs, now) }
+
     fun mask(displayId: Int, minSpanMs: Long = MotionTrack.MIN_SPAN_MS): Mask? = watcher(displayId)?.let { w ->
         val m = w.motion ?: return null
         m.moving(SystemClock.elapsedRealtime(), minSpanMs)?.let { Mask(it, m.cols, m.rows, w.d.width, w.d.height) }
@@ -165,9 +168,34 @@ object VScreenPerception {
     internal fun wordsOf(items: List<VScreenOcr.Item>, a11y: List<String>): List<String> {
         val seen = HashSet<String>()
         val out = ArrayList<String>()
-        for (t in items.filter { !VScreenOcr.isJunk(it) }.map { it.text.replace('\n', ' ').trim() } + a11y.map { it.replace('\n', ' ').trim() }) {
+        for (t in joinSplit(items.filter { !VScreenOcr.isJunk(it) }).map { it.replace('\n', ' ').trim() } + a11y.map { it.replace('\n', ' ').trim() }) {
             if (t.isEmpty() || t.length > 80) continue
             if (seen.add(VScreenOcr.norm(t))) out += t
+        }
+        return out
+    }
+
+    /**
+     * 1.3.0: OCR sometimes cuts one line into pieces ("Auracast 音频广" + "播"). Pieces on one line with almost no gap
+     * between them are one text again, so a word that went away is listed once, not as fragments.
+     */
+    internal fun joinSplit(items: List<VScreenOcr.Item>): List<String> {
+        val left = items.sortedWith(compareBy({ it.box.top }, { it.box.left })).toMutableList()
+        val out = ArrayList<String>()
+        while (left.isNotEmpty()) {
+            var cur = left.removeAt(0)
+            var text = cur.text.trim()
+            var box = android.graphics.Rect(cur.box)
+            while (true) {
+                val h = maxOf(1, box.height())
+                val next = left.filter { n -> Math.abs(n.box.centerY() - box.centerY()) <= h / 3 && Math.abs(n.box.height() - h) <= h / 2 &&
+                    n.box.left >= box.right - h / 4 && n.box.left - box.right <= h * 2 / 5 }.minByOrNull { it.box.left } ?: break
+                left.remove(next)
+                val nt = next.text.trim()
+                text += if (text.lastOrNull()?.let { it.code < 128 && it.isLetterOrDigit() } == true && nt.firstOrNull()?.let { it.code < 128 && it.isLetterOrDigit() } == true) " $nt" else nt
+                box.union(next.box); cur = next
+            }
+            out += text
         }
         return out
     }

@@ -316,7 +316,14 @@ internal object VScreenShell {
     /** How long a tap's finger stays down. */
     private const val TAP_MS = 60
 
-    private fun injected(what: String, displayId: Int, r: Result<Boolean>): Outcome = when {
+    private fun injected(what: String, displayId: Int, r: Result<Boolean>, spanMs: Long = 0L): Outcome = run {
+        // 1.3.0: the motion our own input causes is not the page moving by itself (see MotionTrack.action). Called
+        // when the input is done; [spanMs] is how long it lasted (a swipe, a press).
+        if (r.getOrNull() == true) com.kilon.agentvscreen.host.quiet("motion-action") { VScreenPerception.noteAction(displayId, spanMs) }
+        injectedOutcome(what, displayId, r)
+    }
+
+    private fun injectedOutcome(what: String, displayId: Int, r: Result<Boolean>): Outcome = when {
         r.getOrNull() == true -> ok(tr("副屏 $displayId：$what 已注入", "screen $displayId: $what injected"))
         r.isFailure -> fail("NOT_CONNECTED", tr("副屏服务（Shizuku）不可用，$what 没有做：${r.exceptionOrNull()?.message}。status 看原因，fix not_connected 重连", "The screen service (Shizuku) is unavailable, $what was not done: ${r.exceptionOrNull()?.message}. See status for the cause; fix not_connected reconnects"))
         else -> fail("INPUT_FAILED", tr("系统拒绝了副屏 $displayId 上的 $what 注入", "The system refused injecting $what on screen $displayId"))
@@ -324,24 +331,24 @@ internal object VScreenShell {
 
     fun tap(displayId: Int, x: Int, y: Int): Outcome {
         val (ix, iy) = mx(displayId, x, y)
-        return injected("tap", displayId, injector.gesture(displayId, ix, iy, ix, iy, 0, TAP_MS))
+        return injected("tap", displayId, injector.gesture(displayId, ix, iy, ix, iy, 0, TAP_MS), TAP_MS.toLong())
     }
 
     fun longPress(displayId: Int, x: Int, y: Int, ms: Int): Outcome {
         val (ix, iy) = mx(displayId, x, y)
-        return injected("press", displayId, injector.gesture(displayId, ix, iy, ix, iy, 0, ms.coerceIn(300, 10_000)))
+        return injected("press", displayId, injector.gesture(displayId, ix, iy, ix, iy, 0, ms.coerceIn(300, 10_000)), ms.coerceIn(300, 10_000).toLong())
     }
 
     /** A swipe: the finger moves at an even speed and lifts while moving, so lists fling (hold = -1). */
     fun swipe(displayId: Int, x1: Int, y1: Int, x2: Int, y2: Int, ms: Int): Outcome {
         val (a, b) = mx(displayId, x1, y1); val (c, e) = mx(displayId, x2, y2)
-        return injected("swipe", displayId, injector.gesture(displayId, a, b, c, e, ms.coerceIn(50, 5000), -1))
+        return injected("swipe", displayId, injector.gesture(displayId, a, b, c, e, ms.coerceIn(50, 5000), -1), ms.coerceIn(50, 5000).toLong())
     }
 
     /** A precise drag: eased, with a still hold at the end (no fling). */
     fun drag(displayId: Int, x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int, holdMs: Int): Outcome {
         val (a, b) = mx(displayId, x1, y1); val (c, e) = mx(displayId, x2, y2)
-        return injected("drag", displayId, injector.gesture(displayId, a, b, c, e, durationMs.coerceIn(50, 5000), holdMs.coerceIn(0, 3000)))
+        return injected("drag", displayId, injector.gesture(displayId, a, b, c, e, durationMs.coerceIn(50, 5000), holdMs.coerceIn(0, 3000)), (durationMs.coerceIn(50, 5000) + holdMs.coerceIn(0, 3000)).toLong())
     }
 
     /** Held finger [pointerId] (multi-touch across calls): op "down" | "move" | "up" | "cancel". */

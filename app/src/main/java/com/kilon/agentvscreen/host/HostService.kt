@@ -48,8 +48,19 @@ class HostService : Service() {
         private const val STOP_CHANNEL = "agent_vscreen_stopped"
         private const val STOP_NOTE_ID = 7002
 
+        /**
+         * 1.3.0: a start sent and not yet foreground. Stopping the service then makes Android kill the app
+         * (ForegroundServiceDidNotStartInTimeException); such a stop waits until the service is foreground.
+         */
+        @Volatile private var pendingAt = 0L
+        @Volatile private var stopWhenUp = false
+        /** Android allows 10 s for startForeground; a start older than that is not waited for. */
+        private val pending get() = pendingAt > 0 && android.os.SystemClock.elapsedRealtime() - pendingAt < 10_000L
+
         fun start(ctx: Context) {
             val i = Intent(ctx, HostService::class.java)
+            stopWhenUp = false
+            if (!isAlive) pendingAt = android.os.SystemClock.elapsedRealtime()
             runCatching { if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i) }
                 .onFailure {
                     // Android 12+ refuses to start a foreground service from the background (e.g. the process was
@@ -78,7 +89,7 @@ class HostService : Service() {
             }, "vscreen-shell-start").apply { isDaemon = true }.start()
         }
 
-        fun stop(ctx: Context) { ctx.stopService(Intent(ctx, HostService::class.java)) }
+        fun stop(ctx: Context) { if (pending) stopWhenUp = true else ctx.stopService(Intent(ctx, HostService::class.java)) }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -89,6 +100,7 @@ class HostService : Service() {
         Liveness.init(applicationContext)
         Liveness.start()
         goForeground()
+        pendingAt = 0L
         BackgroundOperation.setEnabled(true)
         server = ApiServer(applicationContext).also { it.onChange = { renotify() }; it.start(ApiConfig.port) }
         Overlay.attach(applicationContext)
@@ -147,6 +159,7 @@ class HostService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (stopWhenUp) { stopWhenUp = false; AppLogger.info("HostService", "stopped as asked while it was starting"); stopSelf(); return START_NOT_STICKY }
         if (intent?.action == ACTION_STOP || intent?.action == ACTION_PAUSE) {
             // 1.3 beta4: the notification's button hides the service (the same as the switch): out of the shade and
             // the background, still woken when an agent needs it. Blocking agents is a choice made in the app.

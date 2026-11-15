@@ -20,6 +20,16 @@ class MotionTrack(val cols: Int, val rows: Int) {
         /** Motion must have gone on at least this long before it counts as moving (a fling or a page change is shorter). */
         const val MIN_SPAN_MS = 2_500L
         const val WINDOW_MS = 3_000L
+        /**
+         * 1.3.0: a carousel slides every few seconds and stands still in between, so in a 3 s window it hardly moves.
+         * Over this longer window, an area that moved in at least [MIN_BURSTS] separate bursts keeps moving too.
+         */
+        const val LONG_WINDOW_MS = 10_000L
+        const val MIN_BURSTS = 2
+        /** A burst ends after this long without change in a cell. */
+        const val BURST_GAP_MS = 800L
+        /** 1.3.0: looks from an action of ours until this long after it are not the page moving on its own. */
+        const val ACTION_MS = 1_500L
         /** Share of looks in the window in which a cell changed. */
         const val RATE = 0.55
         /** 1.3.0: share of looks in which a cell changed for it to belong to a moving area around a busy core. */
@@ -32,36 +42,69 @@ class MotionTrack(val cols: Int, val rows: Int) {
     }
 
     private val looks = ArrayDeque<Pair<Long, BooleanArray>>()
+    /** Our own actions (taps, swipes, keys) on this screen: (start, end). */
+    private val actions = ArrayDeque<Pair<Long, Long>>()
 
     @Synchronized fun feed(atMs: Long, cells: BooleanArray) {
         if (cells.size != cols * rows) return
         looks.addLast(atMs to cells)
-        while (looks.isNotEmpty() && atMs - looks.first().first > WINDOW_MS) looks.removeFirst()
+        while (looks.isNotEmpty() && atMs - looks.first().first > LONG_WINDOW_MS) looks.removeFirst()
     }
 
-    @Synchronized fun clear() = looks.clear()
+    /**
+     * 1.3.0: an action of ours happened at [atMs]. The motion it causes (a scroll, a page sliding in) is left out.
+     * Before, a scroll right before the check made the whole page look "moving", and collect stopped after one screen
+     * ("swiping no longer moves the picture") because every change was inside the moving area.
+     */
+    @Synchronized fun action(startMs: Long, endMs: Long = startMs) {
+        actions.addLast(startMs to endMs)
+        while (actions.isNotEmpty() && endMs - actions.first().second > LONG_WINDOW_MS + ACTION_MS) actions.removeFirst()
+    }
+
+    @Synchronized fun clear() { looks.clear(); actions.clear() }
+
+    private fun ours(t: Long) = actions.any { (a, b) -> t >= a - 100L && t <= b + ACTION_MS }
+
+    /** How much of (t, now] lies in our actions' spans: the window is measured in the page's own time. */
+    private fun excludedAfter(t: Long, now: Long): Long = actions.sumOf { (a, b) ->
+        maxOf(0L, minOf(now, b + ACTION_MS) - maxOf(t, a - 100L))
+    }
 
     /**
      * Cells that keep moving now (null = none, or not enough looks to say). [minSpanMs]: how long the motion must have
      * gone on; shorter is fine when no action of ours can have caused it (a look).
      *
      * 1.3.0: a playing area is a region, not just its busiest cells. Danmaku and subtitles cross the whole video but
-     * touch each cell only now and then, so only the video's busy middle passed [RATE], and the words flying over
-     * the rest were listed as changes. Now: cells that changed in at least [RATE_TOUCHED] of the looks are joined into
-     * areas; an area that holds a busy core (at least [MIN_CELLS] cells over [RATE]) is moving as a whole, as its
-     * bounding rectangle (a video, a carousel, a game scene are rectangles).
+     * touch each cell only now and then, so only the video's busy middle passed [RATE]. Now: cells that changed in at
+     * least [RATE_TOUCHED] of the looks are joined into areas; an area that holds a busy core (at least [MIN_CELLS]
+     * cells over [RATE], or that moved in [MIN_BURSTS] separate bursts over [LONG_WINDOW_MS]) is moving as a whole,
+     * as its bounding rectangle. Looks during and just after our own actions are left out.
      */
     @Synchronized fun moving(nowMs: Long, minSpanMs: Long = MIN_SPAN_MS): BooleanArray? {
-        val fresh = looks.filter { nowMs - it.first <= WINDOW_MS }
-        if (fresh.size < (if (minSpanMs >= MIN_SPAN_MS) MIN_LOOKS else 6)) return null
-        // The window must reach back far enough: the motion has to have lasted, not just started.
-        if (fresh.last().first - fresh.first().first < minSpanMs - 500L) return null
-        val counts = IntArray(cols * rows)
+        val own = looks.filter { nowMs - it.first <= LONG_WINDOW_MS && !ours(it.first) }
+        val fresh = own.filter { nowMs - it.first - excludedAfter(it.first, nowMs) <= WINDOW_MS }
+        val n = cols * rows
+        // Continuous motion, from the short window.
+        val counts = IntArray(n)
         for ((_, c) in fresh) for (i in c.indices) if (c[i]) counts[i]++
-        val core = BooleanArray(cols * rows) { counts[it] >= fresh.size * RATE }
-        val touched = BooleanArray(cols * rows) { core[it] || (counts[it] >= 2 && counts[it] >= fresh.size * RATE_TOUCHED) }
-        val keep = BooleanArray(touched.size)
-        val seen = BooleanArray(touched.size)
+        val shortOk = fresh.size >= (if (minSpanMs >= MIN_SPAN_MS) MIN_LOOKS else 6) &&
+            fresh.last().first - fresh.first().first >= minSpanMs - 500L
+        // Repeated motion, from the long window: separate bursts per cell.
+        val bursts = IntArray(n)
+        val lastAt = LongArray(n)
+        val longCounts = IntArray(n)
+        for ((t, c) in own) for (i in c.indices) if (c[i]) {
+            longCounts[i]++
+            if (lastAt[i] == 0L || t - lastAt[i] > BURST_GAP_MS) bursts[i]++
+            lastAt[i] = t
+        }
+        val longOk = own.size >= MIN_LOOKS && own.last().first - own.first().first >= 5_000L
+        val core = BooleanArray(n) { (shortOk && counts[it] >= fresh.size * RATE) || (longOk && bursts[it] >= MIN_BURSTS) }
+        val touched = BooleanArray(n) {
+            core[it] || (shortOk && counts[it] >= 2 && counts[it] >= fresh.size * RATE_TOUCHED) || (longOk && longCounts[it] >= 2 && bursts[it] >= MIN_BURSTS)
+        }
+        val keep = BooleanArray(n)
+        val seen = BooleanArray(n)
         for (s in touched.indices) {
             if (!touched[s] || seen[s]) continue
             // One area: touched cells joined, also across a one-cell gap (danmaku leaves holes).

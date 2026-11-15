@@ -83,6 +83,13 @@ object AgentNews {
             "status.remote has connecting (logged in, relay not reached yet: connecting, not a drop), waiting_s (how long it has not been connected), through_vpn / vpn_trouble (the phone's traffic goes through a proxy or VPN app and Tailscale is struggling; user_action then asks the user to exclude Agent-VScreen in that app). While not connected, health always carries the reason.",
             "status.host has network_blocked*: whether the system blocked this app's network (a record only). status.remote.bridge_silent* is gone: it took \"no state change\" for \"frozen\" and was wrong.",
         )),
+        Entry(26, "1.3.0-beta13", listOf(
+            "“一直在动的区域”不再算进我们自己的点按、滑动、拖动引起的画面变化；隔几秒才动一次的轮播也认得出。collect 不会因为自己的滑动把整页当成在动而提前停。",
+            "同一行被 OCR 拆开的字会拼回一条；collect 不把顶部、底部固定栏的标签当条目。",
+        ), listOf(
+            "Moving areas no longer count screen changes caused by our own taps, swipes and drags; carousels that move every few seconds are recognized. collect no longer stops early because its own scroll made the whole page look moving.",
+            "Text OCR split on one line is joined back into one item; collect no longer lists fixed top/bottom bar labels as entries.",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */
