@@ -245,6 +245,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var lastFlip = 0L
+
     /** The home page: the switch and the screen, anything that needs you, then one tile per area. */
     @Composable
     private fun Dashboard(
@@ -254,10 +256,17 @@ class MainActivity : ComponentActivity() {
         // 1.3 beta4: the switch is "always on". Off = hidden (woken when an agent needs it); blocking agents is its
         // own button under the status line. All through ServiceControl.
         Hero(s, serviceOn) { on ->
+            // 1.3.0: a flip back within 1.5 s is ignored: each flip restarted the Tailscale node (seen as on → off → on
+            // in one second in the logs).
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastFlip < 1_500L) { Toast.makeText(this@MainActivity, tr("稍等一下再切换", "Wait a moment before switching again"), Toast.LENGTH_SHORT).show(); return@Hero }
+            lastFlip = now
             if (on) { ServiceControl.turnOn(this@MainActivity, "switch"); setServiceOn(true) }
             else {
                 ServiceControl.hide(this@MainActivity, "switch"); setServiceOn(false)
-                Toast.makeText(this@MainActivity, tr("已收起：agent 用到时会自动唤起。要完全禁止，点“禁止 agent 访问”", "Hidden: it wakes when an agent needs it. To block agents entirely, tap \"Block agent access\""), Toast.LENGTH_LONG).show()
+                if (com.kilon.agentvscreen.host.Tailnet.Mode.BUILTIN == ApiConfig.tailnetMode)
+                    Toast.makeText(this@MainActivity, tr("已收起：内置 Tailscale 也停了，其它设备现在连不上；本机 agent 用到时会自动唤起", "Hidden: the built-in Tailscale stopped too, so other devices cannot connect now; a local agent still wakes it"), Toast.LENGTH_LONG).show()
+                else Toast.makeText(this@MainActivity, tr("已收起：agent 用到时会自动唤起。要完全禁止，点“禁止 agent 访问”", "Hidden: it wakes when an agent needs it. To block agents entirely, tap \"Block agent access\""), Toast.LENGTH_LONG).show()
             }
             bump()
         }
@@ -704,25 +713,6 @@ class MainActivity : ComponentActivity() {
                             val days = if (ts.keyExpiry > 0) ((ts.keyExpiry - System.currentTimeMillis()) / 86_400_000L).toInt() else -1
                             if (days in 0..14) Note(tr("登录 $days 天后过期，到时要重新登录。可以在 Tailscale 控制台给这台设备关掉“密钥过期”。",
                                 "The login expires in $days days; then it needs logging in again. You can turn off key expiry for this device in the Tailscale console."), Palette.stopped)
-                            // 1.3 beta7: online while this page is open says little: the system may stop the app (and the
-                            // node with it) as soon as the user leaves. Say so when it was measured.
-                            val frozen = com.kilon.agentvscreen.host.Liveness.frozenUnresolved()
-                            // 1.3.0: what the user sees is the link dropping once they leave; the cause (a freeze, a
-                            // stopped node, the system blocking the app's network) is told when it was measured.
-                            val L = com.kilon.agentvscreen.host.Liveness
-                            if (frozen || T.silencesAway > 0 || T.dropsAway > 0 || L.netBlocksAway > 0) {
-                                val causes = listOfNotNull(
-                                    L.screenOnFreezesSinceVisit.takeIf { it > 0 }?.let { tr("冻结 $it 次", "frozen ${it}×") },
-                                    L.netBlocksAway.takeIf { it > 0 }?.let { tr("断网 $it 次", "network blocked ${it}×") },
-                                    T.silencesAway.takeIf { it > 0 }?.let { tr("Tailscale 停 $it 次", "Tailscale stopped ${it}×") },
-                                ).joinToString(tr("、", ", "))
-                                Note(tr("离开 App 后，远程断过 ${maxOf(T.dropsAway, 1)} 次" + (if (causes.isNotEmpty()) "（系统$causes）" else "") + "，这期间其它设备连不上。把 Agent-VScreen 设成允许后台活动。",
-                                    "After you left the app, remote access dropped ${maxOf(T.dropsAway, 1)}×" + (if (causes.isNotEmpty()) " (system: $causes)" else "") + "; other devices could not connect meanwhile. Allow Agent-VScreen to run in the background."), Palette.stopped)
-                                SecondaryAction(tr("去允许后台活动", "Allow background activity")) {
-                                    val opened = com.kilon.agentvscreen.host.Liveness.openBackgroundSettings(this@MainActivity)
-                                    Toast.makeText(this@MainActivity, tr("已打开：$opened。把 Agent-VScreen 设为允许自启动、关联启动和后台活动", "Opened: $opened. Allow Agent-VScreen to auto-start, be started by other apps and run in the background"), Toast.LENGTH_LONG).show()
-                                }
-                            }
                             SecondaryAction(tr("退出 Tailscale 登录", "Log out of Tailscale")) { T.logout(this@MainActivity) }
                         }
                         TsPhase.NEEDS_APPROVAL -> StatusCard(Palette.standby, tr("等待批准这台设备", "Waiting for this device to be approved"),
@@ -760,11 +750,19 @@ class MainActivity : ComponentActivity() {
                                 (if (!ts.controlOk) tr(" Tailscale 服务器", "the Tailscale server") else tr("中继${ts.relay?.let { " $it" } ?: ""}", "the relay${ts.relay?.let { " $it" } ?: ""}")) +
                                 tr("，其它设备暂时连不上它（已 ${ts.downS} 秒）。", ", so other devices cannot reach it for now (${ts.downS} s).") +
                                 (if (ts.flaps >= 2) tr("10 分钟内断了 ${ts.flaps} 次。", " It dropped ${ts.flaps} times in 10 minutes.") else "") +
-                                tr("一直这样时，看看手机网络和开着的代理或 VPN。", " If it keeps happening, check the phone's network and any proxy or VPN."))
+                                (if (T.vpnTrouble(this@MainActivity)) "" else tr("一直这样时，看看手机网络和开着的代理或 VPN。", " If it keeps happening, check the phone's network and any proxy or VPN.")))
                         TsPhase.ERROR -> StatusCard(Palette.stopped, tr("内置 Tailscale 出错，会自动重试", "Built-in Tailscale failed, retrying automatically"), ts.error ?: ts.state)
-                        else -> StatusCard(Palette.standby, tr("正在连接 Tailscale…", "Connecting to Tailscale…"),
-                            known?.let { tr("用上次的登录（${it.dnsName ?: it.ip}），不用重新登录。", "Using the saved login (${it.dnsName ?: it.ip}); no new login needed.") } ?: tr("通常几秒钟。", "Usually a few seconds."))
+                        else -> {
+                            // 1.3.0: after 15 s say how long and why (the backend's own words), instead of "connecting…" for minutes.
+                            val waited = T.waitedMs()
+                            StatusCard(Palette.standby, tr("正在连接 Tailscale…", "Connecting to Tailscale…") + if (waited > T.SLOW_MS) tr("（已 ${waited / 1000} 秒）", " (${waited / 1000} s)") else "",
+                                (known?.let { tr("用上次的登录（${it.dnsName ?: it.ip}），不用重新登录。", "Using the saved login (${it.dnsName ?: it.ip}); no new login needed.") } ?: tr("通常几秒钟。", "Usually a few seconds.")) +
+                                    (if (waited > T.SLOW_MS) "\n" + tr("还没连上 ${if (ts.loggedIn) "中继" else ts.serverName}", "Not reached ${if (ts.loggedIn) "the relay" else ts.serverName} yet") +
+                                        ((ts.loginError ?: ts.health)?.let { "：${it.take(160)}" } ?: "") + "\n" + tr("一直这样时，看看手机网络和开着的代理或 VPN。", "If this goes on, check the phone's network and any proxy or VPN.") else ""))
+                        }
                     }
+                    // 1.3.0: the real cause seen on the phone: another app's VPN (a proxy) cutting the node's connections.
+                    if (T.vpnTrouble(this@MainActivity)) Note(T.vpnAdvice(), Palette.stopped)
                 }
                 // 1.1.8: the built-in node is userspace: it only carries what other devices send to Agent-VScreen, never
                 // this phone's own traffic, so an exit node has nothing to route there. Say so where people look for it.

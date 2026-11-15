@@ -215,7 +215,9 @@ class HostService : Service() {
         if (s.windowHidden && s.displayId != null)
             b.addAction(0, tr("显示小窗", "Show window"), PendingIntent.getService(this, 5, Intent(this, HostService::class.java).setAction(ACTION_SHOW_WINDOW), PendingIntent.FLAG_IMMUTABLE))
         else b.addAction(0, tr("查看副屏", "View screen"), PendingIntent.getActivity(this, 2, Intent(this, com.kilon.agentvscreen.ui.FullscreenActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE))
-        return b.addAction(0, tr("收起", "Hide"), stop).build()
+        // 1.3.0: the button says what it does to remote access: with the built-in Tailscale on, hiding stops it.
+        val remote = Tailnet.Mode.BUILTIN == com.kilon.agentvscreen.api.ApiConfig.tailnetMode
+        return b.addAction(0, if (remote) tr("收起（远程断开）", "Hide (remote goes offline)") else tr("收起", "Hide"), stop).build()
     }
 }
 

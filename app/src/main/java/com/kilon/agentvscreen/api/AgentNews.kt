@@ -65,10 +65,8 @@ object AgentNews {
             "VSCREEN_PROXY now wins over no_proxy in the environment; when that proxy cannot be reached, the message says so.",
         )),
         Entry(22, "1.3.0-beta9", listOf(
-            "内置 Tailscale 节点改在 App 进程里运行：用户离开 App 后，远程不再每隔两分钟断几分钟。status.remote 的 bridge_silent 现在只记节点自己卡住。",
             "用管道读命令行输出（vscreen … | cat、\$(vscreen …)）时每条命令不再多等 20 秒。",
         ), listOf(
-            "The built-in Tailscale node now runs inside the app's process: when the user leaves the app, remote access no longer drops for minutes every two minutes. status.remote.bridge_silent now only counts the node itself hanging.",
             "Reading the CLI's output through a pipe (vscreen … | cat, \$(vscreen …)) no longer adds 20 s to every command.",
         )),
         Entry(23, "1.3.0-beta10", listOf(
@@ -78,10 +76,12 @@ object AgentNews {
             "\"Areas that keep moving\" is now the whole video or carousel (including where danmaku and subtitles pass); words there are no longer listed in [Meanwhile], and a look on a video page no longer waits out 3 s first.",
             "Pieces of words caught while they were drawing (\"音频广\" next to \"音频广播\") are no longer listed on their own. collect no longer takes top bars, tab bars and bottom bars as items.",
         )),
-        Entry(24, "1.3.0-beta11", listOf(
-            "status 的 host 多了 network_blocked / network_blocked_in_background（系统在后台断了 App 的网络，进程还在），remote 多了 drops_in_background（用户离开 App 后远程断过几次）。连不上时先看这几项，再请用户把 Agent-VScreen 设成允许后台活动。",
+        Entry(25, "1.3.0-beta12", listOf(
+            "status.remote 多了 connecting（已登录、中继还没连上：在连接，不算断开）、waiting_s（没连上多久了）、through_vpn / vpn_trouble（手机流量经过代理或 VPN App，且 Tailscale 连不稳：这时 user_action 会说请用户在代理 App 里把 Agent-VScreen 排除）。没连上时 health 一直带着原因。",
+            "status.host 多了 network_blocked*：系统是否断过本 App 的网络（只是记录）。status.remote 的 bridge_silent* 去掉了：它把“没有状态变化”当成了“被冻结”，不准。",
         ), listOf(
-            "status.host has network_blocked / network_blocked_in_background (the system blocked the app's network in the background while the process kept running), and status.remote has drops_in_background (how often remote access dropped after the user left the app). When the phone cannot be reached, look at these first, then ask the user to allow Agent-VScreen to run in the background.",
+            "status.remote has connecting (logged in, relay not reached yet: connecting, not a drop), waiting_s (how long it has not been connected), through_vpn / vpn_trouble (the phone's traffic goes through a proxy or VPN app and Tailscale is struggling; user_action then asks the user to exclude Agent-VScreen in that app). While not connected, health always carries the reason.",
+            "status.host has network_blocked*: whether the system blocked this app's network (a record only). status.remote.bridge_silent* is gone: it took \"no state change\" for \"frozen\" and was wrong.",
         )),
     )
 

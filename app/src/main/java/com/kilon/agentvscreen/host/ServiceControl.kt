@@ -113,7 +113,8 @@ object ServiceControl {
     /** The home page's status line when the service is not always on: the state, then what it means. */
     fun title(ctx: Context): String = when (now(ctx)) {
         State.ON -> tr("常驻运行中", "Always on")
-        State.HIDDEN -> if (HostService.isAlive) tr("已收起 · 现在被叫醒了", "Hidden · awake right now") else tr("已收起", "Hidden")
+        State.HIDDEN -> if (HostService.isAlive) tr("已收起 · 现在被叫醒了", "Hidden · awake right now")
+            else if (Tailnet.Mode.BUILTIN == com.kilon.agentvscreen.api.ApiConfig.tailnetMode) tr("已收起 · 远程已下线", "Hidden · remote offline") else tr("已收起", "Hidden")
         State.BLOCKED -> tr("已禁止 agent 访问", "Agent access blocked")
     }
 

@@ -5,18 +5,19 @@
 // carries X-VScreen-Tailnet: <secret> (a random value the app gives us at start, so nobody on the phone can fake a
 // tailnet request) and X-VScreen-Peer: <who> (the peer's Tailscale login and device, from WhoIs).
 //
-// 1.3.0: it runs INSIDE the app's process, as a shared library (libtsnode.so, see jni.go / jni.c), no longer as a
-// child process. A child process is not an app process to Android: it has no foreground service of its own, and
-// MagicOS froze it for about two minutes at a time while the app (protected by its foreground service) kept running,
-// so the phone was unreachable whenever the user left the app. A child could also outlive an app process that was
-// killed and keep the node's key on the relay. In-process, the node runs exactly when the app runs.
+// The app runs it as a child process and talks over pipes:
 //
-// The app talks to it through three calls: start(config JSON), command("login" | "logout" | "quit") and next(), which
-// hands out one line at a time: "S{...}" a state (JSON), "L text" a log line, "H" a heartbeat every 2 s, "X code" the
-// node has ended.
+//	stdout: one JSON object per line whenever the state changes ({"state":"Running","ip":"100.x", ...}).
+//	stdin:  commands, one per line: "login" (ask for a fresh login link), "logout", "quit". EOF (the app died) ends this process too.
+//
+// Configuration comes from the environment so nothing secret shows up in `ps`:
+//
+//	TSB_DIR (state dir), TSB_HOSTNAME, TSB_PORT, TSB_TARGET (host:port), TSB_SECRET, TSB_AUTHKEY (optional),
+//	TSB_CONTROL_URL (optional, e.g. a Headscale server), TSB_DNS (comma separated resolvers of the phone's network).
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -27,15 +28,15 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
-	"time"
-
 	"tailscale.com/ipn"
+	"time"
 
 	"tailscale.com/net/netmon"
 	"tailscale.com/tsnet"
@@ -72,6 +73,10 @@ type status struct {
 	Problem   string `json:"problem,omitempty"`
 	DownS     int    `json:"down_s,omitempty"`
 	LinkAgeS  int    `json:"link_age_s,omitempty"`
+	// 1.3.0: logged in, but the relay has not been reached yet since this start (or since the node came back):
+	// "connecting", not "connected" and not "dropped". Before, "Running" showed as connected at once and the relay's
+	// 10 s connect timeout then looked like a drop.
+	Connecting bool `json:"connecting,omitempty"`
 }
 
 // normalizeControlURL turns what a person types ("hs.example.com", "https://hs.example.com/") into the URL tsnet needs.
@@ -87,17 +92,17 @@ func normalizeControlURL(v string) string {
 	return v
 }
 
-// stopStale ends every bridge process an earlier app version left behind (1.1.6–1.3.0-beta8 ran the node as a child
-// process named libtsbridge.so; one that outlived its app keeps the node's key on the relay and the state lock).
-// The pid file catches beta8's; the scan of /proc catches older ones, which wrote none. SIGTERM first (it closes
-// the node cleanly), SIGKILL after 3 s.
-func stopStale(pidFile string) {
+// stopStale ends a bridge an earlier app process left behind: the pid in [path], if it is still a tsbridge and not
+// this process. SIGTERM first (it closes the node cleanly), SIGKILL after 3 s.
+func stopStale(path string) {
 	var pids []int
-	if b, err := os.ReadFile(pidFile); err == nil {
+	if b, err := os.ReadFile(path); err == nil {
 		if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
 			pids = append(pids, pid)
 		}
 	}
+	// 1.3.0: bridges of versions before beta8 wrote no pid file; look for them too (only our own uid's processes
+	// are visible to us).
 	if ents, err := os.ReadDir("/proc"); err == nil {
 		for _, e := range ents {
 			if pid, err := strconv.Atoi(e.Name()); err == nil {
@@ -115,7 +120,7 @@ func stopStale(pidFile string) {
 		if err != nil || !strings.Contains(string(cmd), "tsbridge") {
 			continue
 		}
-		logf("ending the bridge process left behind by an earlier app version (pid %d)", pid)
+		fmt.Fprintf(os.Stderr, "ending the bridge left behind by an earlier app process (pid %d)\n", pid)
 		_ = syscall.Kill(pid, syscall.SIGTERM)
 		gone := false
 		for i := 0; i < 30 && !gone; i++ {
@@ -126,7 +131,6 @@ func stopStale(pidFile string) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
 	}
-	_ = os.Remove(pidFile)
 }
 
 // hasSavedLogin: this node has logged in before (a profile is stored), whatever the backend says right now.
@@ -180,7 +184,7 @@ func emit(s status) {
 		return
 	}
 	last = string(b)
-	put("S" + string(b))
+	fmt.Fprintln(os.Stdout, string(b))
 }
 
 // 1.3: tsnet repeats some lines every few seconds (the login prompt, with its link) and they filled the app's
@@ -196,6 +200,8 @@ var (
 var backendKeep = []string{"LinkChange", "home is now", "derphttp", "control: mapRoutine", "control: controlhttp", "netmon", "Rebind", "health(", "magicsock: derp-", "network map", "portmap"}
 var backendMu sync.Mutex
 
+// The state directory's lock (see main); a package variable so the file is never collected and closed.
+var lockFile *os.File
 var backendMin int64
 var backendN int
 
@@ -222,7 +228,7 @@ func backendLog(f string, a ...any) {
 	if n > 30 {
 		return
 	}
-	logln("ts: " + loginRe.ReplaceAllString(strings.TrimSpace(line), "<login link>"))
+	fmt.Fprintln(os.Stderr, "ts: "+loginRe.ReplaceAllString(strings.TrimSpace(line), "<login link>"))
 }
 
 func userLog(f string, a ...any) {
@@ -236,7 +242,7 @@ func userLog(f string, a ...any) {
 		logSeen = map[string]time.Time{}
 	}
 	logSeen[line] = time.Now()
-	logln(line)
+	fmt.Fprintln(os.Stderr, line)
 }
 
 // 1.3: requests are bounded here, before they reach the app: a body over 1 MiB is refused from its declared length
@@ -276,8 +282,8 @@ func (u *untilEOF) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func or(v, def string) string {
-	if v = strings.TrimSpace(v); v != "" {
+func env(k, def string) string {
+	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
 		return v
 	}
 	return def
@@ -285,9 +291,9 @@ func or(v, def string) string {
 
 // Android has no /etc/resolv.conf: Go's own resolver would ask 127.0.0.1:53 and fail. Use the resolvers the app read
 // from the phone's active network, then public ones.
-func setupDNS(dns []string) {
+func setupDNS() {
 	var servers []string
-	for _, s := range dns {
+	for _, s := range strings.Split(os.Getenv("TSB_DNS"), ",") {
 		if s = strings.TrimSpace(s); s != "" {
 			servers = append(servers, net.JoinHostPort(strings.Trim(s, "[]"), "53"))
 		}
@@ -311,11 +317,7 @@ func setupDNS(dns []string) {
 
 // Apps targeting Android 11+ may not list interfaces through netlink; net.Interfaces can fail there. Fall back to one
 // synthetic interface carrying the address the kernel would use for the internet (a UDP "connect" sends nothing).
-var ifaceOnce sync.Once
-
-func setupInterfaces() { ifaceOnce.Do(setupInterfaces1) }
-
-func setupInterfaces1() {
+func setupInterfaces() {
 	netmon.RegisterInterfaceGetter(func() ([]netmon.Interface, error) {
 		ifs, err := net.Interfaces()
 		if err == nil && len(ifs) > 0 {
@@ -336,42 +338,44 @@ func setupInterfaces1() {
 	})
 }
 
-// run is one life of the node: from start until [quit] is closed or it fails. It returns the exit code.
-func run(c config, quit <-chan struct{}) int {
-	setupDNS(c.DNS)
+func main() {
+	// 1.3 beta8: this node lives and dies with the app. When the app's process is gone (killed by the system,
+	// crashed, updated), the bridge must not stay behind holding the node: a new app process starts a new bridge
+	// with the same node key, and two clients of one key throw each other off the relay for minutes. The kernel
+	// sends SIGTERM when the parent goes; the parent id is also watched in case that signal is lost.
+	ppid := os.Getppid()
+	_, _, _ = syscall.RawSyscall(syscall.SYS_PRCTL, syscall.PR_SET_PDEATHSIG, uintptr(syscall.SIGTERM), 0)
+	if os.Getppid() != ppid || ppid == 1 {
+		fmt.Fprintln(os.Stderr, "quit: the app was already gone at start")
+		os.Exit(4)
+	}
+	setupDNS()
 	setupInterfaces()
 	os.Setenv("TS_NO_LOGS_NO_SUPPORT", "true") // no log upload to Tailscale
-	if os.Getenv("HOME") == "" {
-		os.Setenv("HOME", c.Dir)
-	}
-	outMu.Lock()
-	last = ""
-	outMu.Unlock()
 
-	port := or(c.Port, "18765")
-	target := or(c.Target, "127.0.0.1:"+port)
-	secret := c.Secret
+	port := env("TSB_PORT", "18765")
+	target := env("TSB_TARGET", "127.0.0.1:"+port)
+	secret := os.Getenv("TSB_SECRET")
 	if secret == "" {
-		emit(status{State: "Error", Error: "secret missing"})
-		return 2
+		fmt.Fprintln(os.Stderr, "TSB_SECRET missing")
+		os.Exit(2)
 	}
 	srv := &tsnet.Server{
-		Dir:        or(c.Dir, "./ts"),
-		Hostname:   or(c.Hostname, "agent-vscreen"),
-		AuthKey:    c.AuthKey,
-		ControlURL: normalizeControlURL(c.ControlURL),
+		Dir:        env("TSB_DIR", "./ts"),
+		Hostname:   env("TSB_HOSTNAME", "agent-vscreen"),
+		AuthKey:    os.Getenv("TSB_AUTHKEY"),
+		ControlURL: normalizeControlURL(os.Getenv("TSB_CONTROL_URL")),
 		Logf:       backendLog,
 		UserLogf:   userLog,
 	}
 	defer srv.Close()
 
-	// 1.3 beta6: one node per identity. Two nodes on one state directory (the same node key) take turns on the
-	// control server and the relay, so each is online for a while and then gone.
-	// 1.3 beta8: a bridge process left behind by an earlier app version is ended first.
-	// 1.3.0: the node runs in the app's process, so the lock is per process life; it is released when this run ends.
+	// 1.3 beta6: one node per identity. Two bridges on one state directory (the same node key) take turns on the
+	// control server and the relay, so each is online for a while and then gone. The second one waits here until the
+	// first has exited, and gives up after 20 s rather than fight it.
+	// 1.3 beta8: a bridge left behind by an earlier app process (its parent gone) is ended first, not waited for.
 	stopStale(filepath.Join(srv.Dir, ".bridge.pid"))
 	if f, err := os.OpenFile(filepath.Join(srv.Dir, ".bridge.lock"), os.O_CREATE|os.O_RDWR, 0o600); err == nil {
-		defer f.Close()
 		deadline := time.Now().Add(20 * time.Second)
 		for {
 			if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
@@ -379,32 +383,29 @@ func run(c config, quit <-chan struct{}) int {
 			}
 			if time.Now().After(deadline) {
 				emit(status{State: "Error", Error: "another built-in Tailscale node is still running on this phone"})
-				return 3
+				os.Exit(3)
 			}
-			select {
-			case <-quit:
-				return 0
-			case <-time.After(500 * time.Millisecond):
-			}
+			time.Sleep(500 * time.Millisecond)
 		}
-		defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		lockFile = f // kept referenced: the lock lasts as long as this process
+		_ = os.WriteFile(filepath.Join(srv.Dir, ".bridge.pid"), []byte(strconv.Itoa(os.Getpid())), 0o600)
 	}
 
 	emit(status{State: "Starting"})
 	if err := srv.Start(); err != nil {
 		emit(status{State: "Error", Error: err.Error()})
-		return 1
+		os.Exit(1)
 	}
 	lc, err := srv.LocalClient()
 	if err != nil {
 		emit(status{State: "Error", Error: err.Error()})
-		return 1
+		os.Exit(1)
 	}
 
 	ln, err := srv.Listen("tcp", ":"+port)
 	if err != nil {
 		emit(status{State: "Error", Error: "listen: " + err.Error()})
-		return 1
+		os.Exit(1)
 	}
 	tu, _ := url.Parse("http://" + target)
 	rp := httputil.NewSingleHostReverseProxy(tu)
@@ -444,6 +445,21 @@ func run(c config, quit <-chan struct{}) int {
 		_ = (&http.Server{Handler: bounded(rp), ReadHeaderTimeout: 30 * time.Second}).Serve(ln)
 	}()
 
+	// Commands from the app; EOF = the app is gone.
+	quit := make(chan struct{})
+	var quitOnce sync.Once
+	stop := func(why string) { quitOnce.Do(func() { fmt.Fprintln(os.Stderr, "quit:", why); close(quit) }) }
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	go func() { s := <-sigs; stop("signal " + s.String()) }()
+	go func() {
+		for range time.Tick(2 * time.Second) {
+			if os.Getppid() != ppid {
+				stop("the app process is gone")
+				return
+			}
+		}
+	}()
 	// 1.1.7: tsnet asks the control server for a login link only once, and only if the backend is already in NeedsLogin
 	// at that instant. When it is still NoState then (slow storage, an old state file, an expired node) or after a
 	// logout or an expired link, the node sits in NeedsLogin with no link forever. So we ask ourselves: whenever the
@@ -462,32 +478,33 @@ func run(c config, quit <-chan struct{}) int {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			if err := lc.StartLoginInteractive(ctx); err != nil {
-				logln("StartLoginInteractive: " + err.Error())
+				fmt.Fprintln(os.Stderr, "StartLoginInteractive:", err)
 			}
 		}()
 	}
-	// Commands from the app (login, logout); quit closes [quit].
 	go func() {
-		for {
-			select {
-			case <-quit:
+		sc := bufio.NewScanner(os.Stdin)
+		for sc.Scan() {
+			switch strings.TrimSpace(sc.Text()) {
+			case "logout":
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				_ = lc.Logout(ctx)
+				cancel()
+			case "login":
+				kick(true)
+			case "quit":
+				stop("asked by the app")
 				return
-			case cmd := <-commands:
-				switch cmd {
-				case "logout":
-					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-					_ = lc.Logout(ctx)
-					cancel()
-				case "login":
-					kick(true)
-				}
 			}
 		}
+		stop(fmt.Sprint("the app closed our input ", sc.Err()))
 	}()
 
 	var needSince time.Time
 	// 1.3 beta6: the real link state and its changes.
-	var wasUp = true
+	var wasUp = false
+	var everUp bool
+	var runningSince time.Time
 	var downSince time.Time
 	var flaps []time.Time
 	// 1.3 beta4: a login link is not good forever. One left open for 10 minutes (the user went away, the browser tab
@@ -507,6 +524,10 @@ func run(c config, quit <-chan struct{}) int {
 			s := status{State: st.BackendState, AuthURL: st.AuthURL, Control: srv.ControlURL}
 			if st.BackendState != "Running" {
 				s.LoginError = loginError(st.Health)
+				// 1.3.0: why it is not connected, in every state (before: only in NeedsLogin, so a node waiting for
+				// the control server with a saved login said nothing for minutes).
+				s.Health = strings.Join(st.Health, "; ")
+				runningSince, wasUp, everUp = time.Time{}, false, false
 			}
 			if st.BackendState == "NeedsLogin" && st.AuthURL == "" {
 				if needSince.IsZero() {
@@ -525,11 +546,11 @@ func run(c config, quit <-chan struct{}) int {
 					s.Problem = strings.Join(st.Health, "; ")
 					if !keptLogin {
 						keptLogin = true
-						logf("needs login but has a saved login: keeping it, waiting for the server (%s)", s.Problem)
+						fmt.Fprintf(os.Stderr, "needs login but has a saved login: keeping it, waiting for the server (%s)\n", s.Problem)
 					}
 				} else if srv.AuthKey == "" {
 					if saved {
-						logf("saved login refused by the server after %ds: asking for a new login", s.WaitingS)
+						fmt.Fprintf(os.Stderr, "saved login refused by the server after %ds: asking for a new login\n", s.WaitingS)
 					}
 					kick(false)
 				}
@@ -569,6 +590,9 @@ func run(c config, quit <-chan struct{}) int {
 				s.Tailnet = st.CurrentTailnet.Name
 			}
 			if st.BackendState == "Running" {
+				if runningSince.IsZero() {
+					runningSince = time.Now()
+				}
 				s.ControlOK, s.RelayOK = true, true
 				var probs []string
 				for _, h := range st.Health {
@@ -588,19 +612,31 @@ func run(c config, quit <-chan struct{}) int {
 						s.RelayOK = false
 					}
 				}
+				// 1.3.0: the backend warns about a missing relay only after a 10 s grace, so in the first seconds after
+				// "Running" no warning does not mean connected. Until then (and until it has been up once) it is
+				// "connecting".
+				if time.Since(runningSince) < 12*time.Second {
+					s.RelayOK = false
+				}
 				s.Problem = strings.Join(probs, "; ")
 				up := s.ControlOK && s.RelayOK
 				if up != wasUp {
-					if !up {
+					if !up && everUp {
 						downSince = time.Now()
 						flaps = append(flaps, time.Now())
-						logf("link down: control_ok=%v relay=%q relay_ok=%v %s", s.ControlOK, s.Relay, s.RelayOK, s.Problem)
-					} else {
-						logf("link up again after %ds, relay=%q", int(time.Since(downSince)/time.Second), s.Relay)
+						fmt.Fprintf(os.Stderr, "link down: control_ok=%v relay=%q relay_ok=%v %s\n", s.ControlOK, s.Relay, s.RelayOK, s.Problem)
+					} else if up && !everUp {
+						fmt.Fprintf(os.Stderr, "link up %ds after login state Running, relay=%q\n", int(time.Since(runningSince)/time.Second), s.Relay)
+					} else if up {
+						fmt.Fprintf(os.Stderr, "link up again after %ds, relay=%q\n", int(time.Since(downSince)/time.Second), s.Relay)
+					}
+					if up {
+						everUp = true
 					}
 					wasUp = up
 				}
-				if !up {
+				s.Connecting = !everUp
+				if !up && everUp {
 					s.DownS = int(time.Since(downSince) / time.Second)
 				}
 				cut := time.Now().Add(-10 * time.Minute)
@@ -617,10 +653,9 @@ func run(c config, quit <-chan struct{}) int {
 			}
 			emit(s)
 		}
-		put("H")
 		select {
 		case <-quit:
-			return 0
+			return
 		case <-tick.C:
 		}
 	}

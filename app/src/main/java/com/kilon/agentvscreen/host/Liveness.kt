@@ -140,8 +140,6 @@ object Liveness {
         !foreground -> run { val why = foregroundError ?: tr("原因未知", "unknown reason"); tr("服务没能成为前台服务（$why），切到后台后系统会冻结或杀掉它。打开一次本应用会自动补上。", "The service could not become a foreground service ($why), so the system freezes or kills it in the background. Opening this app once fixes it.") }
         frozenUnresolved() -> tr("亮屏时系统在后台冻结过本应用 $screenOnFreezesSinceVisit 次（最近一次 ${lastScreenOnFreezeMs / 1000} 秒）：冻结期间 agent 的命令会一直等，直到你打开本应用。", "With the screen on, the system froze this app in the background $screenOnFreezesSinceVisit times (last time ${lastScreenOnFreezeMs / 1000} s): while frozen, the agent's commands wait until you open this app.") +
             tr("请在系统的后台管理里把 Agent-VScreen 设为“允许后台活动”。", "Set Agent-VScreen to \"allow background activity\" in the system's background management.")
-        netBlocksAway > 0 -> tr("你离开 App 后，系统断过本应用的网络 $netBlocksAway 次（进程还在，但其它设备连不上）。请在系统的后台管理里把 Agent-VScreen 设为“允许后台活动”。",
-            "After you left the app, the system blocked this app's network $netBlocksAway times (the process kept running, but other devices could not connect). Set Agent-VScreen to \"allow background activity\" in the system's background management.")
         else -> null
     }
 
