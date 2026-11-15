@@ -99,6 +99,11 @@ object AgentNews {
             "A duration over its limit (task --wait, events --wait, wait/sleep steps) is reported in the result with the value used, instead of being cut silently. task waits at most 2m per call.",
             "When the background screen is closed or released, questions answered on it (point, area, teach) end at once with ASK_DECLINED and the reason, instead of waiting on.",
         )),
+        Entry(28, "1.3.0-beta15", listOf(
+            "示教录下的输入是“输入框最后的内容”（用户在全屏页的输入框和副屏输入框同步，删改都算），重放用 type 整体写入。",
+        ), listOf(
+            "Typing in a lesson is recorded as what the box finally reads (the full screen box mirrors the screen's field, edits and deletes included); replay writes it whole with type.",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */

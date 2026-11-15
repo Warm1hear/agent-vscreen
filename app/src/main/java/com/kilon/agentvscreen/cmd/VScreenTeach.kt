@@ -45,7 +45,8 @@ internal sealed class TeachEv {
         @Volatile var end = -1L
         @Volatile var cancelled = false
     }
-    class Typed(override val t: Long, val text: String) : TeachEv()
+    /** [whole]: the field now reads [text] (the full screen box mirrors the field); otherwise [text] was added. */
+    class Typed(override val t: Long, val text: String, val whole: Boolean = false) : TeachEv()
     class Key(override val t: Long, val name: String) : TeachEv()
 }
 
@@ -110,7 +111,10 @@ internal object Teach {
         return start(session, a.title, a.id, a.options.firstOrNull())
     }
 
-    fun cancel() { synchronized(this) { rec = null; current = null; _count.value = null }; UserAsk.hold(null) }
+    fun cancel() { synchronized(this) { rec = null; current = null; typing = null; _count.value = null }; UserAsk.hold(null) }
+
+    /** While recording an agent's request: who asked and what (the full screen page shows it in full). */
+    fun brief(): Pair<String?, String>? = rec?.let { r -> r.purpose?.takeIf { it.isNotBlank() }?.let { p -> (r.askId?.let { UserAsk.byId(it)?.tokenName }) to p } }
 
     private fun read(id: Int): TeachSnap? {
         snapSource?.let { return it(id) }
@@ -132,6 +136,7 @@ internal object Teach {
 
     fun touchDown(displayId: Int, x: Int, y: Int) = synchronized(this) {
         val r = rec?.takeIf { it.displayId == displayId } ?: return
+        flushTyping(r)
         current = TeachEv.Touch(System.currentTimeMillis(), x, y).also { add(r, it) }
     }
 
@@ -155,14 +160,20 @@ internal object Teach {
     fun typed(text: String) = record(TeachEv.Typed(System.currentTimeMillis(), text))
     fun key(name: String) = record(TeachEv.Key(System.currentTimeMillis(), name))
 
+    /** 1.3.0-beta14: what the mirrored field reads now (null: unchanged); it becomes one step at the next action. */
+    @Volatile private var typing: String? = null
+    fun typingNow(value: String?) = synchronized(this) { if (rec != null) typing = value?.takeIf { it.isNotEmpty() } }
+    fun commitTyping() = synchronized(this) { rec?.let { flushTyping(it) } }
+    private fun flushTyping(r: Rec) { typing?.let { typing = null; add(r, TeachEv.Typed(System.currentTimeMillis(), it, whole = true)) } }
+
     private fun record(e: TeachEv) {
-        synchronized(this) { val r = rec ?: return; add(r, e) }
+        synchronized(this) { val r = rec ?: return; flushTyping(r); add(r, e) }
         runCatching { e.pending?.get(800, TimeUnit.MILLISECONDS) }
     }
 
     /** Stop recording and write the steps (reads the screen once more). Opens the review page. */
     fun stop(ctx: Context?) {
-        val r = synchronized(this) { rec.also { rec = null; current = null } } ?: return
+        val r = synchronized(this) { rec?.let { flushTyping(it) }; rec.also { rec = null; current = null; typing = null } } ?: return
         _count.value = null
         Thread({
             val end = runCatching { reader.submit<TeachSnap?> { read(r.displayId) }.get(4, TimeUnit.SECONDS) }.getOrNull()
@@ -254,7 +265,7 @@ internal object Teach {
             // Typing sent in several pieces into the same box is one step.
             if (e is TeachEv.Typed) {
                 val sb = StringBuilder(e.text)
-                while (i + 1 < evs.size && evs[i + 1] is TeachEv.Typed) { i++; sb.append((evs[i] as TeachEv.Typed).text) }
+                while (i + 1 < evs.size && evs[i + 1] is TeachEv.Typed) { i++; val n = evs[i] as TeachEv.Typed; if (n.whole) sb.setLength(0); sb.append(n.text) }
                 val secret = e.before?.els.orEmpty().any { it.focused && it.password }
                 out += TeachLine("type", null, if (secret) tr("在密码框里输入（原文不保存）", "typed into a password box (not kept)") else tr("输入「${sb.toString().take(30)}」", "typed \"${sb.toString().take(30)}\""),
                     "type", typed = sb.toString(), secret = secret)

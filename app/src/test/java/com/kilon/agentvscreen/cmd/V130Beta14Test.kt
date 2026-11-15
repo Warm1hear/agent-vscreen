@@ -40,6 +40,14 @@ class V130Beta14Test {
         assertNull(l[0].until)
     }
 
+    @Test fun mirroredTypingIsWhatTheBoxFinallyReads() {
+        val page = TeachSnap("settings", listOf(el("搜索设置项", 100, 100, 900, 200)), "Search")
+        val evs = listOf(TeachEv.Typed(1000, "蓝", whole = true).also { it.before = page }, TeachEv.Typed(1100, "蓝牙耳", whole = true), TeachEv.Typed(1200, "蓝牙", whole = true))
+        val l = Teach.translate(evs, page)
+        assertEquals(1, l.size)
+        assertEquals("蓝牙", l[0].typed)
+    }
+
     @Test fun cutDurationsAreSaid() {
         takeAdjusted()
         assertEquals(120_000L, boundedMs("wait", 600_000L, 0L, 120_000L))

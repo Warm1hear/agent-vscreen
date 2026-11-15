@@ -21,30 +21,32 @@ import java.util.concurrent.TimeUnit
  * fact; a password field gives its length only. The typed text is never logged.
  */
 object VScreenTyping {
+    /** 1.3.0-beta14: the focused field, for the full screen page's box that mirrors it. [key] tells fields apart. */
+    class FieldNow(val text: String, val password: Boolean, val key: String)
+
+    fun fieldNow(displayId: Int): FieldNow? = runCatching {
+        focusedEditable(displayId)?.let { n ->
+            val b = Rect().also { n.getBoundsInScreen(it) }
+            FieldNow(if (n.isPassword) "" else fieldText(n), n.isPassword, "${n.viewIdResourceName}@${b.left},${b.top},${b.right},${b.bottom}")
+        }
+    }.getOrNull()
+
     /**
-     * Type [text] into the focused field of [displayId]: accessibility
-     * SET_TEXT first (works for Chinese), ASCII `input text` second,
-     * clipboard + PASTE key last. Returns the method used.
+     * 1.3.0-beta14: make the focused field read [value] (the user's box mirrors it: typing, deleting, the keyboard's
+     * own keys). Accessibility writes the whole value; without it, the difference from [was] goes as delete keys and
+     * then the added text (keys, or paste for non-ASCII). Replaces the old one-shot "append what was sent", which read
+     * the field's hint as its content ("搜索设置项" + "蓝牙") and could not delete.
      */
-    @Throws(ActionError::class)
-    fun typeText(displayId: Int, text: String, append: Boolean): String {
+    fun setField(displayId: Int, value: String, was: String) {
         val svc = VScreenAccessibilityService.getInstance()
-        if (svc != null) {
-            val focused = BackgroundOperation.nodeRoots(displayId).firstNotNullOfOrNull {
-                runCatching { it.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }.getOrNull()
-            }
-            if (focused != null && focused.isEditable) {
-                val value = if (append) (focused.text?.toString().orEmpty() + text) else text
-                if (svc.setNodeText(focused, value)) return "accessibility SET_TEXT"
-            }
-        }
-        if (text.all { it.code in 32..126 }) {
-            val r = VScreenShell.typeKeys(displayId, text)
-            if (r.ok) return tr("按键注入", "key injection")
-            throw ActionError(r.code, r.message)
-        }
-        pasteText(displayId, text)
-        return tr("clipboard paste（无障碍未找到焦点输入框，已用剪贴板粘贴；请读屏核对）", "clipboard paste (accessibility found no focused input box, pasted via clipboard; check the screen)")
+        val node = if (svc != null) runCatching { focusedEditable(displayId) }.getOrNull() else null
+        if (node != null && !node.isPassword && svc!!.setNodeText(node, value)) return
+        val common = was.commonPrefixWith(value).length
+        repeat(was.length - common) { VScreenShell.key(displayId, "del") }
+        val add = value.substring(common)
+        if (add.isEmpty()) return
+        if (add.all { it.code in 32..126 }) { val r = VScreenShell.typeKeys(displayId, add); if (!r.ok) throw ActionError(r.code, r.message) }
+        else pasteText(displayId, add)
     }
 
     /**
@@ -74,9 +76,12 @@ object VScreenTyping {
         return null
     }
 
+    /** What the field holds: never its hint (some apps report the hint as text without saying so). */
     private fun fieldText(n: AccessibilityNodeInfo): String {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && n.isShowingHintText) return ""
-        return n.text?.toString().orEmpty()
+        val t = n.text?.toString().orEmpty()
+        val hint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) n.hintText?.toString() else null
+        return if (!hint.isNullOrEmpty() && t == hint) "" else t
     }
 
     /**

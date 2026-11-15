@@ -13,6 +13,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -37,6 +38,15 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Backspace
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.runtime.DisposableEffect
+import com.kilon.agentvscreen.core.VScreenTyping
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -243,6 +253,11 @@ class FullscreenActivity : ComponentActivity() {
                 }
             }
 
+            // 1.3.0-beta14: what the agent asked to be shown, in full, while the user shows it.
+            if (recording) Teach.brief()?.let { (who, what) ->
+                TeachBrief(who, what, Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp, start = 18.dp, end = 18.dp))
+            }
+
             // Hint.
             var now by remember { mutableLongStateOf(0L) }
             LaunchedEffect(hintAt) { now = SystemClock.uptimeMillis(); delay(2600); now = SystemClock.uptimeMillis() }
@@ -258,26 +273,45 @@ class FullscreenActivity : ComponentActivity() {
                 val waiting = pendingAsks().filter { !(recording && it.kind == UserAsk.Kind.TEACH) }
                 waiting.firstOrNull()?.let { a -> AskQuick(a, waiting.size, 1.15f, inOverlay = false, modifier = Modifier.fillMaxWidth()) }
                 if (typing) {
+                    // 1.3.0-beta14: this box mirrors the focused field on the screen: it starts with what the field
+                    // reads, and every change (typing, deleting with the keyboard's own key) goes there as it happens.
                     val fr = remember { FocusRequester() }
-                    LaunchedEffect(Unit) { fr.requestFocus() }
-                    fun send() {
-                        val t = text.trim(); if (t.isEmpty()) return
-                        text = ""
-                        vscreenUserInput(session) { id ->
-                            val r = runCatching { com.kilon.agentvscreen.core.VScreenTyping.typeText(id, t, append = true) }
-                            if (r.isSuccess) Teach.typed(t)
-                            r.exceptionOrNull()?.let { toast(tr("没输进去：${it.message?.take(60)}", "Not typed: ${it.message?.take(60)}")) }
+                    val mirror = remember(session) { FieldMirror(session) }
+                    var field by remember { mutableStateOf(TextFieldValue("")) }
+                    var secret by remember { mutableStateOf(false) }
+                    var none by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        val f = withContext(Dispatchers.IO) { BackgroundOperation.state.value.displayId?.let { VScreenTyping.fieldNow(it) } }
+                        mirror.adopt(f); none = f == null; secret = f?.password == true
+                        field = TextFieldValue(f?.text.orEmpty(), TextRange(f?.text?.length ?: 0))
+                        fr.requestFocus()
+                        // Follow the field when it changes by itself (another box tapped, the app cleared or filled it).
+                        while (true) {
+                            delay(800)
+                            if (mirror.busy()) continue
+                            val g = withContext(Dispatchers.IO) { BackgroundOperation.state.value.displayId?.let { VScreenTyping.fieldNow(it) } }
+                            none = g == null
+                            if (g != null && mirror.follow(g)) { secret = g.password; field = TextFieldValue(g.text, TextRange(g.text.length)) }
                         }
                     }
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color(0xFF1B1E2A)).padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
+                    DisposableEffect(Unit) { onDispose { Teach.commitTyping() } }
+                    fun enter() { Teach.commitTyping(); vscreenUserInput(session) { Teach.key("enter"); VScreenShell.key(it, "enter") } }
+                    Row(Modifier.fillMaxWidth().glassDark(RoundedCornerShape(24.dp)).padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Box(Modifier.weight(1f)) {
-                            if (text.isEmpty()) Text(tr("输入到副屏里有焦点的输入框", "Types into the focused input box on the screen"), color = Color(0x88FFFFFF), fontSize = 15.sp)
-                            BasicTextField(text, { text = it }, Modifier.fillMaxWidth().focusRequester(fr), singleLine = true,
+                            if (field.text.isEmpty()) Text(if (none) tr("先在副屏上点一下输入框", "Tap an input box on the screen first") else tr("和副屏的输入框同步", "Synced with the screen's input box"),
+                                color = Color(0x88FFFFFF), fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            BasicTextField(field, { v -> field = v; if (v.text != mirror.sent) mirror.push(v.text) }, Modifier.fillMaxWidth().focusRequester(fr), singleLine = true,
                                 textStyle = TextStyle(color = Color.White, fontSize = 15.sp), cursorBrush = SolidColor(Palette.standby),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }))
+                                visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go), keyboardActions = KeyboardActions(onGo = { enter() }))
                         }
-                        Circle(Icons.AutoMirrored.Filled.Send, tr("发送", "Send"), Palette.brandA) { send() }
+                        Circle(Icons.AutoMirrored.Filled.Backspace, tr("删除", "Delete"), Color(0x22FFFFFF)) {
+                            val t = field.text
+                            if (t.isNotEmpty()) { val n = t.dropLast(1); field = TextFieldValue(n, TextRange(n.length)); mirror.push(n) }
+                            else vscreenUserInput(session) { Teach.key("del"); VScreenShell.key(it, "del") }
+                        }
+                        Circle(Icons.AutoMirrored.Filled.KeyboardReturn, tr("回车", "Enter"), Palette.brandA) { enter() }
                     }
                 }
                 Row(Modifier.clip(RoundedCornerShape(30.dp)).background(Color(0xE612141C)).padding(horizontal = 10.dp, vertical = 8.dp),
@@ -285,7 +319,8 @@ class FullscreenActivity : ComponentActivity() {
                     if (takenOver) {
                         Circle(Icons.AutoMirrored.Filled.ArrowBack, tr("返回", "Back"), Color(0x22FFFFFF)) { vscreenUserInput(session) { Teach.key("back"); VScreenShell.key(it, "back") } }
                         Circle(Icons.Filled.Keyboard, tr("打字", "Type"), if (typing) Palette.brandA else Color(0x22FFFFFF)) { typing = !typing }
-                        Circle(Icons.AutoMirrored.Filled.KeyboardReturn, tr("回车", "Enter"), Color(0x22FFFFFF)) { vscreenUserInput(session) { Teach.key("enter"); VScreenShell.key(it, "enter") } }
+                        if (!typing) Circle(Icons.AutoMirrored.Filled.Backspace, tr("删除", "Delete"), Color(0x22FFFFFF)) { vscreenUserInput(session) { Teach.key("del"); VScreenShell.key(it, "del") } }
+                        if (!typing) Circle(Icons.AutoMirrored.Filled.KeyboardReturn, tr("回车", "Enter"), Color(0x22FFFFFF)) { vscreenUserInput(session) { Teach.key("enter"); VScreenShell.key(it, "enter") } }
                         // 示教: record what you do here as steps an agent can run again.
                         if (recording) Pill(tr("完成", "Done") + " · $teachN", Icons.Filled.Stop, Palette.asking, Color.White) { Teach.stop(applicationContext) }
                         else {
@@ -336,6 +371,69 @@ private fun Pill(label: String, icon: ImageVector, bg: Color, fg: Color, onClick
 }
 
 /** Runs [op] with the display id off the main thread, only while [sessionId] holds the screen (接管). */
+/** The user's typing goes out on one lane, in order, newest value only (a burst of keystrokes is one write). */
+private val typingLane = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "vscreen-typing").apply { isDaemon = true } }
+
+/** 1.3.0-beta14: keeps the full screen box and the screen's focused field the same. */
+private class FieldMirror(private val session: String) {
+    /** What the screen's field reads, as far as we know. */
+    @Volatile var sent = ""
+    private var start = ""
+    private var key: String? = null
+    @Volatile private var editAt = 0L
+    private val latest = java.util.concurrent.atomic.AtomicReference<String?>(null)
+
+    fun adopt(f: VScreenTyping.FieldNow?) { sent = f?.text.orEmpty(); start = sent; key = f?.key }
+    /** The user typed in the last moment, or a write is on its way: do not follow the field now. */
+    fun busy() = SystemClock.uptimeMillis() - editAt < 1_500 || latest.get() != null
+
+    fun push(v: String) {
+        editAt = SystemClock.uptimeMillis()
+        latest.set(v)
+        typingLane.execute {
+            val x = latest.getAndSet(null) ?: return@execute
+            val st = BackgroundOperation.state.value
+            val id = st.displayId ?: return@execute
+            if (st.takeoverSessionId != session) return@execute
+            runCatching { VScreenTyping.setField(id, x, sent) }.onSuccess { sent = x; Teach.typingNow(if (x != start) x else null) }
+        }
+    }
+
+    /** The field changed by itself: true when the box should show [g]. Another field: what was typed is one step. */
+    fun follow(g: VScreenTyping.FieldNow): Boolean {
+        if (g.key != key) { Teach.commitTyping(); key = g.key; start = g.text; sent = g.text; return true }
+        if (g.password || g.text == sent) return false
+        sent = g.text; start = g.text; Teach.typingNow(null)
+        return true
+    }
+}
+
+/** The agent's request, on dark glass with the orchid edge; tap to fold it to one line. */
+@Composable
+private fun TeachBrief(who: String?, what: String, modifier: Modifier) {
+    var open by remember(what) { mutableStateOf(true) }
+    val shape = RoundedCornerShape(if (open) 22.dp else 50.dp)
+    Column(
+        modifier.fillMaxWidth().glassDark(shape).border(1.2.dp, Brush.linearGradient(listOf(Color(0xFF8B7CFF), Palette.asking)), shape)
+            .clickable { open = !open }.padding(horizontal = 14.dp, vertical = if (open) 12.dp else 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AskMark(18f)
+            Spacer(Modifier.width(8.dp))
+            Text(if (open) (who?.let { tr("「$it」请你演示", "\"$it\" asks you to show") } ?: tr("要演示的事", "What to show")) else what,
+                color = if (open) Color(0xCCFFFFFF) else Color.White, fontSize = if (open) 12.sp else 13.sp, fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, if (open) tr("收起", "Fold") else tr("展开", "Unfold"),
+                tint = Color(0x99FFFFFF), modifier = Modifier.size(18.dp))
+        }
+        if (open) {
+            Text(what, color = Color.White, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
+            Text(tr("照常操作，做完点下面的“完成”", "Do it as usual, then tap Done below"), color = Color(0x99FFFFFF), fontSize = 11.5.sp)
+        }
+    }
+}
+
 internal fun vscreenUserInput(sessionId: String, op: (Int) -> Unit) {
     val s = BackgroundOperation.state.value
     val id = s.displayId ?: return
