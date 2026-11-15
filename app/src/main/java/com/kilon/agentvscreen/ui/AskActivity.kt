@@ -84,6 +84,10 @@ import kotlin.math.roundToInt
  * (send on the right, decline on the left) in the same place for every kind.
  */
 class AskActivity : ComponentActivity() {
+    // 1.3.0-beta18: like the full screen page, this page takes the floating window away while it is in front (it
+    // came back with its card over the draw-a-box picture) and gives it back when it closes after the answer.
+    override fun onStart() { super.onStart(); Overlay.fullscreenShown(true) }
+    override fun onStop() { Overlay.fullscreenShown(false); super.onStop() }
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)

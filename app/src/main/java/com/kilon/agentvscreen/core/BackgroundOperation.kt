@@ -1007,7 +1007,10 @@ object BackgroundOperation {
      * matches is refreshed and checked again: the cache of a background screen can keep a cleared box's old text, and
      * `until gone:` then waited for words that were already gone. Null when the tree cannot be read.
      */
-    fun a11yShows(displayId: Int, norm: (String) -> String, want: String): String? {
+    fun a11yShows(displayId: Int, norm: (String) -> String, want: String): String? = a11yShows(displayId) { norm(it).contains(want) }
+
+    /** 1.3.0-beta18: the same with any test of the words (a pattern with `*`). */
+    fun a11yShows(displayId: Int, match: (String) -> Boolean): String? {
         val roots = nodeRoots(displayId)
         if (roots.isEmpty()) return null
         var hit: String? = null
@@ -1015,10 +1018,10 @@ object BackgroundOperation {
         fun walk(n: AccessibilityNodeInfo?, depth: Int) {
             if (n == null || depth > 40 || hit != null || ++seen > 1500) return
             val t = (n.text ?: n.contentDescription)?.toString()
-            if (t != null && n.isVisibleToUser && norm(t).contains(want)) {
+            if (t != null && n.isVisibleToUser && match(t)) {
                 val fresh = runCatching { n.refresh() }.getOrDefault(false)
                 val t2 = if (fresh) (n.text ?: n.contentDescription)?.toString() else t
-                if (t2 != null && (!fresh || n.isVisibleToUser) && norm(t2).contains(want)) { hit = t2.replace('\n', ' ').trim().take(40); return }
+                if (t2 != null && (!fresh || n.isVisibleToUser) && match(t2)) { hit = t2.replace('\n', ' ').trim().take(40); return }
             }
             for (i in 0 until n.childCount) walk(runCatching { n.getChild(i) }.getOrNull(), depth + 1)
         }
@@ -1030,7 +1033,9 @@ object BackgroundOperation {
      * 1.3: every visible node whose words contain [want] (normalised), with its box; refreshed before it counts.
      * Null when the tree cannot be read.
      */
-    fun a11yFind(displayId: Int, norm: (String) -> String, want: String): List<Pair<String, android.graphics.Rect>>? {
+    fun a11yFind(displayId: Int, norm: (String) -> String, want: String): List<Pair<String, android.graphics.Rect>>? = a11yFind(displayId) { norm(it).contains(want) }
+
+    fun a11yFind(displayId: Int, match: (String) -> Boolean): List<Pair<String, android.graphics.Rect>>? {
         val roots = nodeRoots(displayId)
         if (roots.isEmpty()) return null
         val out = ArrayList<Pair<String, android.graphics.Rect>>()
@@ -1038,10 +1043,10 @@ object BackgroundOperation {
         fun walk(n: AccessibilityNodeInfo?, depth: Int) {
             if (n == null || depth > 40 || out.size >= 20 || ++seen > 1500) return
             val t = (n.text ?: n.contentDescription)?.toString()
-            if (t != null && n.isVisibleToUser && norm(t).contains(want)) {
+            if (t != null && n.isVisibleToUser && match(t)) {
                 val fresh = runCatching { n.refresh() }.getOrDefault(false)
                 val t2 = if (fresh) (n.text ?: n.contentDescription)?.toString() else t
-                if (t2 != null && (!fresh || n.isVisibleToUser) && norm(t2).contains(want))
+                if (t2 != null && (!fresh || n.isVisibleToUser) && match(t2))
                     out += t2.replace('\n', ' ').trim().take(40) to android.graphics.Rect().also { n.getBoundsInScreen(it) }
             }
             for (i in 0 until n.childCount) walk(runCatching { n.getChild(i) }.getOrNull(), depth + 1)
@@ -1054,7 +1059,12 @@ object BackgroundOperation {
      * 1.3 beta2: whether the biggest scrollable view on [displayId] can still scroll back (up): there is content above.
      * Null when no scrollable view is found (the tree does not say).
      */
-    fun canScrollBack(displayId: Int): Boolean? {
+    fun canScrollBack(displayId: Int): Boolean? = canScroll(displayId, forward = false)
+
+    /** 1.3.0-beta18: the largest scrollable area on [displayId] says it can go further down (null: no such area seen). */
+    fun canScrollForward(displayId: Int): Boolean? = canScroll(displayId, forward = true)
+
+    private fun canScroll(displayId: Int, forward: Boolean): Boolean? {
         var best: AccessibilityNodeInfo? = null; var bestArea = 0L
         var seen = 0
         fun walk(n: AccessibilityNodeInfo?, depth: Int) {
@@ -1069,7 +1079,8 @@ object BackgroundOperation {
         nodeRoots(displayId).forEach { walk(it, 0) }
         val b = best ?: return null
         val ids = b.actionList.map { it.id }
-        return AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD.id in ids || AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.id in ids
+        return if (forward) AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD.id in ids || AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.id in ids
+            else AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD.id in ids || AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.id in ids
     }
 
     /** 1.3: the box of the focused input field on [displayId] (where typing went), or null. */

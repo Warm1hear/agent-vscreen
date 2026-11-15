@@ -60,6 +60,18 @@ internal fun VScreenOffloadHandler.noteCmd(sid: String?, args: OffloadArgs): Nat
             tr("已记 $pkg 的${if (first == "before") "前置" else "收尾"}步骤：$body。之后每段带步骤或 --watch 的 act 会${if (first == "before") "先" else "在最后"}做它（--bare 跳过；不带步骤的 act 只看，不做）",
                 "Kept $pkg's $first steps: $body. Every act with steps or --watch now runs them ${if (first == "before") "first" else "last"} (--bare skips them; act without steps only looks)")
         }
+        first == "save" || first == "segment" -> {
+            // 1.3.0-beta18: write or rewrite a segment (a taught lesson too) without running it: the same steps as act.
+            val name = p.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() } ?: throw ActionError("INVALID_ARGS", tr("note save <段名> \"<步骤>\"", "note save <segment> \"<steps>\""))
+            val body = p.drop(2).joinToString(" ").trim()
+            if (body.isEmpty()) throw ActionError("INVALID_ARGS", tr("note save $name \"<步骤>\"：写上整段步骤（会替换同名的段）", "note save $name \"<steps>\": give the whole steps (replaces the segment of that name)"))
+            Steps.parseAll(body)
+            val had = VScreenMap.segment(pkg, name) != null
+            VScreenMap.saveSegment(pkg, name, body)
+            val n = Regex("\\{(\\d)\\}").findAll(body).maxOfOrNull { it.groupValues[1].toInt() } ?: 0
+            val use = "use $name" + (1..n).joinToString("") { " <$it>" }
+            tr("已${if (had) "改写" else "存下"} $pkg 的段“$name”（没有执行）。用：act \"$use\"", "${if (had) "Rewrote" else "Saved"} $pkg's segment \"$name\" (not run). Run it: act \"$use\"")
+        }
         first == "realtime" -> tr("note realtime 已取消：要动作之间不等画面稳定，在那一段 act 上加 --fast", "note realtime is gone: to skip waiting for the picture between actions, add --fast to that act")
         first == "delete" || first == "del" || first == "rm" -> {
             val what = p.drop(1).joinToString(" ").trim().ifEmpty { throw ActionError("INVALID_ARGS", tr("note delete <编号|before|after|段名>", "note delete <number|before|after|segment>")) }

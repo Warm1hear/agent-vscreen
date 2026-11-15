@@ -87,11 +87,10 @@ object ShizukuManager {
     /** First installed Shizuku-protocol manager package, or null. */
     fun installedManagerPackage(): String? = backend?.installedManagerPackage()
 
-    fun requestPermission(): Boolean {
-        val b = backend ?: return false
-        if (!b.isBinderAlive()) return false
-        b.requestPermission()
-        return true
+    /** What happened, for the button to say so (it is never silent). The state is re-read either way. */
+    fun requestPermission(): ShizukuBackend.Ask {
+        val b = backend ?: return ShizukuBackend.Ask.NO_BINDER
+        return b.requestPermission().also { recompute("request-permission") }
     }
 
     /** Launch the installed manager app (Shizuku or AXManager). */

@@ -11,17 +11,24 @@ import com.kilon.agentvscreen.core.BackgroundOperation.ActionError
 // type / key), a wait, or `use NAME` (a saved segment). Every action may end with `until <cond> [or <cond>…] [max]`.
 // Conditions are facts the phone can check by itself: text appears / is gone, an area changed / stayed still,
 // a point has a colour, the foreground app or activity. There is no "progress" and no meaning here.
+//
+// 1.3.0-beta18: one language for everything that runs steps (act, saved segments and taught lessons, before/after):
+//  - words may hold `*` (any characters; the element's whole text must then match) and end in `@N` (the N-th match,
+//    top to bottom, left to right; @-1 = the last). `tap *{1}*@1` = the first item that holds the first value.
+//  - blocks in braces: `try <step>` / `try { … }` (not found or not as expected: skip it and go on);
+//    `if <cond> [or …] [wait] { … } [else { … } | else <step>]`; `repeat N { … }` / `repeat [N] { … } until <cond> [wait]`.
 
 /** Where a tap / press / scroll goes: a point, an element of the last list (#N), or words on the screen. */
 internal sealed class StepTarget {
     data class At(val x: Int, val y: Int) : StepTarget()
     data class Ref(val n: Int) : StepTarget()
-    data class Words(val text: String) : StepTarget()
+    /** [nth]: 0 = the one match; N > 0 the N-th in reading order; -1 the last. */
+    data class Words(val text: String, val nth: Int = 0) : StepTarget()
 
     fun describe(): String = when (this) {
         is At -> "$x,$y"
         is Ref -> "#$n"
-        is Words -> "“$text”"
+        is Words -> "“$text”" + (if (nth != 0) "@$nth" else "")
     }
 }
 
@@ -42,8 +49,27 @@ internal data class Step(
     /** until … (or, for wait, what it waits for); null = the default wait. */
     val until: List<Cond>? = null,
     val untilMs: Long? = null,
+    /** try / if / repeat: the steps inside the braces; [alt] = if's else; [times] = repeat's count (the most). */
+    val body: List<Step> = emptyList(),
+    val alt: List<Step> = emptyList(),
+    val times: Int = 0,
 ) {
-    val isAction: Boolean get() = kind !in setOf("wait", "sleep", "use")
+    val isAction: Boolean get() = kind !in BLOCKS && kind !in setOf("wait", "sleep", "use")
+    companion object { val BLOCKS = setOf("try", "if", "repeat") }
+}
+
+/**
+ * 1.3.0-beta18: words to find on the screen. Without `*` as before (the same words, else words that hold them); with
+ * `*` a pattern over the element's whole text (spaces and case ignored), so `*蓝牙*` holds 蓝牙, `共*条` starts and ends so.
+ */
+internal class TextPat(raw: String) {
+    val key: String = com.kilon.agentvscreen.core.VScreenOcr.norm(raw)
+    private val glob: Regex? = if ('*' in key) Regex(key.split('*').joinToString(".*") { if (it.isEmpty()) "" else Regex.escape(it) }) else null
+    val wild: Boolean get() = glob != null
+    /** Counts as these words (for conditions, and a target when nothing is exactly so). */
+    fun hit(text: String): Boolean { val n = com.kilon.agentvscreen.core.VScreenOcr.norm(text); return glob?.matches(n) ?: n.contains(key) }
+    /** Exactly these words (a pattern: matches the whole text). */
+    fun exact(text: String): Boolean { val n = com.kilon.agentvscreen.core.VScreenOcr.norm(text); return glob?.matches(n) ?: (n == key) }
 }
 
 internal object Steps {
@@ -61,16 +87,47 @@ internal object Steps {
         val out = ArrayList<String>()
         val cur = StringBuilder()
         var q: Char? = null
+        var depth = 0
         for (c in body) {
             when {
                 q != null -> { cur.append(c); if (c == q) q = null }
                 c == '"' || c == '\'' || c == '“' -> { cur.append(c); q = if (c == '“') '”' else c }
-                c == ';' || c == '；' || c == '\n' -> { out += cur.toString(); cur.setLength(0) }
+                c == '{' -> { depth++; cur.append(c) }
+                c == '}' -> { depth = maxOf(0, depth - 1); cur.append(c) }
+                depth == 0 && (c == ';' || c == '；' || c == '\n') -> { out += cur.toString(); cur.setLength(0) }
                 else -> cur.append(c)
             }
         }
         out += cur.toString()
         return out.map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
+    /**
+     * 1.3.0-beta18: the steps as lines to show a person, each with how deep in braces it is ("if text:X {", its steps
+     * one level in, "} else {", …, "}").
+     */
+    fun outline(body: String): List<Pair<Int, String>> {
+        val out = ArrayList<Pair<Int, String>>()
+        val cur = StringBuilder()
+        var depth = 0
+        var q: Char? = null
+        fun flush() { val t = cur.toString().trim(); if (t.isNotEmpty()) out += depth to t; cur.setLength(0) }
+        var i = 0
+        while (i < body.length) {
+            val c = body[i]
+            when {
+                q != null -> { cur.append(c); if (c == q) q = null }
+                c == '"' || c == '\'' || c == '“' -> { cur.append(c); q = if (c == '“') '”' else c }
+                c == '{' && Regex("^\\{\\d+\\}").containsMatchIn(body.substring(i)) -> { val e = body.indexOf('}', i); cur.append(body, i, e + 1); i = e }
+                c == '{' -> { val t = cur.toString().trimEnd(); cur.setLength(0); cur.append(t).append(" {"); flush(); depth++ }
+                c == '}' -> { flush(); depth = maxOf(0, depth - 1); cur.append('}') }
+                c == ';' || c == '；' || c == '\n' -> flush()
+                else -> cur.append(c)
+            }
+            i++
+        }
+        flush()
+        return out
     }
 
     /** Tokens of one step: whitespace separated, quotes keep spaces (and are removed). */
@@ -103,7 +160,97 @@ internal object Steps {
     fun parseAll(body: String): List<Step> {
         val parts = split(body)
         if (parts.size > MAX_STEPS) throw ActionError("INVALID_STEP", tr("一段最多 $MAX_STEPS 步（收到 ${parts.size} 步）：分成几段 act", "a stretch has at most $MAX_STEPS steps (got ${parts.size}): split it into several acts"))
-        return parts.map { parse(it) }
+        val steps = parts.map { parse(it) }
+        val all = count(steps)
+        if (all > MAX_STEPS * 2) throw ActionError("INVALID_STEP", tr("一段连同括号里的最多 ${MAX_STEPS * 2} 步（收到 $all 步）：分成几段，或存成段再 use", "a stretch has at most ${MAX_STEPS * 2} steps counting those in braces (got $all): split it, or save parts as segments and use them"))
+        return steps
+    }
+
+    /** Steps written, counting those inside braces. */
+    fun count(list: List<Step>): Int = list.sumOf { 1 + count(it.body) + count(it.alt) }
+
+    const val CHECK_DEFAULT_MS = 1_500L
+    const val REPEAT_DEFAULT = 10
+    const val REPEAT_MAX = 50
+
+    /** Where the block's '{' is in [s] (outside quotes; a value blank {1} is not a brace), or -1. */
+    private fun openBrace(s: String): Int {
+        var q: Char? = null
+        for ((i, c) in s.withIndex()) when {
+            q != null -> if (c == q) q = null
+            c == '"' || c == '\'' || c == '“' -> q = if (c == '“') '”' else c
+            c == '{' && !Regex("^\\{\\d+\\}").containsMatchIn(s.substring(i)) -> return i
+        }
+        return -1
+    }
+
+    /** The '}' that closes the '{' at [open]. */
+    private fun closeBrace(raw: String, s: String, open: Int): Int {
+        var q: Char? = null
+        var depth = 0
+        for (i in open until s.length) { val c = s[i]; when {
+            q != null -> if (c == q) q = null
+            c == '"' || c == '\'' || c == '“' -> q = if (c == '“') '”' else c
+            c == '{' -> depth++
+            c == '}' -> { depth--; if (depth == 0) return i }
+        } }
+        bad(raw, tr("{ 没有对应的 }", "a { has no matching }"))
+    }
+
+    /** The steps in the braces at [open], and where the block ends. */
+    private fun block(raw: String, s: String, open: Int): Pair<List<Step>, Int> {
+        val close = closeBrace(raw, s, open)
+        val inner = split(s.substring(open + 1, close)).map { parse(it) }
+        if (inner.isEmpty()) bad(raw, tr("{ } 里没有步骤", "nothing inside { }"))
+        return inner to close
+    }
+
+    /** try / if / repeat (1.3.0-beta18). */
+    private fun blockStep(raw: String, verb: String, verbTok: String): Step {
+        val rest = rawAfterVerb(raw, verbTok)
+        when (verb) {
+            "try", "试" -> {
+                if (rest.isEmpty()) bad(raw, tr("try 后面写一步，或 { 几步 }", "write a step, or { steps }, after try"))
+                if (!rest.startsWith("{")) return Step(raw, "try", body = listOf(parse(rest)))
+                val (body, close) = block(raw, rest, 0)
+                if (rest.substring(close + 1).isNotBlank()) bad(raw, tr("try { … } 后面不能再写东西（下一步用 ; 分开）", "nothing may follow try { … } (separate the next step with ;)"))
+                return Step(raw, "try", body = body)
+            }
+            "if", "如果" -> {
+                val open = openBrace(rest)
+                if (open < 0) bad(raw, tr("写成 if <条件> { 步骤 } [else { 步骤 }]", "write if <condition> { steps } [else { steps }]"))
+                val (conds, max) = condsWithMax(tokens(rest.substring(0, open)))
+                val (body, close) = block(raw, rest, open)
+                val tail = rest.substring(close + 1).trim()
+                val alt = when {
+                    tail.isEmpty() -> emptyList()
+                    tail.lowercase().startsWith("else") || tail.startsWith("否则") -> {
+                        val after = tail.drop(if (tail.startsWith("否则")) 2 else 4).trim()
+                        if (after.isEmpty()) bad(raw, tr("else 后面写 { 步骤 } 或一步", "write { steps } or a step after else"))
+                        if (after.startsWith("{")) block(raw, after, 0).also { (_, c) -> if (after.substring(c + 1).isNotBlank()) bad(raw, tr("else { … } 后面不能再写东西", "nothing may follow else { … }")) }.first
+                        else listOf(parse(after))
+                    }
+                    else -> bad(raw, tr("} 后面只能接 else", "only else may follow }"))
+                }
+                return Step(raw, "if", until = conds, untilMs = max ?: CHECK_DEFAULT_MS, body = body, alt = alt)
+            }
+            else -> {
+                val open = openBrace(rest)
+                if (open < 0) bad(raw, tr("写成 repeat 次数 { 步骤 } 或 repeat { 步骤 } until <条件>", "write repeat <times> { steps } or repeat { steps } until <condition>"))
+                val head = rest.substring(0, open).trim()
+                val n = if (head.isEmpty()) null else (head.removeSuffix("次").removeSuffix("x").removeSuffix("times").trim().toIntOrNull() ?: bad(raw, tr("repeat 后面写次数（数字）", "write a number of times after repeat")))
+                val (body, close) = block(raw, rest, open)
+                val tail = tokens(rest.substring(close + 1))
+                var until: List<Cond>? = null; var max: Long? = null
+                if (tail.isNotEmpty()) {
+                    if (tail[0].lowercase() != "until" && tail[0] != "直到") bad(raw, tr("} 后面只能接 until <条件>", "only until <condition> may follow }"))
+                    condsWithMax(tail.drop(1)).let { until = it.first; max = it.second }
+                }
+                if (n == null && until == null) bad(raw, tr("repeat 要写次数，或在 } 后面写 until <条件>（最多做 $REPEAT_DEFAULT 次）", "repeat needs a number of times, or until <condition> after } (at most $REPEAT_DEFAULT times)"))
+                if (n != null && n !in 1..REPEAT_MAX) bad(raw, tr("repeat 次数是 1 到 $REPEAT_MAX", "repeat takes 1 to $REPEAT_MAX times"))
+                return Step(raw, "repeat", until = until, untilMs = max ?: CHECK_DEFAULT_MS, body = body, times = n ?: REPEAT_DEFAULT)
+            }
+        }
     }
 
     /** One step. Throws INVALID_STEP with what was wrong and how to write it. */
@@ -111,6 +258,8 @@ internal object Steps {
         val toks0 = tokens(raw)
         if (toks0.isEmpty()) bad(raw, tr("空步骤", "empty step"))
         val verb = toks0[0].lowercase()
+        if (verb in setOf("try", "试", "if", "如果", "repeat", "重复")) return blockStep(raw.trim(), verb, toks0[0])
+        if (verb == "else" || verb == "否则") bad(raw, tr("else 要紧跟在 if { … } 后面，同一步里", "else goes right after if { … }, in the same step"))
         // until … at the end (for type only when what follows really is a condition).
         val ui = toks0.indexOfLast { it.lowercase() == "until" }
         var until: List<Cond>? = null
@@ -208,7 +357,10 @@ internal object Steps {
             if (nums.size != 2) bad(raw, tr("坐标是两个数：x y（只写一个数＝点画面上的这个数字；#N＝元素编号）", "coordinates are two numbers: x y (a single number = tap that number on the screen; #N = element number)"))
             return StepTarget.At(nums[0], nums[1]) to ms
         }
-        return StepTarget.Words(a.joinToString(" ").trim()) to ms
+        // 1.3.0-beta18: words@N = the N-th place they are on the screen (top to bottom, left to right; @-1 the last).
+        val w = a.joinToString(" ").trim()
+        Regex("^(.*\\S)@(-?\\d{1,2})$").find(w)?.let { m -> val k = m.groupValues[2].toInt(); if (k != 0) return StepTarget.Words(m.groupValues[1], k) to ms }
+        return StepTarget.Words(w) to ms
     }
 
     /** Conditions joined by or, then an optional duration last (the longest wait). */
@@ -253,7 +405,7 @@ internal object Steps {
 
     private fun bad(raw: String, why: String): Nothing = throw ActionError("INVALID_STEP",
         tr("步骤“$raw”：$why。整段没有执行。步骤写法：tap x y | tap #N | tap 字 | press x y [时长] | swipe x1 y1 x2 y2 [时长] | " +
-            "drag x1 y1 x2 y2 [… 时长] | scroll down [#N] | type 字 | key back | wait <条件> [最长] | wait 2s | use 段名；动作后可加 until <条件> [最长]",
+            "drag x1 y1 x2 y2 [… 时长] | scroll down [#N] | type 字 | key back | wait <条件> [最长] | wait 2s | use 段名 | try 一步 | if <条件> { … } else { … } | repeat 3 { … } | repeat { … } until <条件>；动作后可加 until <条件> [最长]；字里 * 是任意字，字@2 是第 2 处",
             "step \"$raw\": $why. Nothing in this stretch ran. Steps: tap x y | tap #N | tap <text> | press x y [duration] | swipe x1 y1 x2 y2 [duration] | " +
-            "drag x1 y1 x2 y2 [… duration] | scroll down [#N] | type <text> | key back | wait <condition> [max] | wait 2s | use <segment>; after an action add until <condition> [max]"))
+            "drag x1 y1 x2 y2 [… duration] | scroll down [#N] | type <text> | key back | wait <condition> [max] | wait 2s | use <segment> | try <step> | if <condition> { … } else { … } | repeat 3 { … } | repeat { … } until <condition>; after an action add until <condition> [max]; * in words is any characters, words@2 is the 2nd place"))
 }

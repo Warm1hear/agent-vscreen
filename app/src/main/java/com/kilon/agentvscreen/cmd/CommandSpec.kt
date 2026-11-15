@@ -87,6 +87,8 @@ internal object CommandSpec {
                 "  scroll up|down|left|right [#N | x y] | type 文字 | type+ 文字（追加） | key 键名 | back | enter",
                 "  wait <条件> [or <条件>] [最长时长] | wait 2s | use 段名",
                 "  目标 = x y | #N（上次【现在】列表里的编号）| 画面上的字（先找完全一样的，再找包含的；只写一个数＝点画面上的这个数字）",
+                "  字里可写 *（任意字，整段字要对上：*蓝牙* 含蓝牙，共*条 以共开头以条结尾），text:/gone: 条件也一样；字@N = 从上往下第 N 处（@-1 最后一处）",
+                "  流程：try 一步 | try { 几步 }（没找到、没达到预期就跳过接着做）| if <条件> [最长] { … } [else { … } | else 一步]（看现在的画面，默认等 1.5s）| repeat 3 { … } | repeat [最多次数] { … } until <条件>（每轮后看，默认最多 10 次）。括号里可以换行、可以嵌套",
                 "  键名：back enter tab del space esc search menu up down left right paste copy cut page_up page_down，或数字 keycode（没有 home：副屏没有桌面）",
                 "每个动作后可加 until <条件> [or <条件>] [最长时长，默认 5s]；没写就等画面稳定（最多 3 秒；画面只剩循环小动画也算稳定）。",
                 "条件：text:字 | gone:字 | change[:x1,y1,x2,y2] | still[:区域]（完全不动）| stable（稳定，容许循环小动画）| color:x,y=#RRGGBB[~容差] | app:包名或界面名",
@@ -103,6 +105,8 @@ internal object CommandSpec {
                 "  scroll up|down|left|right [#N | x y] | type <text> | type+ <text> (append) | key <name> | back | enter",
                 "  wait <condition> [or <condition>] [max duration] | wait 2s | use <segment>",
                 "  target = x y | #N (number in the last [Now] list) | text on the screen (exact match first, then contains; a single number = tap that number on the screen)",
+                "  words may hold * (any characters; the whole text must match: *Wi-Fi* holds Wi-Fi), in text:/gone: conditions too; words@N = the N-th place from the top (@-1 the last)",
+                "  flow: try <step> | try { steps } (not found or not as expected: skip and go on) | if <condition> [max] { … } [else { … } | else <step>] (the screen as it is, waits up to 1.5 s by default) | repeat 3 { … } | repeat [at most] { … } until <condition> (checked after each round, at most 10 by default). Braces may span lines and nest",
                 "  keys: back enter tab del space esc search menu up down left right paste copy cut page_up page_down, or a numeric keycode (no home: the screen has no launcher)",
                 "After each action you may add until <condition> [or <condition>] [max duration, default 5s]; without it the picture is awaited to settle (up to 3 s; a picture left with only a small looping animation counts as settled).",
                 "conditions: text:<word> | gone:<word> | change[:x1,y1,x2,y2] | still[:region] (no motion at all) | stable (settled, small looping animation allowed) | color:x,y=#RRGGBB[~tolerance] | app:<package or screen name>",
@@ -126,13 +130,15 @@ internal object CommandSpec {
             sumEn = "run a stretch of steps on the screen (tap, swipe, type, wait) and return the screen now; no steps = look",
             scopeOf = { a -> if (looksOnly(a)) Scope.LOOK else Scope.OPERATE },
             scopeNoteZh = "不带步骤、或只有 wait 的 act 只需要 look", scopeNoteEn = "an act with no steps, or only wait steps, needs just look"),
-        Cmd("note", "[文字] | before \"<步骤>\" | after \"<步骤>\" | delete <编号|before|after|段名>", "[text] | before \"<steps>\" | after \"<steps>\" | delete <number|before|after|segment>",
+        Cmd("note", "[文字] | before \"<步骤>\" | after \"<步骤>\" | save <段名> \"<步骤>\" | delete <编号|before|after|段名>", "[text] | before \"<steps>\" | after \"<steps>\" | save <segment> \"<steps>\" | delete <number|before|after|segment>",
             listOf("给当前应用记笔记（不带参数 = 列出笔记、段和前置/收尾步骤）。下次 launch 会列出来，并标明是谁、在应用哪个版本时记的。",
                 "before / after：每段 act 开始前先做 before 的步骤，做完、观察完再做 after 的步骤（--bare 跳过）。",
-                "例：会自己走的画面（游戏、播放器）记 before = 继续的步骤、after = 暂停的步骤，你思考时画面就停着；每次进页面都弹的窗记 before = 关掉它的步骤。"),
+                "例：会自己走的画面（游戏、播放器）记 before = 继续的步骤、after = 暂停的步骤，你思考时画面就停着；每次进页面都弹的窗记 before = 关掉它的步骤。",
+                "save：不执行，直接存下或改写一个段（示教存的段也一样），步骤写法和 act 相同，可以用 try / if / repeat、* 和 @N；note 列出的就是段的完整步骤。"),
             listOf("keep notes for the current app (no arguments = list notes, segments and before/after steps). The next launch lists them, with who wrote each and for which app version.",
                 "before / after: every act first does the before steps, and after acting and looking does the after steps (--bare skips them).",
-                "e.g. for a picture that moves by itself (a game, a player) keep before = the steps that resume and after = the steps that pause, so it stands still while you think; for a popup shown on every visit keep before = the steps that close it."),
+                "e.g. for a picture that moves by itself (a game, a player) keep before = the steps that resume and after = the steps that pause, so it stands still while you think; for a popup shown on every visit keep before = the steps that close it.",
+                "save: store or rewrite a segment without running it (taught lessons too); the steps are written as for act, with try / if / repeat, * and @N; note lists each segment's full steps."),
             sumZh = "给当前应用记笔记、前置/收尾步骤", sumEn = "keep notes and before/after steps for the current app"),
         Cmd("events", "", "",
             listOf("取盯守（act --keep wake）看到条件时发来的事件。事件有序号，取走后在你下一次 events 时才删除（中途断了不会丢）。",
@@ -312,10 +318,10 @@ internal object CommandSpec {
         "vscreen — Agent-VScreen：在看不见的副屏里操作应用，不占用户主屏（完整说明：help all；单条：help act；代码表：help codes）\n" +
             "  launch 应用名            打开应用，返回四段（做了什么 / 这段时间 / 现在 / 注意）\n" +
             "  act \"步骤; 步骤; …\"      做一段操作，返回四段；act 不带步骤 = 看一眼\n" +
-            "        步骤：tap 目标 | press 目标 | swipe x1 y1 x2 y2 | drag x1 y1 x2 y2 … | scroll down | type 文字 | key back | wait 条件 | use 段名\n" +
+            "        步骤：tap 目标 | press 目标 | swipe x1 y1 x2 y2 | drag x1 y1 x2 y2 … | scroll down | type 文字 | key back | wait 条件 | use 段名 | try 一步 | if 条件 { … } else { … } | repeat 3 { … } | repeat { … } until 条件\n" +
             "        目标：x y | #N（【现在】列表的编号）| 画面上的字；动作后可加 until 条件（text:字 gone:字 change still stable color:x,y=#RRGGBB app:名）\n" +
             "        --stop 条件  --watch 2s  --fast  --bare  --keep notify|wake  --save 段名  --async\n" +
-            "  note [文字] | note before|after \"步骤\" | note delete 编号\n" +
+            "  note [文字] | note before|after \"步骤\" | note save 段名 \"步骤\" | note delete 编号|段名\n" +
             "  keep | keep off 名字      查看 / 停止本轮之后的盯守\n" +
             "  events [--wait 30s]       取盯守（--keep wake）发来的事件\n" +
             "  task [任务号]             查看 --async 开始的任务\n" +
@@ -331,10 +337,10 @@ internal object CommandSpec {
         "vscreen — Agent-VScreen: operate apps on an invisible background screen without taking the user's screen (full guide: help all; one command: help act; codes: help codes)\n" +
             "  launch <app>              open an app, returns four blocks (Done / Meanwhile / Now / Notes)\n" +
             "  act \"step; step; …\"       do a stretch of steps, returns four blocks; act with no steps = take a look\n" +
-            "        steps: tap <target> | press <target> | swipe x1 y1 x2 y2 | drag x1 y1 x2 y2 … | scroll down | type <text> | key back | wait <condition> | use <segment>\n" +
+            "        steps: tap <target> | press <target> | swipe x1 y1 x2 y2 | drag x1 y1 x2 y2 … | scroll down | type <text> | key back | wait <condition> | use <segment> | try <step> | if <cond> { … } else { … } | repeat 3 { … } | repeat { … } until <cond>\n" +
             "        target: x y | #N (number in the [Now] list) | text on the screen; after an action add until <condition> (text:word gone:word change still stable color:x,y=#RRGGBB app:name)\n" +
             "        --stop <condition>  --watch 2s  --fast  --bare  --keep notify|wake  --save <segment>  --async\n" +
-            "  note [text] | note before|after \"steps\" | note delete <number>\n" +
+            "  note [text] | note before|after \"steps\" | note save <segment> \"steps\" | note delete <number|segment>\n" +
             "  keep | keep off <name>    list / stop watches that run after this turn\n" +
             "  events [--wait 30s]       fetch events sent by watches (--keep wake)\n" +
             "  task [id]                 look at tasks started with --async\n" +

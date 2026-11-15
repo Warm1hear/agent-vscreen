@@ -26,6 +26,8 @@
       scroll up|down|left|right [#N | x y] | type 文字 | type+ 文字（追加） | key 键名 | back | enter
       wait <条件> [or <条件>] [最长时长] | wait 2s | use 段名
       目标 = x y | #N（上次【现在】列表里的编号）| 画面上的字（先找完全一样的，再找包含的；只写一个数＝点画面上的这个数字）
+      字里可写 *（任意字，整段字要对上：*蓝牙* 含蓝牙，共*条 以共开头以条结尾），text:/gone: 条件也一样；字@N = 从上往下第 N 处（@-1 最后一处）
+      流程：try 一步 | try { 几步 }（没找到、没达到预期就跳过接着做）| if <条件> [最长] { … } [else { … } | else 一步]（看现在的画面，默认等 1.5s）| repeat 3 { … } | repeat [最多次数] { … } until <条件>（每轮后看，默认最多 10 次）。括号里可以换行、可以嵌套
       键名：back enter tab del space esc search menu up down left right paste copy cut page_up page_down，或数字 keycode（没有 home：副屏没有桌面）
 每个动作后可加 until <条件> [or <条件>] [最长时长，默认 5s]；没写就等画面稳定（最多 3 秒；画面只剩循环小动画也算稳定）。
 条件：text:字 | gone:字 | change[:x1,y1,x2,y2] | still[:区域]（完全不动）| stable（稳定，容许循环小动画）| color:x,y=#RRGGBB[~容差] | app:包名或界面名
@@ -48,11 +50,12 @@
 
 权限范围: `operate`（不带步骤、或只有 wait 的 act 只需要 look） · 在副屏队列里执行
 
-### `note [文字] | before "<步骤>" | after "<步骤>" | delete <编号|before|after|段名>`
+### `note [文字] | before "<步骤>" | after "<步骤>" | save <段名> "<步骤>" | delete <编号|before|after|段名>`
 
 给当前应用记笔记（不带参数 = 列出笔记、段和前置/收尾步骤）。下次 launch 会列出来，并标明是谁、在应用哪个版本时记的。
 before / after：每段 act 开始前先做 before 的步骤，做完、观察完再做 after 的步骤（--bare 跳过）。
 例：会自己走的画面（游戏、播放器）记 before = 继续的步骤、after = 暂停的步骤，你思考时画面就停着；每次进页面都弹的窗记 before = 关掉它的步骤。
+save：不执行，直接存下或改写一个段（示教存的段也一样），步骤写法和 act 相同，可以用 try / if / repeat、* 和 @N；note 列出的就是段的完整步骤。
 
 权限范围: `operate` · 在副屏队列里执行
 
@@ -124,6 +127,17 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 - `--choose <甲|乙|丙>` 从 2–8 个选项里选一个
 - `--text` 写一句话回答
 - `--wait <时长>` 最多等多久（默认 60s，最长 5m；没答复是 ASK_PENDING，之后重发同一条 ask 取答案）
+- `--async` 不等它做完：马上返回任务号，之后 task <号> 取结果（长操作、怕连接超时时用）
+
+权限范围: `operate`
+
+### `teach "<要演示什么>" [--name <名字>] [--wait <时长>] [--async]`
+
+请用户在副屏上亲手做一遍（示教）：手机上弹出请求，用户接管副屏操作、做完审阅，存成这个应用的一段。返回段名和步骤；之后 act "use 段名 参数…" 照做。用户输入的字默认变成参数 {1} {2}…，用的时候按顺序填。
+适合说不清、反复失败、或用户自己更清楚怎么做的流程。先 launch 到要演示的应用。
+
+- `--name <名字>` 建议的段名（用户可以改）
+- `--wait <时长>` 最多等多久（默认 120s，最长 5m；没做完是 ASK_PENDING，之后重发同一条 teach 取结果）
 - `--async` 不等它做完：马上返回任务号，之后 task <号> 取结果（长操作、怕连接超时时用）
 
 权限范围: `operate`
@@ -310,6 +324,8 @@ steps:
       scroll up|down|left|right [#N | x y] | type <text> | type+ <text> (append) | key <name> | back | enter
       wait <condition> [or <condition>] [max duration] | wait 2s | use <segment>
       target = x y | #N (number in the last [Now] list) | text on the screen (exact match first, then contains; a single number = tap that number on the screen)
+      words may hold * (any characters; the whole text must match: *Wi-Fi* holds Wi-Fi), in text:/gone: conditions too; words@N = the N-th place from the top (@-1 the last)
+      flow: try <step> | try { steps } (not found or not as expected: skip and go on) | if <condition> [max] { … } [else { … } | else <step>] (the screen as it is, waits up to 1.5 s by default) | repeat 3 { … } | repeat [at most] { … } until <condition> (checked after each round, at most 10 by default). Braces may span lines and nest
       keys: back enter tab del space esc search menu up down left right paste copy cut page_up page_down, or a numeric keycode (no home: the screen has no launcher)
 After each action you may add until <condition> [or <condition>] [max duration, default 5s]; without it the picture is awaited to settle (up to 3 s; a picture left with only a small looping animation counts as settled).
 conditions: text:<word> | gone:<word> | change[:x1,y1,x2,y2] | still[:region] (no motion at all) | stable (settled, small looping animation allowed) | color:x,y=#RRGGBB[~tolerance] | app:<package or screen name>
@@ -332,11 +348,12 @@ e.g. act "tap Search; type headphones; key enter until text:All"
 
 scope: `operate` (an act with no steps, or only wait steps, needs just look) · runs in the screen queue
 
-### `note [text] | before "<steps>" | after "<steps>" | delete <number|before|after|segment>`
+### `note [text] | before "<steps>" | after "<steps>" | save <segment> "<steps>" | delete <number|before|after|segment>`
 
 keep notes for the current app (no arguments = list notes, segments and before/after steps). The next launch lists them, with who wrote each and for which app version.
 before / after: every act first does the before steps, and after acting and looking does the after steps (--bare skips them).
 e.g. for a picture that moves by itself (a game, a player) keep before = the steps that resume and after = the steps that pause, so it stands still while you think; for a popup shown on every visit keep before = the steps that close it.
+save: store or rewrite a segment without running it (taught lessons too); the steps are written as for act, with try / if / repeat, * and @N; note lists each segment's full steps.
 
 scope: `operate` · runs in the screen queue
 
@@ -408,6 +425,17 @@ An answer is information, not permission: payments still need the phone's confir
 - `--choose <A|B|C>` choose one of 2–8 options
 - `--text` answer with a line of text
 - `--wait <duration>` how long to wait (default 60s, at most 5m; no answer is ASK_PENDING, send the same ask again later for the answer)
+- `--async` do not wait for it: returns a task id at once, fetch the result later with task <id> (for long operations or short connection timeouts)
+
+scope: `operate`
+
+### `teach "<what to show>" [--name <name>] [--wait <duration>] [--async]`
+
+ask the user to do it once on the background screen (a lesson): a request appears on the phone, the user takes over the screen, does it, reviews it, and it is saved as a segment of the app. Returns the segment name and steps; then act "use <name> <values>…" runs it. Words the user typed become blanks {1} {2}… by default, filled in order when used.
+For flows that are hard to describe, keep failing, or the user knows better. launch the app to show first.
+
+- `--name <name>` suggested segment name (the user may change it)
+- `--wait <duration>` how long to wait (default 120s, at most 5m; not done yet is ASK_PENDING, send the same teach again later for the result)
 - `--async` do not wait for it: returns a task id at once, fetch the result later with task <id> (for long operations or short connection timeouts)
 
 scope: `operate`

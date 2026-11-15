@@ -62,6 +62,12 @@ internal data class TeachLine(
     val secret: Boolean = false,
     /** Problems the user may want to fix (nothing changed after it, a target by coordinates). */
     val warn: String? = null,
+    /** 1.3.0-beta18: where a tap landed (screen pixels), for a tap that has to follow a parameter (see [Teach.build]). */
+    val at: Pair<Int, Int>? = null,
+    /** The words the tap was named by (null: by point). */
+    val words: String? = null,
+    /** 1.3.0-beta18: the screen when the tap began (which of several matches it was). */
+    val snap: TeachSnap? = null,
 )
 
 internal object Teach {
@@ -309,7 +315,7 @@ internal object Teach {
                 words == null -> tr("那里没有能叫出名字的字，按坐标记", "no words name that place: kept as a point")
                 else -> null
             }
-            return TeachLine(head, c?.first, what + (c?.let { "，" + it.second } ?: ""), verb, warn = warn)
+            return TeachLine(head, c?.first, what + (c?.let { "，" + it.second } ?: ""), verb, warn = warn, at = e.x to e.y, words = words, snap = e.before)
         }
         // Moved: a straight line is a swipe; a bent path is a drag through its turns.
         val dur = ms.coerceIn(50, 10_000)
@@ -332,13 +338,40 @@ internal object Teach {
      */
     internal fun build(lines: List<TeachLine>, keep: Set<Int>, literal: Set<Int>): Pair<String, Int> {
         var p = 0
+        // 1.3.0-beta18: the last typed text that became a parameter. A later tap named by words that contain it (the
+        // search result the user picked, "声音 · 声音和触感" after typing "声音") depends on the parameter: with another
+        // value those words are not on the screen (NOT_FOUND). Such a tap goes to the same place instead (the first
+        // result stays the first result), and an until that names the typed words waits for a change instead.
+        var param: String? = null
+        var paramN = 0
         val steps = lines.withIndex().filter { it.index in keep }.map { (i, l) ->
+            var until = l.until
             val head = if (l.kind == "type") {
-                if (i in literal && !l.secret && l.typed != null && l.typed.none { it == ';' || it == '；' || it == '\n' }) "type ${l.typed}" else "type {${++p}}"
-            } else l.head
-            if (l.until != null) "$head until ${l.until}" else head
+                if (i in literal && !l.secret && l.typed != null && l.typed.none { it == ';' || it == '；' || it == '\n' }) { param = null; "type ${l.typed}" }
+                else { param = l.typed?.takeIf { !l.secret }?.let { VScreenOcr.norm(it) }?.takeIf { it.isNotEmpty() }; paramN = ++p; "type {$p}" }
+            } else {
+                val q = param
+                if (q != null && until != null && VScreenOcr.norm(until).contains(q)) until = "change"
+                if (q != null && l.kind == "tap" && l.at != null && l.words != null && VScreenOcr.norm(l.words).contains(q))
+                    rankOf(l.snap, q, l.at)?.let { k -> "tap *{$paramN}*@$k" } ?: "tap ${l.at.first} ${l.at.second}"
+                else l.head
+            }
+            if (until != null) "$head until $until" else head
         }
         return steps.joinToString("; ") to p
+    }
+
+    /**
+     * 1.3.0-beta18: which match of "holds the typed words" the tap at [at] was, counted by the rule replay uses
+     * ([wordHits]: reading order, the box typed into left out). With another value the N-th result is tapped, by what
+     * it says, not by where it happened to be. Null when the screen was not read or the tap was on none of them.
+     */
+    internal fun rankOf(sn: TeachSnap?, typed: String, at: Pair<Int, Int>): Int? {
+        val els = sn?.els ?: return null
+        val under = texts(sn).filter { it.box.contains(at.first, at.second) }.minByOrNull { it.box.width().toLong() * it.box.height() } ?: return null
+        val hits = wordHits(els, "*$typed*")
+        val i = hits.indexOfFirst { it === under || near(it, under) }
+        return if (i < 0) null else i + 1
     }
 
     /** Replace {1}, {2} … in [body] by [params]; the names of the ones not given. */

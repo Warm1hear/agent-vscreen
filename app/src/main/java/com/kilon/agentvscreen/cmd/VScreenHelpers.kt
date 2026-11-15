@@ -165,6 +165,28 @@ internal fun entriesOfEls(els: List<El>, screenW: Int, screenH: Int, fixed: List
     return out.sortedWith(compareBy({ it.second.top / row }, { it.second.left }))
 }
 
+/**
+ * 1.3.0-beta18, pure: tab bars by their shape, found on one screen. A row of at least 3 tappable items of about the same
+ * height, spread over most of the width, near the top or bottom edge. A bar that hides while scrolling (so is never at
+ * the same place twice) was missed by [fixedBoxes], and its words joined the card under it ("… · 首页 · 应用 · 我的").
+ */
+internal fun tabBarBoxes(els: List<El>, screenW: Int, screenH: Int): List<Rect> {
+    val edge = screenH * 15 / 100
+    val cand = els.filter { it.fromA11y && it.clickable && it.box.height() in 1..(screenH / 8) && it.box.width() < screenW / 2 &&
+        (it.box.centerY() < edge || it.box.centerY() > screenH - edge) }
+    val out = ArrayList<Rect>()
+    for (row in cand.groupBy { it.box.centerY() / maxOf(16, screenH / 60) }.values) {
+        if (row.size < 3) continue
+        val h = row.map { it.box.height() }.sorted()[row.size / 2]
+        val even = row.filter { Math.abs(it.box.height() - h) <= maxOf(12, h / 4) }
+        if (even.size < 3) continue
+        val span = even.maxOf { it.box.right } - even.minOf { it.box.left }
+        if (span >= screenW * 6 / 10) even.forEach { out += Rect(it.box) }
+    }
+    // The words inside each tab (its icon label) belong to the bar too.
+    return out + els.filter { e -> out.any { it.contains(e.box.centerX(), e.box.centerY()) } }.map { Rect(it.box) }
+}
+
 /** 1.3, pure: boxes that are at the same place in two looks taken before and after a scroll (fixed bars). */
 internal fun fixedBoxes(before: List<El>, after: List<El>): List<Rect> =
     after.filter { a -> before.any { b -> b.kind == a.kind && Math.abs(b.box.centerX() - a.box.centerX()) <= 12 && Math.abs(b.box.centerY() - a.box.centerY()) <= 12 &&
@@ -180,6 +202,8 @@ internal fun VScreenOffloadHandler.collectCmd(sid: String?, args: OffloadArgs): 
         VScreenPerception.ensure(d)
         val entries = ArrayList<String>()
         val keys = ArrayList<String>()
+        /** Where each entry was first seen on its screen (to drop the ones that turn out to sit on a fixed bar). */
+        val boxes = ArrayList<Rect>()
         var why = tr("翻完 $pages 页", "went through $pages pages")
         var scanned = 0
         var fixed: List<Rect> = emptyList()
@@ -211,38 +235,56 @@ internal fun VScreenOffloadHandler.collectCmd(sid: String?, args: OffloadArgs): 
                 val els = snapshot(d).els
                 scanned++
                 // Bars that did not move with the scroll (top tabs, a bottom bar, a sticky search box) are not entries.
-                prevEls?.let { pe -> fixed = (fixed + fixedBoxes(pe, els)).distinctBy { "${it.centerX() / 12},${it.centerY() / 12}" } }
+                prevEls?.let { pe -> fixed = (fixed + fixedBoxes(pe, els)) }
+                fixed = (fixed + tabBarBoxes(els, d.width, d.height)).distinctBy { "${it.centerX() / 12},${it.centerY() / 12}" }
                 var hit = false
                 fun add(list: List<El>) {
-                    for ((e, _) in entriesOfEls(list, d.width, d.height, fixed)) {
+                    for ((e, box) in entriesOfEls(list, d.width, d.height, fixed)) {
                         val n = VScreenOcr.norm(e)
                         if (n.length < 2) continue
                         val dup = keys.indexOfFirst { sameEntry(it, n) || (n.length >= 6 && (it.contains(n) || n.contains(it))) }
                         if (dup >= 0) { if (n.length > keys[dup].length) { keys[dup] = n; entries[dup] = e }; continue }
-                        keys += n; entries += e
+                        keys += n; entries += e; boxes += Rect(box)
                         if (until != null && n.contains(until)) hit = true
                     }
                 }
                 // 1.3.0: which boxes are bars is known only after the first scroll. The first screen is read again
                 // then, without them: before, its bars stayed in as entries, and a card under the bottom bar took
                 // the bar's words into it.
-                if (p == 1 && fixed.isNotEmpty()) { entries.clear(); keys.clear(); hit = false; prevEls?.let { add(it) } }
+                if (p == 1 && fixed.isNotEmpty()) { entries.clear(); keys.clear(); boxes.clear(); hit = false; prevEls?.let { add(it) } }
                 prevEls = els
                 add(els)
                 if (hit) { why = run { val u = args.get("until"); tr("看到了“$u”", "saw \"$u\"") }; break }
                 if (p == pages - 1) break
-                val before = d.latestFrame()?.let { VScreenPerception.small(it) }
-                val x = d.width / 2
-                val o = VScreenShell.swipe(d.displayId, x, (d.height * 0.78).toInt(), x, (d.height * 0.28).toInt(), 450)
-                if (!o.ok) throw ActionError(o.code, o.message)
-                val still = Probe(this, d, listOf(Cond("stable", "still")))
-                try { waitOn(d, still, 2_500L, null) } finally { still.close() }
-                val after = d.latestFrame()?.let { VScreenPerception.small(it) }
-                val skip = VScreenPerception.mask(d.displayId)?.let { m -> after?.let { m.rectsIn(it.width, it.height) } }.orEmpty()
-                val moved = if (before != null && after != null && before.width == after.width && before.height == after.height)
-                    VPixels.regionDiff(before, after, Rect(0, 0, before.width, before.height), skip) else 1.0
-                before?.recycle(); after?.recycle()
-                if (moved in 0.0..0.003) { why = tr("再滑画面不动了（到底了，或这块不能滚）", "swiping no longer moves the picture (the end, or this area does not scroll)"); break }
+                // One scroll: how much of the picture changed (areas that move by themselves left out, unless they cover
+                // most of the screen: then they would hide the scroll itself).
+                fun scrolled(xFrac: Double, ms: Int, settleMs: Long): Double {
+                    val before = d.latestFrame()?.let { VScreenPerception.small(it) }
+                    val x = (d.width * xFrac).toInt()
+                    val o = VScreenShell.swipe(d.displayId, x, (d.height * 0.78).toInt(), x, (d.height * 0.28).toInt(), ms)
+                    if (!o.ok) { before?.recycle(); throw ActionError(o.code, o.message) }
+                    val still = Probe(this, d, listOf(Cond("stable", "still")))
+                    try { waitOn(d, still, settleMs, null) } finally { still.close() }
+                    val after = d.latestFrame()?.let { VScreenPerception.small(it) }
+                    val rects = VScreenPerception.mask(d.displayId)?.let { m -> after?.let { m.rectsIn(it.width, it.height) } }.orEmpty()
+                    val skip = if (after != null && rects.sumOf { it.width().toLong() * it.height() } * 2 > after.width.toLong() * after.height) emptyList() else rects
+                    val moved = if (before != null && after != null && before.width == after.width && before.height == after.height)
+                        VPixels.regionDiff(before, after, Rect(0, 0, before.width, before.height), skip) else 1.0
+                    before?.recycle(); after?.recycle()
+                    return moved
+                }
+                // 1.3.0-beta18: one still picture is not the end. An endless list that is loading, a swipe that landed
+                // on a carousel or was taken as a tap, stood still once and collect said "the end" (1, 3, 6 screens on
+                // the same feed; a scroll right after moved 47%). A second, different swipe confirms it, and only the
+                // list itself saying it cannot go further makes it "the end".
+                if (scrolled(0.5, 450, 2_500L) in 0.0..0.003 && scrolled(0.3, 650, 3_500L) in 0.0..0.003) {
+                    why = when (runCatching { BackgroundOperation.canScrollForward(d.displayId) }.getOrNull()) {
+                        false -> tr("到底了（再滑两次画面都没动，列表也说不能再往下）", "reached the end (two more swipes moved nothing, and the list says it cannot go further)")
+                        true -> tr("再滑两次画面都没动，但列表说还能往下（可能在加载，或滑动落在了不能滚的地方）；稍后可以再 collect", "two more swipes moved nothing, though the list says it can go further (loading, or the swipe landed on something that does not scroll); collect again later")
+                        null -> tr("再滑两次画面都没动（可能到底了，或这块不能滚）", "two more swipes moved nothing (probably the end, or this area does not scroll)")
+                    }
+                    break
+                }
             }
         } catch (e: ActionError) {
             // 1.3: a cancelled (or interrupted) collection returns what it had, and says where it stopped.
@@ -254,7 +296,10 @@ internal fun VScreenOffloadHandler.collectCmd(sid: String?, args: OffloadArgs): 
         // already taken as entries from the earlier screens. Whatever reads exactly like a fixed bar's words goes.
         val barWords = (prevEls ?: emptyList()).filter { e -> fixed.any { f -> Math.abs(f.centerX() - e.box.centerX()) <= 16 && Math.abs(f.centerY() - e.box.centerY()) <= 16 } }
             .map { VScreenOcr.norm(it.text) }.filter { it.isNotEmpty() }.toSet()
-        if (barWords.isNotEmpty()) for (k in keys.indices.reversed()) if (keys[k] in barWords) { keys.removeAt(k); entries.removeAt(k) }
+        // 1.3.0-beta18: also by place: an entry first seen exactly where a fixed bar turned out to be (a search box
+        // whose words rotate was recorded once per wording before the bar was known).
+        fun onBar(b: Rect) = fixed.any { f -> Math.abs(f.centerX() - b.centerX()) <= 16 && Math.abs(f.centerY() - b.centerY()) <= 16 && Math.abs(f.height() - b.height()) <= 16 }
+        for (k in keys.indices.reversed()) if (keys[k] in barWords || boxes.getOrNull(k)?.let { onBar(it) } == true) { keys.removeAt(k); entries.removeAt(k); if (k < boxes.size) boxes.removeAt(k) }
         chrome = fixed.size
         val sb = StringBuilder(tr("收集了 ${entries.size} 条，看了 $scanned 屏，停下原因：$why（控件文字为主、OCR 补充，可能有错字；一张卡片或一行列表是一条，同一条在几屏里重复出现只记一次" + (if (chrome > 0) "；不随滚动移动的吸顶栏、标签栏、底栏（$chrome 处）不算条目" else "") + "）\n",
             "Collected ${entries.size} items over $scanned screens, stopped because: $why (widget text first, OCR fills in, may have typos; one card or list row is one item, an item repeated across screens is counted once" + (if (chrome > 0) "; $chrome bars that stay in place while scrolling (top, tabs, bottom) are not items" else "") + ")\n"))

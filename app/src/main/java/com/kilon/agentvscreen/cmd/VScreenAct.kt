@@ -84,10 +84,10 @@ internal class Probe(private val h: VScreenOffloadHandler, private val d: VScree
     private var topAt = 0L
     /** Where each text condition's words were before the action. */
     private val prior: Map<String, List<Rect>> = if (!afterAction || !wantsText) emptyMap() else conds.filter { it.kind == "text" }.associate { c ->
-        val n = VScreenOcr.norm(c.text!!)
-        val a = runCatching { BackgroundOperation.a11yFind(d.displayId, VScreenOcr::norm, n) }.getOrNull().orEmpty().map { it.second }
-        val o = VScreenPerception.reading(d.displayId, 0L, 0)?.items.orEmpty().filter { VScreenOcr.norm(it.text).contains(n) }.map { Rect(it.box) }
-        n to (a + o)
+        val pat = TextPat(c.text!!)
+        val a = runCatching { BackgroundOperation.a11yFind(d.displayId, pat::hit) }.getOrNull().orEmpty().map { it.second }
+        val o = VScreenPerception.reading(d.displayId, 0L, 0)?.items.orEmpty().filter { pat.hit(it.text) }.map { Rect(it.box) }
+        pat.key to (a + o)
     }
 
     /** The action was just done: from now on only what it caused counts ([kind] "type": not the field typed into). */
@@ -123,21 +123,21 @@ internal class Probe(private val h: VScreenOffloadHandler, private val d: VScree
 
     /** The words of [q] seen now (accessibility first, then an OCR reading taken late enough), as [counts] allows. */
     private fun seen(q: String): String? {
-        val n = VScreenOcr.norm(q)
-        val before = prior[n].orEmpty()
+        val pat = TextPat(q)
+        val before = prior[pat.key].orEmpty()
         fun ok(r: Rect): Boolean = counts(r, before, exclude, pageAt > 0)
-        if (!afterAction || actionAt == 0L) runCatching { BackgroundOperation.a11yShows(d.displayId, VScreenOcr::norm, n) }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
-        else runCatching { BackgroundOperation.a11yFind(d.displayId, VScreenOcr::norm, n) }.getOrNull()?.firstOrNull { ok(it.second) }?.let { return it.first }
+        if (!afterAction || actionAt == 0L) runCatching { BackgroundOperation.a11yShows(d.displayId, pat::hit) }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
+        else runCatching { BackgroundOperation.a11yFind(d.displayId, pat::hit) }.getOrNull()?.firstOrNull { ok(it.second) }?.let { return it.first }
         val r = VScreenPerception.reading(d.displayId, readFrom(), 0) ?: return null
-        return VScreenPerception.still(r.items, mask).firstOrNull { VScreenOcr.norm(it.text).contains(n) && (!afterAction || actionAt == 0L || ok(it.box)) }?.text?.take(40)
+        return VScreenPerception.still(r.items, mask).firstOrNull { pat.hit(it.text) && (!afterAction || actionAt == 0L || ok(it.box)) }?.text?.take(40)
     }
 
     /** True only when a reading taken late enough does not hold [q] (and the accessibility tree does not either). */
     private fun gone(q: String): Boolean {
-        val n = VScreenOcr.norm(q)
-        if (!runCatching { BackgroundOperation.a11yShows(d.displayId, VScreenOcr::norm, n) }.getOrNull().isNullOrEmpty()) return false
+        val pat = TextPat(q)
+        if (!runCatching { BackgroundOperation.a11yShows(d.displayId, pat::hit) }.getOrNull().isNullOrEmpty()) return false
         val r = VScreenPerception.reading(d.displayId, readFrom(), 0) ?: return false
-        return VScreenPerception.still(r.items, mask).none { VScreenOcr.norm(it.text).contains(n) }
+        return VScreenPerception.still(r.items, mask).none { pat.hit(it.text) }
     }
 
     /**
@@ -306,6 +306,9 @@ private fun s1(ms: Long) = "${(ms / 100) / 10.0}s"
 internal fun VScreenOffloadHandler.workApp(sid: String, d: VScreenDisplay): String? =
     VScreenKnowledge.journey(sid) ?: runCatching { VScreenShell.topPackage(d.displayId) }.getOrNull()?.takeIf { it != context.packageName }
 
+/** 1.3.0-beta18: the most steps one stretch does, repeats counted (each step of each round). */
+private const val MAX_RUN = 300
+
 private val INTERRUPTS = setOf("USER_TAKEOVER", "USER_STOPPED", "CONNECTION_LOST", "CANCELLED", "NOT_CONNECTED", "BUSY", "NO_SCREEN")
 
 /** Run a stretch of [steps] on the session's screen. Never throws for a step: a failed step ends the stretch and is said. */
@@ -349,6 +352,15 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
     var lastTap: Pair<Int, Int>? = null
     val ctxAct = ActCtx(sid)
     fun put(so: StepOut): StepOut { outs += so; lines += so.text; Call.current()?.report(so.text); return so }
+    // 1.3.0-beta18: steps really done in this stretch (a repeat runs its steps again): a bound against endless loops.
+    var ran = 0
+    /** An if / repeat check: [conds] within [ms] on the screen as it is (not "since an action"). null = stopped. */
+    fun check(conds: List<Cond>, ms: Long, label: String, raw: String): WaitOut? {
+        val p = Probe(this, d, conds)
+        val w = try { waitOn(d, p, ms, stop) } finally { p.close() }
+        if (w.stopped != null) { stoppedBy = w.stopped; stoppedAt = label; put(StepOut(label, raw, "stopped", tr("$label ${s1(w.ms)} 时停止条件 ${w.stopped}", "$label stop condition ${w.stopped} at ${s1(w.ms)}"))); return null }
+        return w
+    }
     fun runOne(step: Step, label: String, depth: Int, quick: Boolean, own: Boolean) {
         if (stoppedBy != null || missed != null || outcome != "done") { if (own) { skipped++; outs += StepOut(label, step.raw, "skipped", "") }; return }
         if (step.kind == "use") {
@@ -368,6 +380,49 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
             put(StepOut(label, step.raw, "done", tr("$label use $name（${inner.size} 步）", "$label use $name (${inner.size} steps)")))
             app?.let { VScreenMap.markUsed(it, name) }
             inner.forEachIndexed { i, st -> runOne(st, "$label.${i + 1}", depth + 1, quick, own) }
+            return
+        }
+        if (++ran > MAX_RUN) throw StepRefused("INVALID_STEP", tr("这段已经做了 $MAX_RUN 步（repeat 套得太多），停在这里", "this stretch has already done $MAX_RUN steps (too many repeats); it stops here"))
+        if (step.kind == "try") {
+            // Not found, not as expected, more than one place: skip what is inside and go on. Being interrupted is not skipped.
+            val missed0 = missed; val skipped0 = skipped; val from = outs.size
+            put(StepOut(label, step.raw, "done", tr("$label try（${step.body.size} 步，没做成就跳过）", "$label try (${step.body.size} steps, skipped if they don't work)")))
+            var why: String? = null
+            try { step.body.forEachIndexed { i, st -> runOne(st, "$label.${i + 1}", depth, quick, own) } }
+            catch (e: StepRefused) { if (e.code in INTERRUPTS) throw e; why = "${e.code}：${e.message}" }
+            catch (e: ActionError) { if (e.code in INTERRUPTS) throw e; why = "${e.code}：${e.message}" }
+            if (why == null && missed != null && missed0 == null) why = missed
+            if (why != null) {
+                missed = missed0; skipped = skipped0
+                for (k in from until outs.size) if (outs[k].status == "missed" || outs[k].status == "skipped") outs[k].status = "tried"
+                put(StepOut(label, step.raw, "done", tr("$label try 没做成，跳过，接着做：${why.take(160)}", "$label try did not work, skipped, going on: ${why.take(160)}")))
+            }
+            return
+        }
+        if (step.kind == "if") {
+            val want = step.until!!.joinToString(" or ") { it.raw }
+            val w = check(step.until, step.untilMs ?: Steps.CHECK_DEFAULT_MS, label, step.raw) ?: return
+            val branch = if (w.met != null) step.body else step.alt
+            put(StepOut(label, step.raw, "done", if (w.met != null) tr("$label if $want：成立（${w.met}）", "$label if $want: yes (${w.met})")
+                else tr("$label if $want：${s1(w.ms)} 内没有，", "$label if $want: not within ${s1(w.ms)}, ") + if (step.alt.isEmpty()) tr("跳过", "skipped") else tr("做 else", "doing else")))
+            branch.forEachIndexed { i, st -> runOne(st, "$label.${i + 1}", depth, quick, own) }
+            return
+        }
+        if (step.kind == "repeat") {
+            val want = step.until?.joinToString(" or ") { it.raw }
+            put(StepOut(label, step.raw, "done", if (want == null) tr("$label repeat ${step.times} 次", "$label repeat ${step.times} times") else tr("$label repeat 直到 $want（最多 ${step.times} 次）", "$label repeat until $want (at most ${step.times} times)")))
+            for (k in 1..step.times) {
+                step.body.forEachIndexed { i, st -> runOne(st, "$label.$k.${i + 1}", depth, quick, own) }
+                if (stoppedBy != null || missed != null || outcome != "done") return
+                val conds = step.until ?: continue
+                val w = check(conds, step.untilMs ?: Steps.CHECK_DEFAULT_MS, label, step.raw) ?: return
+                if (w.met != null) { put(StepOut(label, step.raw, "done", tr("$label 第 $k 次后等到 ${w.met}", "$label got ${w.met} after round $k"))); return }
+            }
+            if (want != null) {
+                val so = put(StepOut(label, step.raw, "missed", tr("$label repeat 做了 ${step.times} 次，没等到 $want", "$label repeat ran ${step.times} times, $want never came")).also { it.code = "STEP_MISSED" })
+                missed = tr("第 $label 步 repeat 做了 ${step.times} 次，没等到 $want。", "Step $label repeat ran ${step.times} times and $want never came. ") + screenNow()
+                so.waitedFor = want
+            }
             return
         }
         if (step.kind == "sleep") {
@@ -523,7 +578,34 @@ internal class ActCtx(val sid: String) {
 /** A resolved target: the point, the words there, and (for #N) whether the element had moved. */
 private class Target(val x: Int, val y: Int, val label: String?, val moved: String? = null)
 
-private fun near(a: El, b: El): Boolean = Rect(a.box).apply { inset(-12, -12) }.contains(b.box.centerX(), b.box.centerY()) || Rect(b.box).apply { inset(-12, -12) }.contains(a.box.centerX(), a.box.centerY())
+/**
+ * 1.3.0-beta18: the places on the screen that [text] names, in reading order (top to bottom, then left to right), the
+ * same element read twice (a node and the OCR words on it) once. Without `*`: the same words, else words that hold
+ * them. With `*` (a pattern over the whole text): input boxes only when nothing else matches, since a pattern names
+ * something shown (the box typed into holds the same words). A taught lesson picks its @N by this same rule.
+ */
+internal fun wordHits(els: List<El>, text: String): List<El> {
+    val pat = TextPat(text)
+    val exact = els.filter { !it.placeholder && pat.exact(it.text) }
+    val all0 = if (pat.wild) exact else exact.ifEmpty { els.filter { !it.placeholder && pat.hit(it.text) } }
+    val all = if (pat.wild) all0.filter { !it.editable }.ifEmpty { all0 } else all0
+    val one = ArrayList<El>().also { out -> all.forEach { h -> if (out.none { near(it, h) }) out += h } }
+    return readingOrder(one) { it.box }
+}
+
+/** Top to bottom; things whose middles are within half the smaller height of each other are one row, left to right. */
+internal fun <T> readingOrder(list: List<T>, box: (T) -> Rect): List<T> {
+    val byY = list.sortedBy { box(it).centerY() }
+    val rows = ArrayList<MutableList<T>>()
+    for (e in byY) {
+        val r = rows.lastOrNull()
+        val first = r?.firstOrNull()
+        if (first != null && Math.abs(box(e).centerY() - box(first).centerY()) <= minOf(box(e).height(), box(first).height()) / 2) r.add(e) else rows += mutableListOf(e)
+    }
+    return rows.flatMap { row -> row.sortedBy { box(it).left } }
+}
+
+internal fun near(a: El, b: El): Boolean = Rect(a.box).apply { inset(-12, -12) }.contains(b.box.centerX(), b.box.centerY()) || Rect(b.box).apply { inset(-12, -12) }.contains(a.box.centerX(), a.box.centerY())
 
 /**
  * Where a step goes. 1.2:
@@ -562,14 +644,20 @@ private fun VScreenOffloadHandler.target(sid: String, d: VScreenDisplay, t: Step
             val sn = snapshot(d)
             val now = sn.els
             val same = now.filter { it.key == e.key }
-            // 1.3.0-beta17: an input box is the same box when it is still in its place, whatever it says: what it shows
-            // is its content or its hint, and both change by themselves (a search box whose hint rotates every few
-            // seconds made every `tap #N` on it STALE_ELEMENT).
-            val here = same.firstOrNull { near(it, e) } ?: if (e.editable) now.firstOrNull { it.editable && near(it, e) } else null
             // 1.3: another page (new window, other activity, or too little in common) → the number is stale, even if
             // the same words are on the new page (its title, say). A move counts only with the whole list (a scroll).
             val page = !pageChangedSince(d, set, sn.activity) && samePage(set.list, now)
             val shift = if (page) commonShift(set.list, now) else null
+            // 1.3.0-beta18: on the same page that did not scroll, an element of the same kind with the same box in the
+            // same place IS that element, whatever it says now: a search box (editable or only tappable) whose hint
+            // rotates, a counter, a clock. beta17 allowed this for input boxes only, so a tappable search box on a
+            // browser's home page whose words rotate still gave STALE_ELEMENT.
+            val still = shift == null || (Math.abs(shift.first) <= 12 && Math.abs(shift.second) <= 12)
+            fun sameBox(a: El) = a.kind == e.kind && a.clickable == e.clickable && a.editable == e.editable &&
+                Math.abs(a.box.centerX() - e.box.centerX()) <= 12 && Math.abs(a.box.centerY() - e.box.centerY()) <= 12 &&
+                Math.abs(a.box.width() - e.box.width()) <= maxOf(16, e.box.width() / 5) && Math.abs(a.box.height() - e.box.height()) <= maxOf(12, e.box.height() / 5)
+            val here = same.firstOrNull { near(it, e) }
+                ?: if (page && (still || e.editable)) now.filter { sameBox(it) }.singleOrNull() else null
             fun withList(m: El) = shift != null && shift.third >= 2 && Math.abs(m.box.centerX() - e.box.centerX() - shift.first) <= 24 && Math.abs(m.box.centerY() - e.box.centerY() - shift.second) <= 24
             when {
                 !page -> throw StepRefused("STALE_ELEMENT", tr("#${t.n}“${e.label.take(24)}”是上一页的编号，页面已经换了，没点。看【现在】的新列表再用编号", "#${t.n} \"${e.label.take(24)}\" is a number from the previous page and the page has changed; nothing was tapped. Use the numbers of the new list in [Now]"))
@@ -583,16 +671,14 @@ private fun VScreenOffloadHandler.target(sid: String, d: VScreenDisplay, t: Step
     }
     is StepTarget.Words -> {
         val els = snapshot(d).els.filter { !it.placeholder }
-        val q = VScreenOcr.norm(t.text)
-        val exact = els.filter { VScreenOcr.norm(it.text) == q }
-        val all = exact.ifEmpty { els.filter { VScreenOcr.norm(it.text).contains(q) } }
-        // The same thing read twice (a node and the OCR words on it) is one place.
-        val hits = ArrayList<El>().also { out -> all.forEach { h -> if (out.none { near(it, h) }) out += h } }
-        if (hits.isEmpty()) throw StepRefused("NOT_FOUND", tr("画面上没找到“${t.text}”（控件文字和 OCR 都没有）", "\"${t.text}\" was not found on the screen (neither in widget text nor OCR)") + nearMiss(els, t.text))
-        val pick = hits.singleOrNull() ?: hits.filter { it.clickable || it.editable }.singleOrNull()
+        val hits = wordHits(els, t.text)
+        if (hits.isEmpty()) throw StepRefused("NOT_FOUND", tr("画面上没找到“${t.text}”（控件文字和 OCR 都没有）", "\"${t.text}\" was not found on the screen (neither in widget text nor OCR)") + nearMiss(els, t.text.replace("*", "")))
+        val pick = if (t.nth != 0) hits.getOrNull(if (t.nth > 0) t.nth - 1 else hits.size + t.nth)
+            ?: throw StepRefused("NOT_FOUND", tr("“${t.text}”在画面上只有 ${hits.size} 处，没有第 ${t.nth} 处", "\"${t.text}\" is on the screen in only ${hits.size} places, there is no @${t.nth}"))
+        else hits.singleOrNull() ?: hits.filter { it.clickable || it.editable }.singleOrNull()
             ?: throw StepRefused("AMBIGUOUS", tr("“${t.text}”在画面上有 ${hits.size} 处，没点：", "\"${t.text}\" is on the screen in ${hits.size} places; nothing was tapped: ") +
-                hits.take(8).joinToString(tr("；", "; ")) { "“${it.text.take(24)}” (${it.box.centerX()},${it.box.centerY()})" + it.flags.let { f -> if (f.isNotEmpty()) " $f" else "" } } +
-                tr("。改用坐标（tap x y）点你要的那一处", ". Tap the one you mean by its coordinates (tap x y)"))
+                hits.take(8).withIndex().joinToString(tr("；", "; ")) { (i, h) -> "@${i + 1} “${h.text.take(24)}” (${h.box.centerX()},${h.box.centerY()})" + h.flags.let { f -> if (f.isNotEmpty()) " $f" else "" } } +
+                tr("。写 ${t.text}@N 点从上往下第 N 处，或用坐标（tap x y）", ". Write ${t.text}@N for the N-th from the top, or tap by coordinates (tap x y)"))
         Target(pick.box.centerX(), pick.box.centerY(), pick.label)
     }
 }

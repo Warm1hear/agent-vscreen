@@ -129,6 +129,30 @@ class MainActivity : ComponentActivity() {
         // and retry a port that was taken.
         if (Prefs.serviceOn(this)) HostService.start(this)
         Overlay.refresh()
+        // 1.3.0-beta18 (GitHub #2): Shizuku's answer can change while we are away (allowed or revoked in its own app,
+        // Shizuku restarted): read it again instead of showing what it was when the process started.
+        ShizukuManager.refresh()
+    }
+
+    /**
+     * 1.3.0-beta18 (GitHub #2): the grant button always ends in something the user can see. When Shizuku shows no
+     * dialog (it has the app on record as denied, or the request got lost), its own app is opened with what to do.
+     */
+    private fun grantShizuku() {
+        fun inManager() {
+            ShizukuManager.openShizukuApp(this)
+            Toast.makeText(this, tr("Shizuku 没有弹出授权框：在 Shizuku 的“授权应用”里打开 Agent-VScreen，再回来", "Shizuku showed no dialog: turn Agent-VScreen on under \"Authorized apps\" in Shizuku, then come back"), Toast.LENGTH_LONG).show()
+        }
+        when (ShizukuManager.requestPermission()) {
+            com.kilon.agentvscreen.host.ShizukuBackend.Ask.ALREADY -> Toast.makeText(this, tr("Shizuku 已授权", "Shizuku is authorized"), Toast.LENGTH_SHORT).show()
+            com.kilon.agentvscreen.host.ShizukuBackend.Ask.NO_BINDER -> { ShizukuManager.openShizukuApp(this); Toast.makeText(this, tr("Shizuku 没在运行：先在 Shizuku 里启动它", "Shizuku is not running: start it in Shizuku first"), Toast.LENGTH_LONG).show() }
+            com.kilon.agentvscreen.host.ShizukuBackend.Ask.DENIED_ON_RECORD, com.kilon.agentvscreen.host.ShizukuBackend.Ask.FAILED -> inManager()
+            // A dialog should show; if no answer comes within 8 s, the request went nowhere.
+            com.kilon.agentvscreen.host.ShizukuBackend.Ask.ASKED -> window.decorView.postDelayed({
+                ShizukuManager.refresh()
+                if (ShizukuManager.snapshot.value.state == ShizukuManager.State.NEED_PERMISSION && !isFinishing && hasWindowFocus()) inManager()
+            }, 8_000L)
+        }
     }
 
     private fun copy(label: String, text: String) {
@@ -384,7 +408,7 @@ class MainActivity : ComponentActivity() {
         }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             when (sh.state) {
-                ShizukuManager.State.NEED_PERMISSION -> PrimaryAction(tr("授权 Shizuku", "Grant Shizuku")) { ShizukuManager.requestPermission(); bump() }
+                ShizukuManager.State.NEED_PERMISSION -> PrimaryAction(tr("授权 Shizuku", "Grant Shizuku")) { grantShizuku(); bump() }
                 ShizukuManager.State.NOT_RUNNING -> PrimaryAction(tr("打开 Shizuku 启动", "Open Shizuku to start it")) { ShizukuManager.openShizukuApp(this@MainActivity) }
                 ShizukuManager.State.NOT_INSTALLED -> PrimaryAction(tr("安装 Shizuku", "Install Shizuku")) { ShizukuManager.openInstallPage(this@MainActivity) }
                 ShizukuManager.State.READY -> PrimaryAction(if (busy) tr("配置中…", "Setting up…") else tr("一键配置其余项", "Set up the rest"), enabled = !busy && items.any { !it.ok }) {

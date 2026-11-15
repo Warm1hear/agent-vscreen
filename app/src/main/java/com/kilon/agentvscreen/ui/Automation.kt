@@ -295,7 +295,7 @@ private fun RoundIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
     }
 }
 
-/** The lessons saved on this phone, by app; each opens to its steps. */
+/** The lessons saved on this phone, by app; each opens to its steps. 1.3.0-beta18: search, and select several to delete at once. */
 @Composable
 internal fun LessonsList(tick: Int) {
     val ctx = LocalContext.current
@@ -303,55 +303,105 @@ internal fun LessonsList(tick: Int) {
     var all by remember { mutableStateOf<List<Pair<String, VScreenMap.Segment>>>(emptyList()) }
     LaunchedEffect(tick, again) { all = withContext(Dispatchers.IO) { VScreenMap.allSegments() } }
     var open by remember { mutableStateOf<String?>(null) }
-    var askDelete by remember { mutableStateOf<Pair<String, VScreenMap.Segment>?>(null) }
+    var askDelete by remember { mutableStateOf<List<Pair<String, VScreenMap.Segment>>?>(null) }
+    var query by remember { mutableStateOf("") }
+    var picking by remember { mutableStateOf(false) }
+    var picked by remember { mutableStateOf(setOf<String>()) }
     if (all.isEmpty()) { Note(tr("还没有保存的示教。agent 发 teach 请你演示，或在全屏页点录制", "No saved lessons yet. An agent asks with teach, or tap record on the full screen page")); return }
-    all.groupBy { it.first }.forEach { (pkg, list) ->
-        val label = remember(pkg) { runCatching { ctx.packageManager.getApplicationLabel(ctx.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg) }
-        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val labels = remember(all) { all.map { it.first }.distinct().associateWith { pkg -> runCatching { ctx.packageManager.getApplicationLabel(ctx.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg) } }
+    val q = query.trim()
+    val shown = if (q.isEmpty()) all else all.filter { (p, s) -> lessonMatches(q, s.name, labels[p] ?: p, p, s.steps) }
+    fun keyOf(p: String, s: VScreenMap.Segment) = "$p/${s.name}"
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        androidx.compose.material3.OutlinedTextField(query, { query = it.take(40) }, Modifier.weight(1f), singleLine = true,
+            placeholder = { Text(tr("搜索名字、应用或步骤", "Search name, app or steps"), fontSize = 13.sp) },
+            trailingIcon = { if (query.isNotEmpty()) Icon(Icons.Filled.Close, tr("清空", "Clear"), Modifier.clickable { query = "" }.size(18.dp)) },
+            shape = RoundedCornerShape(18.dp), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp))
+        TextButton(onClick = { picking = !picking; picked = emptySet() }) { Text(if (picking) tr("取消", "Cancel") else tr("选择", "Select")) }
+    }
+    if (picking) {
+        val keys = shown.map { keyOf(it.first, it.second) }.toSet()
+        val allOn = keys.isNotEmpty() && picked.containsAll(keys)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(tr("已选 ${picked.size} 个", "${picked.size} selected"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            TextButton(onClick = { picked = if (allOn) picked - keys else picked + keys }) { Text(if (allOn) tr("全不选", "Select none") else tr("全选", "Select all")) }
+            TextButton(enabled = picked.isNotEmpty(), onClick = { askDelete = all.filter { keyOf(it.first, it.second) in picked } }) {
+                Text(tr("删除", "Delete"), color = if (picked.isNotEmpty()) Palette.stopped else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+    if (shown.isEmpty()) Note(tr("没有匹配“$q”的示教", "No lessons match \"$q\""))
+    shown.groupBy { it.first }.forEach { (pkg, list) ->
+        Text(labels[pkg] ?: pkg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
         list.forEach { (p, s) ->
-            val key = "$p/${s.name}"
-            val steps = remember(s.steps) { s.steps.split(';').map { it.trim() }.filter { it.isNotEmpty() } }
-            val isOpen = open == key
+            val key = keyOf(p, s)
+            // 1.3.0-beta18: try / if / repeat show as blocks, their steps indented.
+            val steps = remember(s.steps) { com.kilon.agentvscreen.cmd.Steps.outline(s.steps) }
+            val count = remember(steps) { steps.count { (_, t) -> t != "}" && !t.startsWith("} ") } }
+            val isOpen = open == key && !picking
+            val on = key in picked
             val turn by androidx.compose.animation.core.animateFloatAsState(if (isOpen) 180f else 0f, label = "lesson")
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.06f))
-                    .clickable { open = if (isOpen) null else key }.padding(horizontal = 14.dp, vertical = 12.dp).animateContentSize(),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = if (on) 0.16f else 0.06f))
+                    .clickable { if (picking) picked = if (on) picked - key else picked + key else open = if (isOpen) null else key }
+                    .padding(horizontal = 14.dp, vertical = 12.dp).animateContentSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (picking) {
+                        androidx.compose.material3.Checkbox(on, { picked = if (on) picked - key else picked + key })
+                        Spacer(Modifier.width(4.dp))
+                    }
                     Column(Modifier.weight(1f)) {
                         Text(s.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(tr("${steps.size} 步", "${steps.size} steps") + (if (s.uses > 0) tr(" · 用过 ${s.uses} 次", " · used ${s.uses}×") else "") +
+                        Text(tr("$count 步", "$count steps") + (if (s.uses > 0) tr(" · 用过 ${s.uses} 次", " · used ${s.uses}×") else "") +
                             " · " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(s.at)),
                             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Icon(Icons.Filled.KeyboardArrowDown, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.rotate(turn))
+                    if (!picking) Icon(Icons.Filled.KeyboardArrowDown, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.rotate(turn))
                 }
                 if (isOpen) {
-                    steps.forEachIndexed { i, st ->
-                        Row(verticalAlignment = Alignment.Top) {
-                            Box(Modifier.size(22.dp).clip(CircleShape).background(Glass.accent), contentAlignment = Alignment.Center) {
-                                Text("${i + 1}", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                            }
-                            Spacer(Modifier.width(10.dp))
-                            Text(st, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f))
+                    var no = 0
+                    steps.forEach { (depth, st) ->
+                        val closing = st == "}" || st.startsWith("} ")
+                        Row(Modifier.padding(start = (depth * 18).dp), verticalAlignment = Alignment.Top) {
+                            if (!closing) {
+                                no++
+                                Box(Modifier.size(22.dp).clip(CircleShape).background(Glass.accent, alpha = if (depth == 0) 1f else 0.55f), contentAlignment = Alignment.Center) {
+                                    Text("$no", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(Modifier.width(10.dp))
+                            } else Spacer(Modifier.width(32.dp))
+                            Text(st, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f), color = if (closing) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified)
                         }
                     }
                     Row {
                         Text(tr("agent 用：act \"use ${s.name}\"", "Agents run it with: act \"use ${s.name}\""), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f).align(Alignment.CenterVertically))
-                        TextButton(onClick = { askDelete = p to s }) { Text(tr("删除", "Delete"), color = Palette.stopped) }
+                        TextButton(onClick = { askDelete = listOf(p to s) }) { Text(tr("删除", "Delete"), color = Palette.stopped) }
                     }
                 }
             }
         }
     }
-    askDelete?.let { (p, s) ->
+    askDelete?.let { list ->
+        val one = list.singleOrNull()?.second
         AlertDialog(
             onDismissRequest = { askDelete = null },
-            title = { Text(tr("删除示教「${s.name}」？", "Delete lesson \"${s.name}\"?")) },
-            text = { Text(tr("agent 以后不能再用 use ${s.name} 重放它。", "Agents can no longer replay it with use ${s.name}.")) },
-            confirmButton = { TextButton(onClick = { VScreenMap.deleteSegment(p, s.name); askDelete = null; again++ }) { Text(tr("删除", "Delete"), color = Palette.stopped) } },
+            title = { Text(if (one != null) tr("删除示教「${one.name}」？", "Delete lesson \"${one.name}\"?") else tr("删除这 ${list.size} 个示教？", "Delete these ${list.size} lessons?")) },
+            text = { Text(if (one != null) tr("agent 以后不能再用 use ${one.name} 重放它。", "Agents can no longer replay it with use ${one.name}.")
+                else list.joinToString(tr("、", ", ")) { it.second.name }.take(200) + tr("\nagent 以后不能再用 use 重放它们。", "\nAgents can no longer replay them with use.")) },
+            confirmButton = { TextButton(onClick = {
+                list.forEach { (p, s) -> VScreenMap.deleteSegment(p, s.name) }
+                picked = picked - list.map { keyOf(it.first, it.second) }.toSet(); if (picked.isEmpty()) picking = false
+                askDelete = null; again++
+            }) { Text(tr("删除", "Delete"), color = Palette.stopped) } },
             dismissButton = { TextButton(onClick = { askDelete = null }) { Text(tr("取消", "Cancel")) } },
         )
     }
+}
+
+/** A lesson matches when every word of [q] is in its name, app, package or steps (case ignored). */
+internal fun lessonMatches(q: String, vararg fields: String): Boolean {
+    val hay = fields.joinToString("\n").lowercase()
+    return q.lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }.all { hay.contains(it) }
 }

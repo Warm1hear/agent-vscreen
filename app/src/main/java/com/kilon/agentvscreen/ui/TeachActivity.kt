@@ -62,6 +62,8 @@ import org.json.JSONObject
  * the app (`use 名字`); when an agent asked for the lesson, the agent gets the steps as the answer.
  */
 class TeachActivity : ComponentActivity() {
+    override fun onStart() { super.onStart(); Overlay.fullscreenShown(true) }
+    override fun onStop() { Overlay.fullscreenShown(false); super.onStop() }
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)

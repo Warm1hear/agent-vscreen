@@ -108,6 +108,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -168,14 +169,20 @@ object Overlay {
     internal fun cardAbove(): Boolean { val l = lp ?: return false; return l.y + winH() + dp(190f) > screenH() - bottomMargin() }
 
     /** Our full-screen page is in front: it shows the same picture, so the floating window steps aside. */
-    private val fullscreenOpen = MutableStateFlow(false)
-    fun fullscreenShown(open: Boolean) { fullscreenOpen.value = open }
+    /**
+     * 1.3.0-beta18: how many of our own full pages are in front (the full screen page, a question's answer page such
+     * as pick-a-point / draw-a-box, the lesson review). While any is, the window steps aside: those pages show the
+     * screen themselves, and the window and its question card would sit on top of what the user has to touch. A count,
+     * not a flag: going from one page to the next starts the new one before the old one stops.
+     */
+    private val pagesInFront = MutableStateFlow(0)
+    fun fullscreenShown(open: Boolean) { pagesInFront.update { (if (open) it + 1 else it - 1).coerceAtLeast(0) } }
 
     fun attach(c: Context) {
         ctx = c.applicationContext
         job?.cancel()
         job = scope.launch {
-            combine(BackgroundOperation.state.map { it.displayId != null && it.showPreview && !it.windowHidden }.distinctUntilChanged(), fullscreenOpen) { up, full -> up to full }
+            combine(BackgroundOperation.state.map { it.displayId != null && it.showPreview && !it.windowHidden }.distinctUntilChanged(), pagesInFront.map { it > 0 }.distinctUntilChanged()) { up, full -> up to full }
                 .distinctUntilChanged().collect { (up, full) ->
                     AppLogger.info("Overlay", when { !up -> "no screen / preview off / closed by the user: hide"; full -> "full-screen page in front: hide"; else -> "screen up: show" })
                     if (up && !full) show() else hide()
@@ -186,7 +193,7 @@ object Overlay {
     fun detach() { job?.cancel(); job = null; hide() }
 
     /** Re-check after the overlay permission was granted. */
-    fun refresh() { val s = BackgroundOperation.state.value; if (s.displayId != null && s.showPreview && !s.windowHidden && !fullscreenOpen.value) show() }
+    fun refresh() { val s = BackgroundOperation.state.value; if (s.displayId != null && s.showPreview && !s.windowHidden && pagesInFront.value == 0) show() }
 
     /** 1.1.6: the × button. One tap, never a lock: see [BackgroundOperation.closeWindow]. */
     fun closeTapped() {
@@ -505,7 +512,12 @@ object Overlay {
         swapFade()
     }
 
-    /** A tap on the tab: the window slides back out of that edge (the fold played backwards). */
+    /**
+     * A tap on the tab: the window opens wholly on screen, at its final place beside that edge, and grows in from
+     * the tab's side. 1.3.0-beta18: beta17 first placed it mostly off screen and slid it in; the window manager showed
+     * that off-screen frame before the slide began, so it flashed half outside and then jumped in. Now it is never
+     * anywhere but where it ends, and stays invisible until it has its real size there.
+     */
     internal fun undock() {
         val l = lp ?: return
         stopAnim()
@@ -514,13 +526,18 @@ object Overlay {
         val h = w / aspect()
         // The tab stays a third of the way down the window, as when it folded.
         val y = (l.y + dp(TAB_H) / 2 - h * 0.3f).coerceIn(topMargin(), (screenH() - h - bottomMargin()).coerceAtLeast(topMargin()))
-        val x0 = stripX(right, w); val x1 = if (right) screenW() - w - dp(8f) else dp(8f)
+        val x = (if (right) screenW() - w - dp(8f) else dp(8f)).coerceAtLeast(0f)
+        val v = content()
+        v?.animate()?.cancel(); v?.alpha = 0f
         docked.value = false
-        place(x0.toInt(), y.toInt())
-        if (!animateLook) { place(x1.toInt(), y.toInt()); save(); return }
+        place(x.toInt(), y.toInt())
+        save()
+        if (v == null || !animateLook) { v?.alpha = 1f; return }
         swapFade {
-            content()?.animate()?.alpha(1f)?.setDuration(160L)?.start()
-            animateTo(x1.toInt(), y.toInt(), ms = 240L)
+            v.pivotX = if (right) w else 0f; v.pivotY = (l.y + dp(TAB_H) / 2 - y).coerceIn(0f, h)
+            v.scaleX = 0.82f; v.scaleY = 0.82f
+            v.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(180L)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).start()
         }
     }
 
@@ -717,6 +734,8 @@ private class GestureFrame(ctx: Context) : FrameLayout(ctx) {
 }
 
 private val PAD = 7.dp
+/** 1.3.0-beta18: one height for the title pill and the round buttons beside it. */
+private val CHIP_H = 24.dp
 
 @Composable
 internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (@Composable (String) -> Unit)? = null) {
@@ -772,9 +791,9 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
 
             // Title pill: a handle (drag or hold it to move the window, also while you hold the screen).
             Row(
-                Modifier.align(Alignment.TopStart).padding(start = (7 * k).dp, top = (7 * k).dp).widthIn(max = w - (76 * k).dp)
-                    .eatTouches().clip(RoundedCornerShape(50)).background(chip)
-                    .padding(horizontal = (8 * k).dp, vertical = (4 * k).dp),
+                Modifier.align(Alignment.TopStart).padding(start = (7 * k).dp, top = (7 * k).dp).widthIn(max = w - (70 * k).dp)
+                    .height(CHIP_H * k).eatTouches().clip(RoundedCornerShape(50)).background(chip)
+                    .padding(horizontal = (8 * k).dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.size((7 * k).dp).clip(CircleShape).background(if (mode == Mode.ACTING) Brush.sweepGradient(Palette.rainbow) else Brush.linearGradient(listOf(Palette.of(mode), Palette.of(mode)))))
@@ -783,7 +802,8 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
             }
 
             // Full screen and close, top right. Same places in every state.
-            Row(Modifier.align(Alignment.TopEnd).padding(end = (6 * k).dp, top = (6 * k).dp), horizontalArrangement = Arrangement.spacedBy((5 * k).dp)) {
+            // 1.3.0-beta18: the same height as the title pill, on the same line (rainbow).
+            Row(Modifier.align(Alignment.TopEnd).padding(end = (7 * k).dp, top = (7 * k).dp), horizontalArrangement = Arrangement.spacedBy((5 * k).dp)) {
                 RoundBtn(Icons.Filled.OpenInFull, tr("全屏", "Full screen"), chip, k) { Overlay.openFull() }
                 RoundBtn(Icons.Filled.Close, if (mode == Mode.ACTING || mode == Mode.STANDBY || mode == Mode.TAKEOVER) tr("隐藏小窗", "Hide window") else tr("关闭副屏", "Close screen"),
                     chip, k) { Overlay.closeTapped() }
@@ -792,9 +812,10 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
             // The one action of this state, bottom: stop (left, out of the way), or done / hand back (centre).
             val action: Triple<String, Color, () -> Unit>? = when {
                 teachN != null && mode == Mode.TAKEOVER -> Triple(tr("完成", "Done") + " · $teachN", Palette.asking) { com.kilon.agentvscreen.cmd.Teach.finish(octx.applicationContext) }
-                mode == Mode.ACTING || mode == Mode.STANDBY -> Triple(tr("停止 AI", "Stop AI"), Palette.stopped) { BackgroundOperation.userStop() }
+                // 1.3.0-beta18: also while idle (the turn ended, the screen is kept): the user can stop the AI before its
+                // next command, and the button never disappears from its place. Only takeover / stopped show hand back.
                 mode == Mode.TAKEOVER || mode == Mode.STOPPED -> Triple(tr("交还 AI", "Hand back"), Palette.takeover) { BackgroundOperation.userResume() }
-                else -> null
+                else -> Triple(tr("停止 AI", "Stop AI"), Palette.stopped) { BackgroundOperation.userStop() }
             }
             if (action != null) {
                 val stop = action.second == Palette.stopped
@@ -889,7 +910,9 @@ private fun PictureLayer(owner: String, k: Float, picture: (@Composable (String)
         LaunchedEffect(Overlay.hintAt.longValue) { now = SystemClock.uptimeMillis(); delay(3100); now = SystemClock.uptimeMillis() }
         val showHint = Overlay.hintAt.longValue > 0 && now - Overlay.hintAt.longValue < 2500
         AnimatedVisibility(showHint, Modifier.align(Alignment.Center), enter = fadeIn(), exit = fadeOut()) {
-            Text(tr("长按 0.5 秒接管 · 双指缩放 · 拖出屏幕一半收起", "Hold 0.5 s to take over · pinch to resize · drag half off screen to fold"), color = Color.White, fontSize = (11 * k).sp,
+            // 1.3.0-beta18: one gesture per line (rainbow: three lines, not one run-on line).
+            Text(tr("长按 0.5 秒接管\n双指缩放\n拖出屏幕一半收起", "Hold 0.5 s to take over\nPinch to resize\nDrag half off screen to fold"), color = Color.White, fontSize = (11 * k).sp,
+                lineHeight = (16 * k).sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier.padding(8.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xDD12141C)).padding(horizontal = 10.dp, vertical = 6.dp))
         }
 
@@ -909,9 +932,9 @@ private fun PictureLayer(owner: String, k: Float, picture: (@Composable (String)
 @Composable
 private fun RoundBtn(icon: ImageVector, desc: String, bg: Color, k: Float, onClick: () -> Unit) {
     Box(
-        Modifier.size((30 * k).dp).clip(CircleShape).background(bg).clickable(onClick = onClick),
+        Modifier.size(CHIP_H * k).clip(CircleShape).background(bg).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, desc, tint = Color.White, modifier = Modifier.size((15 * k).dp)) }
+    ) { Icon(icon, desc, tint = Color.White, modifier = Modifier.size((13 * k).dp)) }
 }
 
 /**

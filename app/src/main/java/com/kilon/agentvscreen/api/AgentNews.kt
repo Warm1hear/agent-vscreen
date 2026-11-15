@@ -120,6 +120,19 @@ object AgentNews {
             "tap #N on an input box counts as the same element while the box is in its place, even when its text or a rotating hint changed (no more STALE_ELEMENT for that).",
             "events gives an unconfirmed batch from before an app restart again only within 10 minutes, and only once; older ones no longer come back after every restart.",
         )),
+        Entry(31, "1.3.0-beta18", listOf(
+            "tap #N：同一页没滚动时，同样大小、同一位置的元素就算同一个，不管它的字变没变（轮播提示的搜索框，可点或可输入都算）。",
+            "collect 一次画面没动不再算到底：换个位置再滑一次确认；两次都不动时，列表说不能再往下才写“到底了”，否则说明可能在加载。顶部或底部一排可点的标签栏不算条目。",
+            "步骤语言（act、段、示教共用）：字里 * 是任意字（tap *蓝牙*），字@N 是从上往下第 N 处；新增 try 一步 / try { … }（没做成就跳过）、if <条件> { … } else { … }、repeat 3 { … }、repeat { … } until <条件>，括号可换行、可嵌套。",
+            "示教保存时，打字后点了含输入内容的结果，记成 tap *{1}*@N（第 N 个含这个值的项），换参数重放时按内容点，不按位置。",
+            "note save 段名 \"步骤\"：不执行，直接存下或改写一个段（示教的段也能改）。",
+        ), listOf(
+            "tap #N: on the same page with no scroll, an element of the same size at the same place is the same element whatever it says now (a search box with rotating hints, tappable or editable).",
+            "collect no longer takes one still picture as the end: a second swipe elsewhere confirms it; if both moved nothing it says the end only when the list itself cannot go further, otherwise that it may be loading. A row of tappable tabs at the top or bottom is not an item.",
+            "The step language (act, segments and lessons alike): * in words is any characters (tap *Bluetooth*), words@N is the N-th place from the top; new try <step> / try { … } (skipped if it doesn't work), if <condition> { … } else { … }, repeat 3 { … }, repeat { … } until <condition>; braces may span lines and nest.",
+            "When a lesson is saved, a tap on a result holding the typed text is kept as tap *{1}*@N (the N-th item holding that value), so replaying with another value taps by content, not by place.",
+            "note save <segment> \"steps\": store or rewrite a segment without running it (taught ones too).",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */
