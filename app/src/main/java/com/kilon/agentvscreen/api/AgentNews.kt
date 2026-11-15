@@ -135,8 +135,12 @@ object AgentNews {
         )),
         Entry(32, "1.3.0-beta19", listOf(
             "act --human / note human on：仿人节奏。每个动作前随机停 0.2–2.6 秒，点击在元素内略偏、按住 55–140ms，长按、滑动、滚动、拖动的时长和端点有波动，打字 1–3 个字一段。等待和条件判断不变。",
+            "按文字点（tap 字 / tap *x*@N）先查应用自己的控件，能定下就不再等 OCR，快很多；控件里没有或有歧义时才整屏识别。",
+            "示教保存：打字前那步的 until 不会再是后面输入的字（以前点两次搜索框会存成 until text:<输入的字>，重放卡住）；点了含输入内容的结果，until 一律是 change。",
         ), listOf(
             "act --human / note human on: human pacing. A random 0.2–2.6 s pause before each action, taps slightly off-centre inside the element and held 55–140 ms, varied durations and ends for presses, swipes, scrolls and drags, typing 1–3 characters at a time. Waits and conditions are unchanged.",
+            "Word targets (tap <words> / tap *x*@N) are looked up in the app's own elements first and settle without waiting for OCR when they can, which is much faster; the whole screen is read only when the elements have no match or more than one.",
+            "Saving a lesson: a step before the typing never gets until text:<the typed words> any more (tapping the search box twice used to save that and replay got stuck); a tap on a result holding the typed value always waits for change.",
         )),
     )
 

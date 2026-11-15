@@ -43,4 +43,32 @@ class V130Beta19Test {
             assertTrue(p.all { it.isNotEmpty() && !Character.isHighSurrogate(it.last()) })
         }
     }
+
+    @Test fun anUntilThatNamesTheTypedValueBeforeTheTypingIsDropped() {
+        // Test M: the search box tapped twice; the second tap's reading came after the typing.
+        val snap = TeachSnap("com.android.settings", listOf(
+            El(0, "声音", Rect(100, 100, 900, 160), true, clickable = true, editable = true),
+            El(0, "声音和触感", Rect(100, 300, 900, 360), true, clickable = true),
+            El(0, "声随心动 · 铃声主题", Rect(100, 400, 900, 460), true, clickable = true),
+        ))
+        val lines = listOf(
+            TeachLine("tap 搜索设置项", "text:向上导航", "", "tap", at = 600 to 130, words = "搜索设置项"),
+            TeachLine("tap 搜索设置项", "text:声音", "", "tap", at = 600 to 130, words = "搜索设置项"),
+            TeachLine("type", null, "", "type", typed = "声音"),
+            TeachLine("tap 声音和触感", "text:声随心动 · 铃声主题", "", "tap", at = 400 to 330, words = "声音和触感", snap = snap),
+        )
+        val (body, _) = Teach.build(lines, setOf(0, 1, 2, 3), emptySet())
+        assertEquals("tap 搜索设置项 until text:向上导航; tap 搜索设置项; type {1}; tap *{1}*@1 until change", body)
+    }
+
+    @Test fun versionsCompareAsReleases() {
+        val u = com.kilon.agentvscreen.host.Updates
+        assertTrue(u.compare("1.3.0", "1.3.0-beta19") > 0)
+        assertTrue(u.compare("v1.3.0-beta19", "1.3.0-beta2") > 0)
+        assertTrue(u.compare("1.2.10", "1.2.9") > 0)
+        assertTrue(u.compare("1.2.0", "1.3.0-beta1") < 0)
+        assertEquals(0, u.compare("v1.2.0", "1.2.0"))
+        val r = u.parse("""[{"tag_name":"v1.2.0","name":"1.2.0","body":"notes","html_url":"https://x/r","draft":false,"prerelease":false,"assets":[{"name":"a.apk","browser_download_url":"https://x/a.apk"}]},{"tag_name":"v9.9.9","draft":true}]""")
+        assertEquals(1, r.size); assertEquals("1.2.0", r[0].version); assertEquals("https://x/a.apk", r[0].apk)
+    }
 }

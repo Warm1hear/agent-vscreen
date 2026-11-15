@@ -9,6 +9,9 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.foundation.layout.heightIn
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.ui.draw.rotate
 import android.content.ClipData
@@ -128,6 +131,7 @@ class MainActivity : ComponentActivity() {
         // In front now, so a foreground service may start: repair a start the system refused in the background,
         // and retry a port that was taken.
         if (Prefs.serviceOn(this)) HostService.start(this)
+        com.kilon.agentvscreen.host.Updates.checkDaily(this)
         Overlay.refresh()
         // 1.3.0-beta18 (GitHub #2): Shizuku's answer can change while we are away (allowed or revoked in its own app,
         // Shizuku restarted): read it again instead of showing what it was when the process started.
@@ -352,7 +356,18 @@ class MainActivity : ComponentActivity() {
         Section {
             NavRow("语言 / Language", names[I18n.Lang.entries.indexOf(I18n.choice)], Icons.Filled.Translate) { lang = true }
             NavRow(tr("诊断", "Diagnostics"), null, Icons.Filled.BugReport) { open(Page.DIAG) }
+            // 1.3.0-beta19: check for updates (GitHub releases); a newer one found by the daily check shows here.
+            val newer by com.kilon.agentvscreen.host.Updates.newer.collectAsState()
+            val checking by com.kilon.agentvscreen.host.Updates.checking.collectAsState()
+            NavRow(tr("检查更新", "Check for updates"), when {
+                checking -> tr("检查中…", "Checking…")
+                newer != null -> tr("有新版本 ${newer!!.version}", "New: ${newer!!.version}")
+                else -> BuildConfig.VERSION_NAME
+            }, Icons.Filled.SystemUpdate, valueColor = if (newer != null) MaterialTheme.colorScheme.primary else null) {
+                if (!checking) lifecycleScope.launch { updateAnswer = withContext(Dispatchers.IO) { com.kilon.agentvscreen.host.Updates.check(this@MainActivity) } }
+            }
         }
+        updateAnswer?.let { u -> UpdateDialog(u) { updateAnswer = null } }
         if (lang) androidx.compose.material3.AlertDialog(
             onDismissRequest = { lang = false }, title = { Text("语言 / Language") },
             text = {
@@ -372,6 +387,41 @@ class MainActivity : ComponentActivity() {
         )
         Text("Agent-VScreen ${BuildConfig.VERSION_NAME}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    }
+
+    private var updateAnswer by mutableStateOf<com.kilon.agentvscreen.host.Updates.Outcome?>(null)
+
+    /** What a check found: the new version with its notes and a download, already the newest, or why it failed. */
+    @Composable
+    private fun UpdateDialog(u: com.kilon.agentvscreen.host.Updates.Outcome, close: () -> Unit) {
+        fun view(url: String) { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }; close() }
+        when (u) {
+            is com.kilon.agentvscreen.host.Updates.Outcome.Newer -> androidx.compose.material3.AlertDialog(
+                onDismissRequest = close,
+                title = { Text(tr("新版本 ${u.r.version}", "New version ${u.r.version}")) },
+                text = {
+                    Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(tr("现在是 ${BuildConfig.VERSION_NAME}", "You have ${BuildConfig.VERSION_NAME}"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (u.r.notes.isNotBlank()) Text(u.r.notes.take(3000), fontSize = 13.sp, lineHeight = 19.sp)
+                    }
+                },
+                confirmButton = { TextButton(onClick = { view(u.r.apk ?: u.r.page) }) { Text(if (u.r.apk != null) tr("下载 APK", "Download APK") else tr("打开发布页", "Open the release")) } },
+                dismissButton = { TextButton(onClick = close) { Text(tr("稍后", "Later")) } },
+            )
+            is com.kilon.agentvscreen.host.Updates.Outcome.Latest -> androidx.compose.material3.AlertDialog(
+                onDismissRequest = close,
+                title = { Text(tr("已是最新", "Up to date")) },
+                text = { Text(tr("现在是 ${BuildConfig.VERSION_NAME}", "You have ${BuildConfig.VERSION_NAME}") + (u.newest?.let { tr("，GitHub 上最新的发布是 $it", "; the newest release on GitHub is $it") } ?: "")) },
+                confirmButton = { TextButton(onClick = close) { Text(tr("好", "OK")) } },
+            )
+            is com.kilon.agentvscreen.host.Updates.Outcome.Failed -> androidx.compose.material3.AlertDialog(
+                onDismissRequest = close,
+                title = { Text(tr("没查到", "Could not check")) },
+                text = { Text(u.why) },
+                confirmButton = { TextButton(onClick = { view(com.kilon.agentvscreen.host.Updates.PAGE) }) { Text(tr("打开发布页", "Open releases")) } },
+                dismissButton = { TextButton(onClick = close) { Text(tr("关闭", "Close")) } },
+            )
+        }
     }
 
     @Composable

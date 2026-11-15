@@ -117,7 +117,7 @@ internal object Teach {
         return start(session, a.title, a.id, a.options.firstOrNull())
     }
 
-    fun cancel() { synchronized(this) { rec = null; current = null; typing = null; _count.value = null }; UserAsk.hold(null) }
+    fun cancel() { synchronized(this) { rec = null; current = null; typing = null; typingStart = null; _count.value = null }; UserAsk.hold(null) }
 
     /** While recording an agent's request: who asked and what (the full screen page shows it in full). */
     fun brief(): Pair<String?, String>? = rec?.let { r -> r.purpose?.takeIf { it.isNotBlank() }?.let { p -> (r.askId?.let { UserAsk.byId(it)?.tokenName }) to p } }
@@ -168,9 +168,31 @@ internal object Teach {
 
     /** 1.3.0-beta14: what the mirrored field reads now (null: unchanged); it becomes one step at the next action. */
     @Volatile private var typing: String? = null
-    fun typingNow(value: String?) = synchronized(this) { if (rec != null) typing = value?.takeIf { it.isNotEmpty() } }
+    /**
+     * 1.3.0-beta19: the screen when the typing began, read at the first keystroke. The typing becomes a step only at
+     * the next action, and a reading taken then already shows the typed words: the tap before the typing got
+     * `until text:<the typed words>` (test M: a lesson that could never replay).
+     */
+    @Volatile private var typingStart: TeachEv.Typed? = null
+    fun typingNow(value: String?) = synchronized(this) {
+        val r = rec ?: return
+        val v = value?.takeIf { it.isNotEmpty() }
+        if (v != null && typing == null && typingStart == null) typingStart = TeachEv.Typed(System.currentTimeMillis(), "", whole = true).also { st -> st.pending = reader.submit { st.before = read(r.displayId) } }
+        if (v == null) typingStart = null
+        typing = v
+    }
     fun commitTyping() = synchronized(this) { rec?.let { flushTyping(it) } }
-    private fun flushTyping(r: Rec) { typing?.let { typing = null; add(r, TeachEv.Typed(System.currentTimeMillis(), it, whole = true)) } }
+    private fun flushTyping(r: Rec) {
+        val t = typing ?: return
+        val st = typingStart
+        typing = null; typingStart = null
+        val e = TeachEv.Typed(st?.t ?: System.currentTimeMillis(), t, whole = true)
+        if (st == null) { add(r, e); return }
+        if (r.events.size >= MAX) return
+        r.events += e
+        e.pending = reader.submit { runCatching { st.pending?.get(4, TimeUnit.SECONDS) }; e.before = st.before }
+        _count.value = r.events.size
+    }
 
     private fun record(e: TeachEv) {
         synchronized(this) { val r = rec ?: return; flushTyping(r); add(r, e) }
@@ -179,7 +201,7 @@ internal object Teach {
 
     /** Stop recording and write the steps (reads the screen once more). Opens the review page. */
     fun stop(ctx: Context?) {
-        val r = synchronized(this) { rec?.let { flushTyping(it) }; rec.also { rec = null; current = null; typing = null } } ?: return
+        val r = synchronized(this) { rec?.let { flushTyping(it) }; rec.also { rec = null; current = null; typing = null; typingStart = null } } ?: return
         _count.value = null
         Thread({
             val end = runCatching { reader.submit<TeachSnap?> { read(r.displayId) }.get(4, TimeUnit.SECONDS) }.getOrNull()
@@ -344,17 +366,26 @@ internal object Teach {
         // result stays the first result), and an until that names the typed words waits for a change instead.
         var param: String? = null
         var paramN = 0
+        // 1.3.0-beta19: every typed value that becomes a parameter. A step's `until` that names one of them before it is
+        // typed can't be what that step caused (the reading came after the typing): it is dropped. After it, the
+        // words depend on the value: it becomes `change`.
+        fun typedValue(i: Int, l: TeachLine) = l.typed?.takeIf { l.kind == "type" && i !in literal && !l.secret }?.let { VScreenOcr.norm(it) }?.takeIf { it.isNotEmpty() }
+        val values = lines.withIndex().filter { it.index in keep }.mapNotNull { (i, l) -> typedValue(i, l)?.let { i to it } }
         val steps = lines.withIndex().filter { it.index in keep }.map { (i, l) ->
             var until = l.until
+            val named = if (l.kind != "type" && l.until != null) values.firstOrNull { (_, v) -> VScreenOcr.norm(l.until).contains(v) } else null
+            if (named != null) until = if (named.first > i) null else "change"
             val head = if (l.kind == "type") {
                 if (i in literal && !l.secret && l.typed != null && l.typed.none { it == ';' || it == '；' || it == '\n' }) { param = null; "type ${l.typed}" }
                 else { param = l.typed?.takeIf { !l.secret }?.let { VScreenOcr.norm(it) }?.takeIf { it.isNotEmpty() }; paramN = ++p; "type {$p}" }
             } else {
                 val q = param
                 if (q != null && until != null && VScreenOcr.norm(until).contains(q)) until = "change"
-                if (q != null && l.kind == "tap" && l.at != null && l.words != null && VScreenOcr.norm(l.words).contains(q))
+                if (q != null && l.kind == "tap" && l.at != null && l.words != null && VScreenOcr.norm(l.words).contains(q)) {
+                    // What this tap opens depends on the value too: wait for a change, not for the demo's words.
+                    if (until != null) until = "change"
                     rankOf(l.snap, q, l.at)?.let { k -> "tap *{$paramN}*@$k" } ?: "tap ${l.at.first} ${l.at.second}"
-                else l.head
+                } else l.head
             }
             if (until != null) "$head until $until" else head
         }

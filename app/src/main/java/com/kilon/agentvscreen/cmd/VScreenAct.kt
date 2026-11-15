@@ -673,11 +673,19 @@ private fun VScreenOffloadHandler.target(sid: String, d: VScreenDisplay, t: Step
             }
         }
     }
-    is StepTarget.Words -> {
+    is StepTarget.Words -> run {
+        fun choose(hits: List<El>): El? = if (t.nth != 0) hits.getOrNull(if (t.nth > 0) t.nth - 1 else hits.size + t.nth)
+            else hits.singleOrNull() ?: hits.filter { it.clickable || it.editable }.singleOrNull()
+        // 1.3.0-beta19 (test N, a pattern tap took 10.9 s): the app's own elements answer first. A full look waits for
+        // a fresh frame and OCRs it, and reads it again while the page is still changing (a result list updating as
+        // you type): seconds. OCR is only needed when the tree does not settle it (no match there, or not one place).
+        val quick = runCatching { mergeElements(d, a11yRaw(d), null) }.getOrDefault(emptyList()).filter { !it.placeholder }
+        val fast = wordHits(quick, t.text).takeIf { it.isNotEmpty() }?.let { choose(it) }
+        if (fast != null) return@run Target(fast.box.centerX(), fast.box.centerY(), fast.label, box = fast.box)
         val els = snapshot(d).els.filter { !it.placeholder }
         val hits = wordHits(els, t.text)
         if (hits.isEmpty()) throw StepRefused("NOT_FOUND", tr("画面上没找到“${t.text}”（控件文字和 OCR 都没有）", "\"${t.text}\" was not found on the screen (neither in widget text nor OCR)") + nearMiss(els, t.text.replace("*", "")))
-        val pick = if (t.nth != 0) hits.getOrNull(if (t.nth > 0) t.nth - 1 else hits.size + t.nth)
+        val pick = if (t.nth != 0) choose(hits)
             ?: throw StepRefused("NOT_FOUND", tr("“${t.text}”在画面上只有 ${hits.size} 处，没有第 ${t.nth} 处", "\"${t.text}\" is on the screen in only ${hits.size} places, there is no @${t.nth}"))
         else hits.singleOrNull() ?: hits.filter { it.clickable || it.editable }.singleOrNull()
             ?: throw StepRefused("AMBIGUOUS", tr("“${t.text}”在画面上有 ${hits.size} 处，没点：", "\"${t.text}\" is on the screen in ${hits.size} places; nothing was tapped: ") +
