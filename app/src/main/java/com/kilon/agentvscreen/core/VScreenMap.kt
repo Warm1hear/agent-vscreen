@@ -159,6 +159,8 @@ internal object VScreenMap {
         "before" to { v -> v.trim().takeIf { it.isNotEmpty() && it.length <= 300 } },
         "after" to { v -> v.trim().takeIf { it.isNotEmpty() && it.length <= 300 } },
         "record" to { v -> bool(v) },
+        // 1.3.0-beta19: human pacing for every act on this app (note human on|off).
+        "human" to { v -> bool(v) },
         "orientation" to { v -> v.trim().lowercase().takeIf { it == "landscape" || it == "portrait" } },
     )
 

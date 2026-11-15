@@ -178,7 +178,7 @@ ${ApiConfig.mcpJson(base, token)}
 - 字里 `*` 是任意字（`tap *蓝牙*` 点含“蓝牙”的那项），`字@2` 是从上往下第 2 处。流程：`try 一步`（没找到就跳过）、`if text:关闭 { tap 关闭 } else { … }`、`repeat 5 { scroll down }`、`repeat { scroll down } until text:到底了`。存成段：`note save 名字 "步骤"`（不执行，示教的段也能这样改写），用 `use 名字 参数`。
 - 条件：text:字（出现）| gone:字（消失）| change（画面变了）| stable（稳定）| app:包名或界面名。
 - 例：`vscreen act "tap 搜索; type 耳机; key enter until text:综合"`。
-- 选项：`--fast` 动作之间不等画面（游戏、连点）；`--stop 条件` 整段盯着，出现就停；`--watch 3s` 做完再看一会儿；`--async` 长操作先返回任务号，之后 `vscreen task <号> --wait 60s` 取结果。
+- 选项：`--human` 仿人节奏（动作前随机停顿、点击略偏、时长有波动、打字分小段，给对机器节奏敏感的应用；`note human on` 让这个应用一直这样）；`--fast` 动作之间不等画面（游戏、连点）；`--stop 条件` 整段盯着，出现就停；`--watch 3s` 做完再看一会儿；`--async` 长操作先返回任务号，之后 `vscreen task <号> --wait 60s` 取结果。
 
 ### 三、回复怎么读
 四块：【做了什么】每步的事实；【这段时间】你上次看之后画面上出现 / 消失了什么（包括你思考的时间），拼图里每个动作前一张、圈出你点的位置；【现在】前台界面、截图路径、编号元素；【注意】以代码开头的提示。
@@ -227,7 +227,7 @@ No adb or wireless debugging is needed; don't set them up. With no screen, just 
 - `*` in words is any characters (`tap *Bluetooth*` taps the item holding it), `words@2` is the 2nd place from the top. Flow: `try <step>` (skipped if not found), `if text:Close { tap Close } else { … }`, `repeat 5 { scroll down }`, `repeat { scroll down } until text:End`. Save as a segment: `note save <name> "steps"` (not run; rewrites a taught one too), run with `use <name> <values>`.
 - Conditions: text:word (appears) | gone:word (disappears) | change (the picture changed) | stable (settled) | app:package or screen name.
 - Example: `vscreen act "tap Search; type headphones; key enter until text:Results"`.
-- Options: `--fast` no waiting between actions (games, rapid taps); `--stop <condition>` watched for the whole stretch, stops when seen; `--watch 3s` keep looking after the steps; `--async` for long work: returns a task id, fetch the result with `vscreen task <id> --wait 60s`.
+- Options: `--human` human pacing (random pause before actions, taps slightly off-centre, varied durations, typing in small pieces, for apps sensitive to machine timing; `note human on` keeps it for the app); `--fast` no waiting between actions (games, rapid taps); `--stop <condition>` watched for the whole stretch, stops when seen; `--watch 3s` keep looking after the steps; `--async` for long work: returns a task id, fetch the result with `vscreen task <id> --wait 60s`.
 
 ### 3. Reading a reply
 Four blocks: [Done] the facts of each step; [Meanwhile] what appeared / disappeared since your last look (your thinking time included), with a sheet of one frame before each action and where you touched circled; [Now] the front screen, the screenshot path, numbered elements; [Notes] hints that start with a code.

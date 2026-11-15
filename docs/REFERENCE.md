@@ -18,7 +18,7 @@
 
 权限范围: `operate` · 在副屏队列里执行
 
-### `act ["步骤; 步骤; …"] [--stop <条件>] [--watch <时长>] [--fast] [--bare] [--keep <notify|wake>] [--for <时长>] [--save <名字>] [--async]`
+### `act ["步骤; 步骤; …"] [--stop <条件>] [--watch <时长>] [--fast] [--bare] [--human] [--keep <notify|wake>] [--for <时长>] [--save <名字>] [--async]`
 
 做一段操作（最多 40 步，用 ; 或换行分开），返回四段。不带步骤 = 看一眼（等画面稳定，最多 3 秒）。
 步骤：
@@ -43,6 +43,7 @@
 - `--watch <时长>` 步骤做完再看这么久（会动的画面）
 - `--fast` 动作之间不等画面稳定（游戏、连续点击）；最后一步仍会等
 - `--bare` 这一段不做这个应用记下的前置/收尾步骤
+- `--human` 仿人节奏：每个动作前随机停 0.2–2.6 秒，点击在元素内略偏、按住和滑动的时长与位置有波动，打字分 1–3 个字一段（对节奏敏感的应用用；条件判断不变）。一直要就 note human on
 - `--keep <notify|wake>` 本轮结束后继续盯 --stop 的条件，看到就通知用户（notify）或发一条事件给调用方（wake，用 events 取），然后结束；重启后还在
 - `--for <时长>` --keep 盯多久（默认 1 小时，最长 12 小时）
 - `--save <名字>` 把这段步骤存成这个应用的段，以后 use 名字
@@ -50,12 +51,13 @@
 
 权限范围: `operate`（不带步骤、或只有 wait 的 act 只需要 look） · 在副屏队列里执行
 
-### `note [文字] | before "<步骤>" | after "<步骤>" | save <段名> "<步骤>" | delete <编号|before|after|段名>`
+### `note [文字] | before "<步骤>" | after "<步骤>" | save <段名> "<步骤>" | human on|off | delete <编号|before|after|段名>`
 
 给当前应用记笔记（不带参数 = 列出笔记、段和前置/收尾步骤）。下次 launch 会列出来，并标明是谁、在应用哪个版本时记的。
 before / after：每段 act 开始前先做 before 的步骤，做完、观察完再做 after 的步骤（--bare 跳过）。
 例：会自己走的画面（游戏、播放器）记 before = 继续的步骤、after = 暂停的步骤，你思考时画面就停着；每次进页面都弹的窗记 before = 关掉它的步骤。
 save：不执行，直接存下或改写一个段（示教存的段也一样），步骤写法和 act 相同，可以用 try / if / repeat、* 和 @N；note 列出的就是段的完整步骤。
+human on：这个应用以后每段 act 都用仿人节奏（同 act --human）；off 关掉。
 
 权限范围: `operate` · 在副屏队列里执行
 
@@ -316,7 +318,7 @@ Returns four blocks; [Done] also lists the notes, saved segments and before/afte
 
 scope: `operate` · runs in the screen queue
 
-### `act ["step; step; …"] [--stop <condition>] [--watch <duration>] [--fast] [--bare] [--keep <notify|wake>] [--for <duration>] [--save <name>] [--async]`
+### `act ["step; step; …"] [--stop <condition>] [--watch <duration>] [--fast] [--bare] [--human] [--keep <notify|wake>] [--for <duration>] [--save <name>] [--async]`
 
 do a stretch of steps (up to 40, separated by ; or newlines), returns four blocks. No steps = take a look (waits for the picture to settle, up to 3 s).
 steps:
@@ -341,6 +343,7 @@ e.g. act "tap Search; type headphones; key enter until text:All"
 - `--watch <duration>` keep looking this long after the steps (moving pictures)
 - `--fast` do not wait for the picture to settle between actions (games, rapid taps); the last step still waits
 - `--bare` this stretch skips the before/after steps kept for this app
+- `--human` human pacing: a random 0.2–2.6 s pause before each action, taps slightly off-centre inside the element, varied hold and swipe lengths, typing 1–3 characters at a time (for apps sensitive to machine timing; conditions are unchanged). To keep it on: note human on
 - `--keep <notify|wake>` after this turn keep watching the --stop condition; when seen, notify the user (notify) or send the caller an event (wake, fetched with events), then end; survives a restart
 - `--for <duration>` how long --keep watches (default 1 hour, at most 12 hours)
 - `--save <name>` save these steps as a segment of this app, later: use <name>
@@ -348,12 +351,13 @@ e.g. act "tap Search; type headphones; key enter until text:All"
 
 scope: `operate` (an act with no steps, or only wait steps, needs just look) · runs in the screen queue
 
-### `note [text] | before "<steps>" | after "<steps>" | save <segment> "<steps>" | delete <number|before|after|segment>`
+### `note [text] | before "<steps>" | after "<steps>" | save <segment> "<steps>" | human on|off | delete <number|before|after|segment>`
 
 keep notes for the current app (no arguments = list notes, segments and before/after steps). The next launch lists them, with who wrote each and for which app version.
 before / after: every act first does the before steps, and after acting and looking does the after steps (--bare skips them).
 e.g. for a picture that moves by itself (a game, a player) keep before = the steps that resume and after = the steps that pause, so it stands still while you think; for a popup shown on every visit keep before = the steps that close it.
 save: store or rewrite a segment without running it (taught lessons too); the steps are written as for act, with try / if / repeat, * and @N; note lists each segment's full steps.
+human on: every act on this app uses human pacing from now on (as act --human); off turns it off.
 
 scope: `operate` · runs in the screen queue
 

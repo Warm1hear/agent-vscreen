@@ -329,9 +329,10 @@ internal object VScreenShell {
         else -> fail("INPUT_FAILED", tr("系统拒绝了副屏 $displayId 上的 $what 注入", "The system refused injecting $what on screen $displayId"))
     }
 
-    fun tap(displayId: Int, x: Int, y: Int): Outcome {
+    fun tap(displayId: Int, x: Int, y: Int, holdMs: Int = TAP_MS): Outcome {
         val (ix, iy) = mx(displayId, x, y)
-        return injected("tap", displayId, injector.gesture(displayId, ix, iy, ix, iy, 0, TAP_MS), TAP_MS.toLong())
+        val hold = holdMs.coerceIn(30, 250)
+        return injected("tap", displayId, injector.gesture(displayId, ix, iy, ix, iy, 0, hold), hold.toLong())
     }
 
     fun longPress(displayId: Int, x: Int, y: Int, ms: Int): Outcome {

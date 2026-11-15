@@ -135,7 +135,7 @@ import kotlin.math.roundToInt
  *  - top right: ⤢ full screen and × close. × is always there and always one tap: while the AI works it only hides the
  *    window for this turn (the AI goes on; the notification can bring it back); when nothing runs it closes the screen.
  *    Closing never stops or locks the AI.
- *  - bottom left, only while the AI acts or waits: the red tr("停止 AI", "Stop AI") pill (its calls get USER_STOPPED until you allow
+ *  - bottom centre, only while the AI acts or waits: the red tr("停止 AI", "Stop AI") pill (its calls get USER_STOPPED until you allow
  *    it again: green 交还 AI pill here, the "已停止 AI" notification, or the app's home).
  * While our own full-screen page is in front, the window steps aside (the page already shows the same picture).
  */
@@ -809,20 +809,18 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
                     chip, k) { Overlay.closeTapped() }
             }
 
-            // The one action of this state, bottom: stop (left, out of the way), or done / hand back (centre).
+            // The one action of this state, bottom centre (one place for all of them): stop, done or hand back.
             val action: Triple<String, Color, () -> Unit>? = when {
                 teachN != null && mode == Mode.TAKEOVER -> Triple(tr("完成", "Done") + " · $teachN", Palette.asking) { com.kilon.agentvscreen.cmd.Teach.finish(octx.applicationContext) }
-                // 1.3.0-beta18: also while idle (the turn ended, the screen is kept): the user can stop the AI before its
-                // next command, and the button never disappears from its place. Only takeover / stopped show hand back.
                 mode == Mode.TAKEOVER || mode == Mode.STOPPED -> Triple(tr("交还 AI", "Hand back"), Palette.takeover) { BackgroundOperation.userResume() }
-                else -> Triple(tr("停止 AI", "Stop AI"), Palette.stopped) { BackgroundOperation.userStop() }
+                // 1.3.0-beta19 (rainbow): stop only while the AI acts or waits; idle shows nothing.
+                mode == Mode.ACTING || mode == Mode.STANDBY -> Triple(tr("停止 AI", "Stop AI"), Palette.stopped) { BackgroundOperation.userStop() }
+                else -> null
             }
             if (action != null) {
-                val stop = action.second == Palette.stopped
                 val dark = action.second == Palette.takeover
                 Row(
-                    Modifier.align(if (stop) Alignment.BottomStart else Alignment.BottomCenter)
-                        .padding(start = if (stop) (8 * k).dp else 0.dp, bottom = (8 * k).dp)
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = (8 * k).dp)
                         .clip(RoundedCornerShape(50)).background(action.second).clickable(onClick = action.third)
                         .padding(horizontal = (11 * k).dp, vertical = (5 * k).dp),
                     verticalAlignment = Alignment.CenterVertically,

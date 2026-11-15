@@ -121,6 +121,7 @@ internal object CommandSpec {
                 Opt("watch", Kind.DURATION, "时长", "duration", "步骤做完再看这么久（会动的画面）", "keep looking this long after the steps (moving pictures)"),
                 Opt("fast", Kind.SWITCH, null, null, "动作之间不等画面稳定（游戏、连续点击）；最后一步仍会等", "do not wait for the picture to settle between actions (games, rapid taps); the last step still waits"),
                 Opt("bare", Kind.SWITCH, null, null, "这一段不做这个应用记下的前置/收尾步骤", "this stretch skips the before/after steps kept for this app"),
+                Opt("human", Kind.SWITCH, null, null, "仿人节奏：每个动作前随机停 0.2–2.6 秒，点击在元素内略偏、按住和滑动的时长与位置有波动，打字分 1–3 个字一段（对节奏敏感的应用用；条件判断不变）。一直要就 note human on", "human pacing: a random 0.2–2.6 s pause before each action, taps slightly off-centre inside the element, varied hold and swipe lengths, typing 1–3 characters at a time (for apps sensitive to machine timing; conditions are unchanged). To keep it on: note human on"),
                 Opt("keep", Kind.VALUE, "notify|wake", "notify|wake", "本轮结束后继续盯 --stop 的条件，看到就通知用户（notify）或发一条事件给调用方（wake，用 events 取），然后结束；重启后还在", "after this turn keep watching the --stop condition; when seen, notify the user (notify) or send the caller an event (wake, fetched with events), then end; survives a restart"),
                 Opt("for", Kind.DURATION, "时长", "duration", "--keep 盯多久（默认 1 小时，最长 12 小时）", "how long --keep watches (default 1 hour, at most 12 hours)"),
                 Opt("save", Kind.VALUE, "名字", "name", "把这段步骤存成这个应用的段，以后 use 名字", "save these steps as a segment of this app, later: use <name>"),
@@ -130,15 +131,17 @@ internal object CommandSpec {
             sumEn = "run a stretch of steps on the screen (tap, swipe, type, wait) and return the screen now; no steps = look",
             scopeOf = { a -> if (looksOnly(a)) Scope.LOOK else Scope.OPERATE },
             scopeNoteZh = "不带步骤、或只有 wait 的 act 只需要 look", scopeNoteEn = "an act with no steps, or only wait steps, needs just look"),
-        Cmd("note", "[文字] | before \"<步骤>\" | after \"<步骤>\" | save <段名> \"<步骤>\" | delete <编号|before|after|段名>", "[text] | before \"<steps>\" | after \"<steps>\" | save <segment> \"<steps>\" | delete <number|before|after|segment>",
+        Cmd("note", "[文字] | before \"<步骤>\" | after \"<步骤>\" | save <段名> \"<步骤>\" | human on|off | delete <编号|before|after|段名>", "[text] | before \"<steps>\" | after \"<steps>\" | save <segment> \"<steps>\" | human on|off | delete <number|before|after|segment>",
             listOf("给当前应用记笔记（不带参数 = 列出笔记、段和前置/收尾步骤）。下次 launch 会列出来，并标明是谁、在应用哪个版本时记的。",
                 "before / after：每段 act 开始前先做 before 的步骤，做完、观察完再做 after 的步骤（--bare 跳过）。",
                 "例：会自己走的画面（游戏、播放器）记 before = 继续的步骤、after = 暂停的步骤，你思考时画面就停着；每次进页面都弹的窗记 before = 关掉它的步骤。",
-                "save：不执行，直接存下或改写一个段（示教存的段也一样），步骤写法和 act 相同，可以用 try / if / repeat、* 和 @N；note 列出的就是段的完整步骤。"),
+                "save：不执行，直接存下或改写一个段（示教存的段也一样），步骤写法和 act 相同，可以用 try / if / repeat、* 和 @N；note 列出的就是段的完整步骤。",
+                "human on：这个应用以后每段 act 都用仿人节奏（同 act --human）；off 关掉。"),
             listOf("keep notes for the current app (no arguments = list notes, segments and before/after steps). The next launch lists them, with who wrote each and for which app version.",
                 "before / after: every act first does the before steps, and after acting and looking does the after steps (--bare skips them).",
                 "e.g. for a picture that moves by itself (a game, a player) keep before = the steps that resume and after = the steps that pause, so it stands still while you think; for a popup shown on every visit keep before = the steps that close it.",
-                "save: store or rewrite a segment without running it (taught lessons too); the steps are written as for act, with try / if / repeat, * and @N; note lists each segment's full steps."),
+                "save: store or rewrite a segment without running it (taught lessons too); the steps are written as for act, with try / if / repeat, * and @N; note lists each segment's full steps.",
+                "human on: every act on this app uses human pacing from now on (as act --human); off turns it off."),
             sumZh = "给当前应用记笔记、前置/收尾步骤", sumEn = "keep notes and before/after steps for the current app"),
         Cmd("events", "", "",
             listOf("取盯守（act --keep wake）看到条件时发来的事件。事件有序号，取走后在你下一次 events 时才删除（中途断了不会丢）。",
@@ -339,7 +342,7 @@ internal object CommandSpec {
             "  act \"step; step; …\"       do a stretch of steps, returns four blocks; act with no steps = take a look\n" +
             "        steps: tap <target> | press <target> | swipe x1 y1 x2 y2 | drag x1 y1 x2 y2 … | scroll down | type <text> | key back | wait <condition> | use <segment> | try <step> | if <cond> { … } else { … } | repeat 3 { … } | repeat { … } until <cond>\n" +
             "        target: x y | #N (number in the [Now] list) | text on the screen; after an action add until <condition> (text:word gone:word change still stable color:x,y=#RRGGBB app:name)\n" +
-            "        --stop <condition>  --watch 2s  --fast  --bare  --keep notify|wake  --save <segment>  --async\n" +
+            "        --stop <condition>  --watch 2s  --fast  --bare  --human  --keep notify|wake  --save <segment>  --async\n" +
             "  note [text] | note before|after \"steps\" | note save <segment> \"steps\" | note delete <number|segment>\n" +
             "  keep | keep off <name>    list / stop watches that run after this turn\n" +
             "  events [--wait 30s]       fetch events sent by watches (--keep wake)\n" +

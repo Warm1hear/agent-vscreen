@@ -133,6 +133,11 @@ object AgentNews {
             "When a lesson is saved, a tap on a result holding the typed text is kept as tap *{1}*@N (the N-th item holding that value), so replaying with another value taps by content, not by place.",
             "note save <segment> \"steps\": store or rewrite a segment without running it (taught ones too).",
         )),
+        Entry(32, "1.3.0-beta19", listOf(
+            "act --human / note human on：仿人节奏。每个动作前随机停 0.2–2.6 秒，点击在元素内略偏、按住 55–140ms，长按、滑动、滚动、拖动的时长和端点有波动，打字 1–3 个字一段。等待和条件判断不变。",
+        ), listOf(
+            "act --human / note human on: human pacing. A random 0.2–2.6 s pause before each action, taps slightly off-centre inside the element and held 55–140 ms, varied durations and ends for presses, swipes, scrolls and drags, typing 1–3 characters at a time. Waits and conditions are unchanged.",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */

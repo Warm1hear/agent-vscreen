@@ -36,7 +36,8 @@ internal fun noteLines(pkg: String, verNow: String? = null): List<String> {
     val none = tr("没记", "not kept")
     out += tr("前置步骤（before）：", "Before steps: ") + (p["before"] ?: none) + tr("；收尾步骤（after）：", "; after steps: ") + (p["after"] ?: none) +
         (if (p["before"] != null || p["after"] != null) tr("（每段带步骤或 --watch 的 act 自动做；--bare 跳过）", " (run automatically by every act with steps or --watch; --bare skips them)") else "") +
-        (p["orientation"]?.let { tr("；方向：$it", "; orientation: $it") } ?: "")
+        (p["orientation"]?.let { tr("；方向：$it", "; orientation: $it") } ?: "") +
+        (if (p["human"] == "true") tr("；仿人节奏：开（note human off 关）", "; human pacing: on (note human off)") else "")
     return out
 }
 
@@ -71,6 +72,13 @@ internal fun VScreenOffloadHandler.noteCmd(sid: String?, args: OffloadArgs): Nat
             val n = Regex("\\{(\\d)\\}").findAll(body).maxOfOrNull { it.groupValues[1].toInt() } ?: 0
             val use = "use $name" + (1..n).joinToString("") { " <$it>" }
             tr("已${if (had) "改写" else "存下"} $pkg 的段“$name”（没有执行）。用：act \"$use\"", "${if (had) "Rewrote" else "Saved"} $pkg's segment \"$name\" (not run). Run it: act \"$use\"")
+        }
+        first == "human" -> {
+            val v = p.getOrNull(1)?.lowercase()
+            val on = when (v) { "on", "true", "1", "开" -> true; "off", "false", "0", "关" -> false; else -> throw ActionError("INVALID_ARGS", tr("note human on|off", "note human on|off")) }
+            VScreenMap.setProfile(pkg, mapOf("human" to if (on) "true" else ""))
+            if (on) tr("$pkg 以后每段 act 都用仿人节奏（动作前随机停顿，点击略偏，时长有波动，打字分小段）", "Every act on $pkg now uses human pacing (random pause before actions, taps slightly off-centre, varied durations, typing in small pieces)")
+            else tr("$pkg 的仿人节奏已关（单段要用就 act --human）", "Human pacing is off for $pkg (for one stretch use act --human)")
         }
         first == "realtime" -> tr("note realtime 已取消：要动作之间不等画面稳定，在那一段 act 上加 --fast", "note realtime is gone: to skip waiting for the picture between actions, add --fast to that act")
         first == "delete" || first == "del" || first == "rm" -> {
