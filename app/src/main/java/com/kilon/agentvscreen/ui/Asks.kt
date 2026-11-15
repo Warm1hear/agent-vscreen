@@ -99,7 +99,7 @@ internal fun AskQuick(a: UserAsk.Ask, count: Int, k: Float, inOverlay: Boolean, 
     @Suppress("UNUSED_PARAMETER") fun Modifier.mark(key: String): Modifier = this
     val shape = RoundedCornerShape((18 * k).dp)
     Column(
-        modifier.glassDark(shape).padding(horizontal = (12 * k).dp, vertical = (11 * k).dp),
+        modifier.eatTouches().glassDark(shape).padding(horizontal = (12 * k).dp, vertical = (11 * k).dp),
         verticalArrangement = Arrangement.spacedBy((8 * k).dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

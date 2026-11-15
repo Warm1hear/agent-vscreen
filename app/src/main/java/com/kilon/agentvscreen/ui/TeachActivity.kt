@@ -106,7 +106,7 @@ class TeachActivity : ComponentActivity() {
                     Text("act \"use $name" + (1..params).joinToString("") { " <$it>" } + "\"", fontSize = 13.sp, fontFamily = FontFamily.Monospace)
                 }
             }
-            Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp), lift = false).padding(horizontal = 16.dp, vertical = 12.dp),
+            Row(Modifier.fillMaxWidth().glassSheet(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)).padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { discard(r) }) { Text(tr("丢弃", "Discard")) }
                 Spacer(Modifier.weight(1f))

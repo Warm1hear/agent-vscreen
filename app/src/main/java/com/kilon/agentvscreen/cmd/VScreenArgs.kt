@@ -49,9 +49,13 @@ internal fun boundedMs(name: String, v: Long, lo: Long, hi: Long): Long {
     return capMs("--$name", v, hi).coerceAtLeast(lo)
 }
 
-/** [v] cut to [hi], saying so: [what] names where the duration was written (an option, a step). */
-internal fun capMs(what: String, v: Long, hi: Long): Long {
-    if (v > hi) adjusted(tr("$what ${durWords(v)} 超过上限，只等 ${durWords(hi)}", "$what ${durWords(v)} is over the limit; waited at most ${durWords(hi)}"))
+/**
+ * [v] cut to [hi], saying so: [what] names where the duration was written (an option, a step). [withValue] false when
+ * [what] already shows the duration (a step's own words: "wait 5m", not "wait 5m 5m").
+ */
+internal fun capMs(what: String, v: Long, hi: Long, withValue: Boolean = true): Long {
+    val w = if (withValue) "$what ${durWords(v)}" else what
+    if (v > hi) adjusted(tr("$w 超过上限，只等 ${durWords(hi)}", "$w is over the limit; waited at most ${durWords(hi)}"))
     return minOf(v, hi)
 }
 

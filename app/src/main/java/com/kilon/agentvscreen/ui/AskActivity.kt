@@ -208,7 +208,7 @@ class AskActivity : ComponentActivity() {
             }
 
             // One bar for every kind: decline on the left, send on the right.
-            Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp), lift = false).padding(horizontal = 16.dp, vertical = 12.dp),
+            Row(Modifier.fillMaxWidth().glassSheet(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)).padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { send(a, null) }) { Text(when (a.kind) {
                     UserAsk.Kind.CHOOSE -> tr("都不是 / 不回答", "None / decline")

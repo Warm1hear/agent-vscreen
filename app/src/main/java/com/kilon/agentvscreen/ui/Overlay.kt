@@ -122,12 +122,10 @@ import kotlin.math.roundToInt
  *
  * Gestures (handled on raw screen coordinates by [GestureFrame], so moving the window never jitters):
  *  - one finger drags the window, and it keeps gliding when you let go of it moving (inertia);
- *  - fling it toward a corner: it shrinks to the smallest size and parks in that corner; fling a small one back toward the
- *    middle and it grows to its earlier size;
- *  - carry it to the left / right edge and it turns into a small tab right under the finger, while you still hold it;
- *    pull the tab inward and the window opens under the finger and keeps following (folding follows the hand);
- *  - let go (or glide) with a good part of it past any of the four edges: it folds into the tab on the nearer side
- *    (tap the tab to bring it back);
+ *  - a fling only moves it (1.3.0-beta16); the size changes by pinching only;
+ *  - let go (or fling) with half of it past the left / right edge: it slides on into that edge until a tab-wide strip
+ *    shows, and the tab takes that very strip (1.3.0-beta17); tap the tab and the window slides back out; pull the tab
+ *    inward and the window opens under the finger;
  *  - two fingers pinch to resize, anchored at the point between them (120 dp … 85 % of the screen);
  *  - hold one finger still for 1 s to take over (a ring fills); a light tap only shows these hints;
  *  - while you hold the screen, taps / swipes / long presses on the picture go to the background screen, and you move
@@ -398,7 +396,7 @@ object Overlay {
         val px = l.x + vx * GLIDE_S; val py = l.y + vy * GLIDE_S
         // 1.3.0-beta16: a fling only moves the window (it used to shrink it into a corner or grow it back): the size
         // changes by pinching only. Flung half past an edge, it folds there (decided now, at the release).
-        restAt(px, py, fingerY?.let { it + vy * GLIDE_S })
+        restAt(px, py, fingerY?.let { it + vy * GLIDE_S }, vx)
     }
 
     /**
@@ -406,7 +404,7 @@ object Overlay {
      * The tab lands where the user let go ([fingerY], centred on the finger), not at the window's middle — otherwise
      * it appears somewhere other than where it was put. Without a finger (rotation) it keeps the window's top.
      */
-    private fun restAt(px: Float, py: Float, fingerY: Float? = null) {
+    private fun restAt(px: Float, py: Float, fingerY: Float? = null, vx: Float = 0f) {
         val sw = screenW().toFloat(); val sh = screenH().toFloat()
         val w = winW(); val h = winH()
         val side: Boolean? = when {
@@ -414,21 +412,7 @@ object Overlay {
             px + w > sw + w * FOLD -> true
             else -> null
         }
-        if (side != null) {
-            val ty = (fingerY?.let { it - dp(TAB_H) / 2 } ?: py).coerceIn(topMargin(), sh - dp(TAB_H) - bottomMargin())
-            // Shrink toward the spot where the tab will sit, then become the tab exactly there.
-            val l = lp!!
-            val tabCx = if (side) sw - dp(TAB_W) / 2 else dp(TAB_W) / 2
-            val v = content()
-            stopAnim()
-            if (v == null || !animateLook) { dock(side, ty.toInt()); resetShrink(); return }
-            v.animate().cancel()
-            v.pivotX = (tabCx - l.x).coerceIn(0f, w); v.pivotY = (ty + dp(TAB_H) / 2 - l.y).coerceIn(0f, h)
-            v.animate().scaleX(tabScale()).scaleY(tabScale()).alpha(0.5f).setDuration(170L)
-                .setInterpolator(android.view.animation.AccelerateInterpolator(1.2f))
-                .withEndAction { swapFade(); dock(side, ty.toInt()) }.start()
-            return
-        }
+        if (side != null) { foldInto(side, fingerY, vx); return }
         val x = px.coerceIn(0f, (sw - w).coerceAtLeast(0f))
         val y = py.coerceIn(topMargin().coerceAtMost(sh - h), (sh - h - bottomMargin()).coerceAtLeast(0f))
         animateTo(x.toInt(), y.toInt())
@@ -443,28 +427,63 @@ object Overlay {
         save()
     }
 
-    // ---- The window <-> tab change, drawn as one continuous motion around the finger. ----
+    // ---- The window <-> tab change: one continuous slide at the edge (1.3.0-beta17). ----
+    // Before, the window shrank where it was let go (or where a fling left it, still well inside the screen) and the
+    // tab then appeared at the edge: a small thing away from the edge that jumped to its final place. Now the window
+    // keeps its size and slides on, at the speed it was let go with, until only a tab-wide strip of it shows at the
+    // edge; the tab takes over exactly that strip. Opening plays the same slide backwards.
     private fun content(): android.view.View? = root?.getChildAt(0)
-    private fun tabScale(): Float = (dp(TAB_W) * 1.6f / winW()).coerceIn(0.08f, 1f)
+    /** The transparent margin around the window's frame (PAD in [OverlayContent]). */
+    private fun pad() = dp(7f)
 
-    /**
-     * Near a side edge the window shrinks toward the finger ([p] 0 -> 1 as the finger nears the edge), so by the time it
-     * becomes the tab it is already tab-sized right where the finger is: no jump from "big window" to "tab elsewhere".
-     */
-    internal fun shrinkLive(pivotX: Float, pivotY: Float, p: Float) {
-        val v = content() ?: return
-        v.animate().cancel()
-        val sc = 1f - p * (1f - tabScale())
-        v.pivotX = pivotX; v.pivotY = pivotY; v.scaleX = sc; v.scaleY = sc; v.alpha = 1f - 0.4f * p
+    /** Where the window's left edge is when only the tab-wide strip of it shows on [right]'s side. */
+    private fun stripX(right: Boolean, w: Float): Float = if (right) screenW() - dp(TAB_W) - pad() else -(w - dp(TAB_W) - pad())
+
+    /** A duration whose opening speed matches [v] px/s (DecelerateInterpolator(1) starts at twice the mean speed). */
+    private fun slideMs(dist: Float, v: Float): Long =
+        if (abs(v) < 1f) 220L else (2f * abs(dist) / abs(v) * 1000f).toLong().coerceIn(120L, 260L)
+
+    /** Released half past a side edge (or flung there): slide into that edge and become the tab there. */
+    private fun foldInto(right: Boolean, fingerY: Float?, vx: Float) {
+        val l = lp ?: return
+        val sh = screenH().toFloat(); val w = winW(); val h = winH(); val tabH = dp(TAB_H)
+        // The tab sits where the finger let go, but never outside the window's own height (no jump up or down);
+        // only the screen's margins may move it, and then the window slides by the same amount.
+        val within = ((fingerY ?: (l.y + h / 2)) - tabH / 2).coerceIn(l.y.toFloat(), (l.y + h - tabH).coerceAtLeast(l.y.toFloat()))
+        val ty = within.coerceIn(topMargin(), sh - tabH - bottomMargin())
+        val x0 = l.x.toFloat(); val y0 = l.y.toFloat()
+        val x1 = stripX(right, w); val y1 = y0 + (ty - within)
+        val v = content()
+        stopAnim()
+        if (v == null || !animateLook) { dock(right, ty.toInt()); return }
+        v.animate().cancel(); v.scaleX = 1f; v.scaleY = 1f
+        val a = android.animation.ValueAnimator.ofFloat(0f, 1f)
+        a.duration = slideMs(x1 - x0, if ((x1 - x0) * vx > 0) vx else 0f)
+        a.interpolator = android.view.animation.DecelerateInterpolator(1f)
+        a.addUpdateListener {
+            val t = it.animatedValue as Float
+            v.alpha = 1f - 0.35f * ((t - 0.6f) / 0.4f).coerceIn(0f, 1f)
+            place((x0 + (x1 - x0) * t).roundToInt(), (y0 + (y1 - y0) * t).roundToInt())
+        }
+        a.addListener(object : android.animation.AnimatorListenerAdapter() {
+            private var cancelled = false
+            override fun onAnimationCancel(animation: android.animation.Animator) { cancelled = true; v.alpha = 1f }
+            override fun onAnimationEnd(animation: android.animation.Animator) {
+                if (anim === a) anim = null
+                if (!cancelled) { swapFade(); dock(right, ty.toInt()) }
+            }
+        })
+        anim = a; a.start()
     }
 
-    internal fun resetShrink() { content()?.let { it.animate().cancel(); it.scaleX = 1f; it.scaleY = 1f; it.alpha = 1f } }
-
-    /** The content is about to change between window and tab: hide the one stale frame, then fade the new one in. */
-    private fun swapFade() {
+    /** The content is about to change between window and tab: hide the stale frames, then fade the new one in. */
+    private fun swapFade(then: (() -> Unit)? = null) {
         val v = content() ?: return
-        v.animate().cancel(); v.alpha = 0f
-        v.postOnAnimationDelayed({ v.scaleX = 1f; v.scaleY = 1f; v.animate().alpha(1f).setDuration(if (animateLook) 110L else 0L).start() }, 34L)
+        v.animate().cancel(); v.alpha = 0f; v.scaleX = 1f; v.scaleY = 1f
+        // Two frames: the window manager has the new size and place before anything shows.
+        v.postOnAnimationDelayed({
+            if (then != null) then() else v.animate().alpha(1f).setDuration(if (animateLook) 110L else 0L).start()
+        }, 34L)
     }
 
     /** While a finger holds it: become (or stay) the tab on that side, centred on the finger, [give] px inward. */
@@ -483,24 +502,26 @@ object Overlay {
         val w = widthPx.floatValue + dp(12f)
         val h = w / aspect()
         place((fingerX - if (right) w * 0.8f else w * 0.2f).toInt(), (fingerY - h * 0.2f).toInt())
-        // Grow out of the finger instead of appearing whole.
-        content()?.let { v ->
-            v.animate().cancel()
-            v.pivotX = if (right) w * 0.8f else w * 0.2f; v.pivotY = h * 0.2f
-            v.scaleX = tabScale(); v.scaleY = tabScale(); v.alpha = 0.6f
-            v.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(if (animateLook) 200L else 0L)
-                .setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).start()
-        }
+        swapFade()
     }
 
+    /** A tap on the tab: the window slides back out of that edge (the fold played backwards). */
     internal fun undock() {
         val l = lp ?: return
-        docked.value = false
-        val w = widthPx.floatValue + dp(12f)
+        stopAnim()
+        val right = dockRight.value
+        val w = widthPx.floatValue + 2 * pad()
         val h = w / aspect()
-        val y = l.y.toFloat().coerceIn(topMargin(), (screenH() - h - bottomMargin()).coerceAtLeast(topMargin()))
-        place(if (dockRight.value) (screenW() - w - dp(8f)).toInt() else dp(8f).toInt(), y.toInt())
-        save()
+        // The tab stays a third of the way down the window, as when it folded.
+        val y = (l.y + dp(TAB_H) / 2 - h * 0.3f).coerceIn(topMargin(), (screenH() - h - bottomMargin()).coerceAtLeast(topMargin()))
+        val x0 = stripX(right, w); val x1 = if (right) screenW() - w - dp(8f) else dp(8f)
+        docked.value = false
+        place(x0.toInt(), y.toInt())
+        if (!animateLook) { place(x1.toInt(), y.toInt()); save(); return }
+        swapFade {
+            content()?.animate()?.alpha(1f)?.setDuration(160L)?.start()
+            animateTo(x1.toInt(), y.toInt(), ms = 240L)
+        }
     }
 
     internal fun openFull() {
@@ -728,50 +749,66 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
         else -> Palette.word(mode)
     }
 
-    // 1.3.0-beta16 (REVIEW-OVERLAY-GESTURES-1.3, P0): the picture is sacred. The window is a bar on top (title, full
-    // screen, close: hold or drag it anywhere to move the window), the picture, and an action row under it; a question
-    // card hangs OUTSIDE the window (below it, or above when there is no room below). Nothing is drawn over the picture.
+    // 1.3.0-beta17: the controls sit ON the picture again (rainbow: no extra height above or below it), small and in
+    // the corners: title pill top left, full screen / close top right, stop / hand back / done at the bottom. They do
+    // not leak through: each is a hit target of its own (clickable or eatTouches), and Compose gives a touch only to
+    // the topmost thing it lands on, so the picture under them never gets it (never sent, never recorded). A question
+    // card still hangs OUTSIDE the window (below it, or above when there is no room below): a card over the picture
+    // would hide what the user has to tap.
     val asking = waiting.firstOrNull()
     val cardAbove = remember(asking?.id) { asking != null && Overlay.cardAbove() }
     LaunchedEffect(asking?.id) { delay(80); Overlay.settle() }
-    val bar = Color(0xE612141C)
+    val chip = Color(0xCC12141C)
 
     Column(Modifier.padding(PAD).width(w), verticalArrangement = Arrangement.spacedBy((6 * k).dp)) {
         if (asking != null && cardAbove) AskQuick(asking, waiting.size, k, inOverlay = true, modifier = Modifier.fillMaxWidth())
-        Box(Modifier.width(w).glowBorder(mode, corner, pad = PAD - 1.dp)) {
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(corner)).background(Palette.ink)) {
-                // The bar.
-                Row(Modifier.fillMaxWidth().height((32 * k).dp).background(bar).padding(start = (10 * k).dp, end = (4 * k).dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size((7 * k).dp).clip(CircleShape).background(if (mode == Mode.ACTING) Brush.sweepGradient(Palette.rainbow) else Brush.linearGradient(listOf(Palette.of(mode), Palette.of(mode)))))
-                    Spacer(Modifier.width((6 * k).dp))
-                    Text(title, color = Color.White, fontSize = (11 * k).sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                    RoundBtn(Icons.Filled.OpenInFull, tr("全屏", "Full screen"), Color.Transparent, k) { Overlay.openFull() }
-                    RoundBtn(Icons.Filled.Close, if (mode == Mode.ACTING || mode == Mode.STANDBY || mode == Mode.TAKEOVER) tr("隐藏小窗", "Hide window") else tr("关闭副屏", "Close screen"),
-                        Color.Transparent, k) { Overlay.closeTapped() }
-                }
+        Box(Modifier.width(w).height(h).glowBorder(mode, corner, pad = PAD - 1.dp)) {
+            Box(Modifier.fillMaxSize().clip(RoundedCornerShape(corner)).background(Palette.ink)) {
                 // The picture: the only layer whose fingers reach the background screen.
-                Box(Modifier.width(w).height(h)) { PictureLayer(owner, k, picture) }
-                // The action row, when there is something to do.
-                val action: Triple<String, Color, () -> Unit>? = when {
-                    teachN != null && mode == Mode.TAKEOVER -> Triple(tr("完成", "Done") + " · $teachN", Palette.asking) { com.kilon.agentvscreen.cmd.Teach.finish(octx.applicationContext) }
-                    mode == Mode.ACTING || mode == Mode.STANDBY -> Triple(tr("停止 AI", "Stop AI"), Palette.stopped) { BackgroundOperation.userStop() }
-                    mode == Mode.TAKEOVER || mode == Mode.STOPPED -> Triple(tr("交还 AI", "Hand back"), Palette.takeover) { BackgroundOperation.userResume() }
-                    else -> null
-                }
-                if (action != null) Row(Modifier.fillMaxWidth().background(bar).padding(horizontal = (8 * k).dp, vertical = (6 * k).dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                    if (mode == Mode.STOPPED) Text(tr("已停止 AI", "AI stopped"), color = Color(0xFFFCA5A5), fontSize = (10.5f * k).sp, maxLines = 1, modifier = Modifier.weight(1f))
-                    val dark = action.second == Palette.takeover
-                    Row(
-                        Modifier.clip(RoundedCornerShape(50)).background(action.second).clickable(onClick = action.third)
-                            .padding(horizontal = (14 * k).dp, vertical = (5 * k).dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(if (dark) Icons.Filled.SmartToy else Icons.Filled.Stop, null, tint = if (dark) Color(0xFF052E1C) else Color.White, modifier = Modifier.size((13 * k).dp))
-                        Spacer(Modifier.width((4 * k).dp))
-                        Text(action.first, color = if (dark) Color(0xFF052E1C) else Color.White, fontSize = (11.5f * k).sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                    }
+                PictureLayer(owner, k, picture)
+                // A soft scrim under the pill and buttons keeps them readable on white pages (draws only, no touch).
+                Box(Modifier.fillMaxWidth().height((40 * k).dp).background(Brush.verticalGradient(listOf(Color(0x80000000), Color.Transparent))))
+            }
+
+            // Title pill: a handle (drag or hold it to move the window, also while you hold the screen).
+            Row(
+                Modifier.align(Alignment.TopStart).padding(start = (7 * k).dp, top = (7 * k).dp).widthIn(max = w - (76 * k).dp)
+                    .eatTouches().clip(RoundedCornerShape(50)).background(chip)
+                    .padding(horizontal = (8 * k).dp, vertical = (4 * k).dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size((7 * k).dp).clip(CircleShape).background(if (mode == Mode.ACTING) Brush.sweepGradient(Palette.rainbow) else Brush.linearGradient(listOf(Palette.of(mode), Palette.of(mode)))))
+                Spacer(Modifier.width((5 * k).dp))
+                Text(title, color = Color.White, fontSize = (11 * k).sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+            }
+
+            // Full screen and close, top right. Same places in every state.
+            Row(Modifier.align(Alignment.TopEnd).padding(end = (6 * k).dp, top = (6 * k).dp), horizontalArrangement = Arrangement.spacedBy((5 * k).dp)) {
+                RoundBtn(Icons.Filled.OpenInFull, tr("全屏", "Full screen"), chip, k) { Overlay.openFull() }
+                RoundBtn(Icons.Filled.Close, if (mode == Mode.ACTING || mode == Mode.STANDBY || mode == Mode.TAKEOVER) tr("隐藏小窗", "Hide window") else tr("关闭副屏", "Close screen"),
+                    chip, k) { Overlay.closeTapped() }
+            }
+
+            // The one action of this state, bottom: stop (left, out of the way), or done / hand back (centre).
+            val action: Triple<String, Color, () -> Unit>? = when {
+                teachN != null && mode == Mode.TAKEOVER -> Triple(tr("完成", "Done") + " · $teachN", Palette.asking) { com.kilon.agentvscreen.cmd.Teach.finish(octx.applicationContext) }
+                mode == Mode.ACTING || mode == Mode.STANDBY -> Triple(tr("停止 AI", "Stop AI"), Palette.stopped) { BackgroundOperation.userStop() }
+                mode == Mode.TAKEOVER || mode == Mode.STOPPED -> Triple(tr("交还 AI", "Hand back"), Palette.takeover) { BackgroundOperation.userResume() }
+                else -> null
+            }
+            if (action != null) {
+                val stop = action.second == Palette.stopped
+                val dark = action.second == Palette.takeover
+                Row(
+                    Modifier.align(if (stop) Alignment.BottomStart else Alignment.BottomCenter)
+                        .padding(start = if (stop) (8 * k).dp else 0.dp, bottom = (8 * k).dp)
+                        .clip(RoundedCornerShape(50)).background(action.second).clickable(onClick = action.third)
+                        .padding(horizontal = (11 * k).dp, vertical = (5 * k).dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(if (dark) Icons.Filled.SmartToy else Icons.Filled.Stop, null, tint = if (dark) Color(0xFF052E1C) else Color.White, modifier = Modifier.size((13 * k).dp))
+                    Spacer(Modifier.width((3 * k).dp))
+                    Text(action.first, color = if (dark) Color(0xFF052E1C) else Color.White, fontSize = (11 * k).sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                 }
             }
         }

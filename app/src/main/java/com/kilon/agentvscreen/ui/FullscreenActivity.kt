@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -179,18 +181,21 @@ class FullscreenActivity : ComponentActivity() {
             Teach.beginFor(a)
         }
 
-        // 1.3.0-beta16: the picture gets the space between the top block and the bottom block, measured: nothing (the
-        // request card, a question, the typing box) is ever drawn over it, so no tap meant for those lands on the
-        // screen and no part of the screen (a search box at its top) is hidden.
+        // 1.3.0-beta17: the picture is the fixed floor of the page. Its place depends only on the title bar above and
+        // the button row below at rest, never on the keyboard, the typing box, a question or the request card: those
+        // float over it (beta16 squeezed the picture into whatever space they left, a thumbnail once the keyboard
+        // opened). Floating things never leak through: each is a hit target of its own (eatTouches / clickable /
+        // its drag), and Compose gives a touch only to the topmost thing it lands on. The request card folds into the
+        // ball in the bar as soon as the user touches the picture, so it never hides what they are about to tap.
         val density = LocalDensity.current
-        var rootH by remember { mutableFloatStateOf(0f) }
         var topEdge by remember { mutableFloatStateOf(0f) }
-        var bottomEdge by remember { mutableFloatStateOf(0f) }
+        var rowH by remember { mutableFloatStateOf(0f) }
+        val navBottom = WindowInsets.navigationBars.getBottom(density).toFloat()
         val brief = if (recording) Teach.brief() else null
-        Box(Modifier.fillMaxSize().background(Color(0xFF07080D)).onSizeChanged { rootH = it.height.toFloat() }) {
+        Box(Modifier.fillMaxSize().background(Color(0xFF07080D))) {
             // The picture, fitted, with its border.
             BoxWithConstraints(Modifier.fillMaxSize().padding(top = with(density) { topEdge.toDp() } + 6.dp,
-                bottom = with(density) { (rootH - bottomEdge).coerceAtLeast(0f).toDp() } + 6.dp, start = 14.dp, end = 14.dp),
+                bottom = with(density) { (rowH + navBottom).toDp() } + 24.dp + 6.dp, start = 14.dp, end = 14.dp),
                 contentAlignment = Alignment.Center) {
                 val aspect = Overlay.aspect()
                 val boxAspect = maxWidth / maxHeight
@@ -201,6 +206,8 @@ class FullscreenActivity : ComponentActivity() {
                         .pointerInput(session, takenOver) {
                             awaitEachGesture {
                                 val down = awaitFirstDown()
+                                // The user starts working on the screen: the request card steps into the bar.
+                                if (Teach.count.value != null && !BriefPlace.ball) BriefPlace.ball = true
                                 val t0 = SystemClock.uptimeMillis()
                                 // 1.2.0-beta2: while the user controls the screen the finger is sent as it moves
                                 // (UserTouch), not replayed as one swipe after it lifts.
@@ -248,9 +255,9 @@ class FullscreenActivity : ComponentActivity() {
                 }
             }
 
-            // Top block: the bar, and the request card when it sits at the top.
-            Column(Modifier.fillMaxWidth().statusBarsPadding().onGloballyPositioned { topEdge = it.boundsInRoot().bottom }) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Top block: the bar (it sets the picture's top), and the request card floating under it when at the top.
+            Column(Modifier.fillMaxWidth().statusBarsPadding()) {
+            Row(Modifier.fillMaxWidth().onGloballyPositioned { topEdge = it.boundsInRoot().bottom }.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Circle(Icons.Filled.CloseFullscreen, tr("退出全屏", "Exit full screen"), Color(0x33FFFFFF)) { if (Teach.recordingFor(session)) Teach.stop(applicationContext); finish() }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
@@ -287,9 +294,8 @@ class FullscreenActivity : ComponentActivity() {
                     modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xE612141C)).padding(horizontal = 14.dp, vertical = 8.dp))
             }
 
-            // Bottom bar.
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding().navigationBarsPadding().padding(12.dp)
-                .onGloballyPositioned { bottomEdge = it.boundsInRoot().top },
+            // Bottom block: floats over the picture and rides on top of the keyboard.
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding().navigationBarsPadding().padding(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (brief != null && !BriefPlace.ball && BriefPlace.bottom) TeachBrief(brief.first, brief.second, Modifier)
                 // 1.3 beta2: an agent's question, answered without leaving the full screen.
@@ -319,7 +325,7 @@ class FullscreenActivity : ComponentActivity() {
                     }
                     DisposableEffect(Unit) { onDispose { Teach.commitTyping() } }
                     fun enter() { Teach.commitTyping(); vscreenUserInput(session) { Teach.key("enter"); VScreenShell.key(it, "enter") } }
-                    Row(Modifier.fillMaxWidth().glassDark(RoundedCornerShape(24.dp)).padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                    Row(Modifier.fillMaxWidth().eatTouches().glassDark(RoundedCornerShape(24.dp)).padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Box(Modifier.weight(1f)) {
                             if (field.text.isEmpty()) Text(if (none) tr("先在副屏上点一下输入框", "Tap an input box on the screen first") else tr("和副屏的输入框同步", "Synced with the screen's input box"),
@@ -337,7 +343,7 @@ class FullscreenActivity : ComponentActivity() {
                         Circle(Icons.AutoMirrored.Filled.KeyboardReturn, tr("回车", "Enter"), Palette.brandA) { enter() }
                     }
                 }
-                Row(Modifier.clip(RoundedCornerShape(30.dp)).background(Color(0xE612141C)).padding(horizontal = 10.dp, vertical = 8.dp),
+                Row(Modifier.onSizeChanged { rowH = it.height.toFloat() }.eatTouches().clip(RoundedCornerShape(30.dp)).background(Color(0xE612141C)).padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (takenOver) {
                         Circle(Icons.AutoMirrored.Filled.ArrowBack, tr("返回", "Back"), Color(0x22FFFFFF)) { vscreenUserInput(session) { Teach.key("back"); VScreenShell.key(it, "back") } }

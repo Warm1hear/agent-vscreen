@@ -113,6 +113,13 @@ object AgentNews {
             "When the user answers a question (ask/point/area/teach, a finished lesson too) or hands the screen back, the asking session gets an event (events receives it); events --wait also waits while a question is open or the user holds the screen. Done on a lesson also hands the screen back.",
             "When type cannot read a web or self-drawn box back (it still reads its old placeholder), the receipt says it cannot be read back (check the screenshot) instead of TYPE_FAILED.",
         )),
+        Entry(30, "1.3.0-beta17", listOf(
+            "tap #N 点输入框时，只要框还在原位就算同一个元素，框里的字或轮播的提示字变了也不再报 STALE_ELEMENT。",
+            "events 里 App 重启前给过、没确认的旧事件只在 10 分钟内重发一次；更早的不再每次重启都回来。",
+        ), listOf(
+            "tap #N on an input box counts as the same element while the box is in its place, even when its text or a rotating hint changed (no more STALE_ELEMENT for that).",
+            "events gives an unconfirmed batch from before an app restart again only within 10 minutes, and only once; older ones no longer come back after every restart.",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */

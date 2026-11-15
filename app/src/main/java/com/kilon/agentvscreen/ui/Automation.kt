@@ -53,8 +53,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.ui.platform.LocalView
 import com.kilon.agentvscreen.core.VScreenMap
 import com.kilon.agentvscreen.host.Wake
 import com.kilon.agentvscreen.tr
@@ -140,8 +143,10 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var askDelete by remember { mutableStateOf(false) }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        // 1.3.0-beta17: dim the page behind firmly so its words never mix with the editor's own.
+        (LocalView.current.parent as? DialogWindowProvider)?.window?.let { w -> SideEffect { w.setDimAmount(0.55f) } }
         Column(
-            Modifier.padding(horizontal = 18.dp).fillMaxWidth().glass(RoundedCornerShape(28.dp))
+            Modifier.padding(horizontal = 18.dp).fillMaxWidth().glassSheet(RoundedCornerShape(28.dp))
                 .verticalScroll(rememberScrollState()).padding(20.dp).animateContentSize(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {

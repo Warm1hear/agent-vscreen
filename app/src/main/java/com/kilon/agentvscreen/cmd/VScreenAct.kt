@@ -562,7 +562,10 @@ private fun VScreenOffloadHandler.target(sid: String, d: VScreenDisplay, t: Step
             val sn = snapshot(d)
             val now = sn.els
             val same = now.filter { it.key == e.key }
-            val here = same.firstOrNull { near(it, e) }
+            // 1.3.0-beta17: an input box is the same box when it is still in its place, whatever it says: what it shows
+            // is its content or its hint, and both change by themselves (a search box whose hint rotates every few
+            // seconds made every `tap #N` on it STALE_ELEMENT).
+            val here = same.firstOrNull { near(it, e) } ?: if (e.editable) now.firstOrNull { it.editable && near(it, e) } else null
             // 1.3: another page (new window, other activity, or too little in common) → the number is stale, even if
             // the same words are on the new page (its title, say). A move counts only with the whole list (a scroll).
             val page = !pageChangedSince(d, set, sn.activity) && samePage(set.list, now)

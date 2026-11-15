@@ -36,6 +36,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
@@ -59,7 +62,9 @@ import com.kilon.agentvscreen.tr
 
 object Glass {
     /** Over the live background screen (floating window, full screen): dark, translucent, a light edge on top. */
-    val darkFill = Brush.verticalGradient(listOf(Color(0xC2221D3D), Color(0xDE120F22)))
+    // 1.3.0-beta17: nearly opaque. Cards now float over anything (the home screen, a list): at 76–87% the words
+    // behind showed through and mixed with the card's own.
+    val darkFill = Brush.verticalGradient(listOf(Color(0xF2251F42), Color(0xF7120F22)))
     val darkEdge = Brush.verticalGradient(listOf(Color(0x73FFFFFF), Color(0x1AFFFFFF)))
     /** A button on dark glass that is not the main one. */
     val darkChip = Color(0x29FFFFFF)
@@ -81,6 +86,34 @@ fun Modifier.glass(shape: Shape = RoundedCornerShape(24.dp), lift: Boolean = tru
     return this
         .then(if (lift) Modifier.shadow(if (dark) 0.dp else 10.dp, shape, ambientColor = Color(0x225B4BDB), spotColor = Color(0x225B4BDB)) else Modifier)
         .clip(shape).background(fill).border(1.dp, edge, shape)
+}
+
+/**
+ * 1.3.0-beta17: glass for what FLOATS over content (a dialog, a bar over a scrolling list). [glass] is for cards lying
+ * on the soft backdrop; over text it let the text behind show through ("调整预约" over the schedule list). This one is
+ * nearly opaque, tinted violet, with a deeper violet shadow so it still reads as a lifted pane of glass.
+ */
+@Composable
+fun Modifier.glassSheet(shape: Shape = RoundedCornerShape(28.dp)): Modifier {
+    val dark = isSystemInDarkTheme()
+    val fill = if (dark) Brush.verticalGradient(listOf(Color(0xF7272B44), Color(0xFA1A1D2E)))
+        else Brush.verticalGradient(listOf(Color(0xFAFCFBFF), Color(0xF7F3F0FF)))
+    val edge = if (dark) Brush.verticalGradient(listOf(Color(0x40FFFFFF), Color(0x14FFFFFF)))
+        else Brush.verticalGradient(listOf(Color(0xFFFFFFFF), Color(0x80C9C0F5)))
+    return this.shadow(24.dp, shape, ambientColor = Color(0x405B4BDB), spotColor = Color(0x405B4BDB))
+        .clip(shape).background(fill).border(1.dp, edge, shape)
+}
+
+/**
+ * 1.3.0-beta17: this element is a hit target of its own. Compose gives a touch to the topmost sibling it lands on, so a
+ * card or button bar drawn over the live picture takes the touch and the picture under it never sees it (never sent to
+ * the background screen, never recorded in a lesson). Its own buttons still get their taps: nothing is consumed here.
+ */
+fun Modifier.eatTouches(): Modifier = this.pointerInput(Unit) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false)
+        while (awaitPointerEvent().changes.any { it.pressed }) Unit
+    }
 }
 
 /** The app's backdrop: soft violet and cyan light behind the glass, so the glass reads as glass. */

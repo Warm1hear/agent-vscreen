@@ -76,7 +76,7 @@ internal object Tasks {
         val t = synchronized(tasks) { tasks[id] }?.takeIf { it.owner == owner } ?: throw ActionError("NOT_FOUND", tr("没有任务 $id（结果只保留 30 分钟）：task 看列表", "No task $id (results are kept for 30 minutes): task lists them"))
         if (cancel) {
             if (t.result == null) t.call.cancelled = true
-            return NativeOffloadResult(0, (if (t.result == null) tr("已要求任务 $id 停下：它会在当前这一步之后停。task $id 看它停在哪", "Task $id was asked to stop: it stops after its current step. task $id shows where it stopped") else tr("任务 $id 已经做完了，没有可取消的：task $id 取结果", "Task $id has already finished, nothing to cancel: task $id returns its result")) + "\n", "OK", JSONObject().put("task", id).put("state", t.state))
+            return NativeOffloadResult(0, (if (t.result == null) tr("已要求任务 $id 停下：它会在当前这一步之后停。task $id 看它停在哪", "Task $id was asked to stop: it stops after its current step. task $id shows where it stopped") else tr("任务 $id 已经结束了（不一定成功），没有可取消的：task $id 看它的结果", "Task $id has already ended (not necessarily successfully), nothing to cancel: task $id shows its result")) + "\n", "OK", JSONObject().put("task", id).put("state", t.state))
         }
         val wait = boundedMs("wait", args.getLong("wait") ?: 0L, 0L, WAIT_MAX_MS)
         val until = System.currentTimeMillis() + wait
