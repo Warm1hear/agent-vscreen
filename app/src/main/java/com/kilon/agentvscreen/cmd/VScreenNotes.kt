@@ -31,7 +31,8 @@ internal fun noteLines(pkg: String, verNow: String? = null): List<String> {
     val name = VScreenKnowledge.label(pkg)?.let { "$it（$pkg）" } ?: pkg
     out += if (I18n.en) "[$name]" else "【$name】"
     if (m.notes.isEmpty()) out += tr("笔记：无", "Notes: none") else { out += tr("笔记：", "Notes:"); m.notes.forEach { out += "  ${it.id}. ${it.text}" + noteOrigin(it, verNow) } }
-    if (m.segments.isEmpty()) out += tr("段：无", "Segments: none") else { out += tr("段（act \"use 名字\"）：", "Segments (act \"use name\"):"); m.segments.forEach { out += "  ${it.name} = ${it.steps}" + tr("（用过 ${it.uses} 次）", " (used ${it.uses} times)") } }
+    if (m.segments.isEmpty()) out += tr("段：无", "Segments: none") else { out += tr("段（act \"use 名字\"）：", "Segments (act \"use name\"):"); m.segments.forEach { out += "  ${it.name} = ${it.steps}" + tr("（用过 ${it.uses} 次）", " (used ${it.uses} times)") +
+        (if (VScreenMap.picture(pkg, it.name) != null) tr("（有示教缩略图：note show ${it.name}）", " (lesson thumbnails: note show ${it.name})") else "") } }
     val p = m.profile
     val none = tr("没记", "not kept")
     out += tr("前置步骤（before）：", "Before steps: ") + (p["before"] ?: none) + tr("；收尾步骤（after）：", "; after steps: ") + (p["after"] ?: none) +
@@ -72,6 +73,19 @@ internal fun VScreenOffloadHandler.noteCmd(sid: String?, args: OffloadArgs): Nat
             val n = Regex("\\{(\\d)\\}").findAll(body).maxOfOrNull { it.groupValues[1].toInt() } ?: 0
             val use = "use $name" + (1..n).joinToString("") { " <$it>" }
             tr("已${if (had) "改写" else "存下"} $pkg 的段“$name”（没有执行）。用：act \"$use\"", "${if (had) "Rewrote" else "Saved"} $pkg's segment \"$name\" (not run). Run it: act \"$use\"")
+        }
+        first == "show" -> {
+            // 1.3.0 (rainbow): a saved segment, step by step, with its lesson's thumbnails when it was taught.
+            val name = p.drop(1).joinToString(" ").trim().ifEmpty { throw ActionError("INVALID_ARGS", tr("note show <段名>", "note show <segment>")) }
+            val seg = VScreenMap.segment(pkg, name) ?: throw ActionError("NOT_FOUND", tr("$pkg 没有叫“$name”的段（note 列出全部）", "$pkg has no segment called \"$name\" (note lists them)"))
+            val lines = Steps.outline(seg.steps).mapIndexed { i, (depth, line) -> "  " + "  ".repeat(depth) + line }
+            val pic = VScreenMap.picture(pkg, name)?.let { f -> runCatching { android.graphics.BitmapFactory.decodeFile(f.path) }.getOrNull() }?.let { ShotStore.save(context, it, "lesson") }
+            val picLine = when {
+                pic == null -> tr("没有缩略图（不是示教存的，或是 1.3.0 以前存的）", "No thumbnails (not taught, or saved before 1.3.0)")
+                VScreenMap.pictureStale(pkg, name) -> tr("示教缩略图（步骤后来改写过，图是改写前录的，序号可能对不上）：$pic", "Lesson thumbnails (the steps were rewritten later; the picture is from before, numbers may not match): $pic")
+                else -> tr("示教缩略图（数字是步骤序号，红圈是点的位置，最后一格是结束时）：$pic", "Lesson thumbnails (numbers are step numbers, red rings are taps, the last cell is the end): $pic")
+            }
+            return text((listOf(tr("段“$name”（$pkg，用过 ${seg.uses} 次）：", "Segment \"$name\" ($pkg, used ${seg.uses} times):")) + lines + picLine).joinToString("\n"))
         }
         first == "human" -> {
             val v = p.getOrNull(1)?.lowercase()

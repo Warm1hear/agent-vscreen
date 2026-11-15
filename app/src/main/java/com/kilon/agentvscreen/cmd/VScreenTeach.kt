@@ -7,6 +7,7 @@ import com.kilon.agentvscreen.core.BackgroundOperation.ActionError
 import com.kilon.agentvscreen.host.UserAsk
 import com.kilon.agentvscreen.core.VScreenOcr
 import com.kilon.agentvscreen.core.VScreenShell
+import com.kilon.agentvscreen.core.VScreenMap
 import com.kilon.agentvscreen.tr
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +18,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 // [vscreen] 1.3 示教: the user shows it once on the background screen; it is written down as the same steps an agent
 // writes (`act`), so an agent can run it again with `use NAME`.
@@ -38,6 +40,8 @@ internal sealed class TeachEv {
     abstract val t: Long
     /** The screen when it started (read on a worker; null when it could not be read). */
     @Volatile var before: TeachSnap? = null
+    /** 1.3.0-beta19 (rainbow): a small picture of the screen at the same moment, for the lesson's contact sheet. */
+    @Volatile var pic: TeachPic? = null
     @Volatile internal var pending: Future<*>? = null
 
     class Touch(override val t: Long, val x: Int, val y: Int) : TeachEv() {
@@ -68,7 +72,14 @@ internal data class TeachLine(
     val words: String? = null,
     /** 1.3.0-beta18: the screen when the tap began (which of several matches it was). */
     val snap: TeachSnap? = null,
+    /** 1.3.0-beta19: a small picture of the screen before the step (the contact sheet). */
+    val pic: TeachPic? = null,
 )
+
+/** 1.3.0 (rainbow): a small picture of the background screen while a lesson was recorded; [scale] maps screen pixels onto it. */
+internal class TeachPic(val bmp: android.graphics.Bitmap, val scale: Float) {
+    companion object { const val W = 240 }
+}
 
 internal object Teach {
     const val MAX = Steps.MAX_STEPS
@@ -79,7 +90,9 @@ internal object Teach {
     }
 
     /** What the review page shows: the steps and where they came from. */
-    class Result(val session: String, val purpose: String?, val askId: Int?, val name: String?, val app: String?, val lines: List<TeachLine>)
+    class Result(val session: String, val purpose: String?, val askId: Int?, val name: String?, val app: String?, val lines: List<TeachLine>,
+                 /** 1.3.0-beta19: the screen when recording stopped (last cell of the contact sheet). */
+                 val endPic: TeachPic? = null)
 
     @Volatile private var rec: Rec? = null
     private val _count = MutableStateFlow<Int?>(null)
@@ -117,6 +130,44 @@ internal object Teach {
         return start(session, a.title, a.id, a.options.firstOrNull())
     }
 
+    /**
+     * 1.3.0 (rainbow: "示范返回几张缩略图方便agent用视觉理解"): one small contact sheet of a lesson for an agent to look
+     * at. At most [SHEET_MAX] cells, 4 to a row: the screen before each of up to 7 kept steps (picked evenly when
+     * there are more), tap points circled, and the screen at the end. Each cell is labelled with the step's number and
+     * text. One picture, not one per step: it stays small (about 960 px wide) and fits any agent's image limit.
+     */
+    internal fun sheet(r: Result, keep: Set<Int>): android.graphics.Bitmap? = runCatching {
+        val steps = r.lines.withIndex().filter { it.index in keep }.mapIndexed { n, l -> Triple(n + 1, l.value, l.value.pic) }.filter { it.third != null }
+        val picked = spread(steps, SHEET_MAX - (if (r.endPic != null) 1 else 0))
+        val cells = picked.map { (n, l, p) -> Triple("$n " + (if (l.kind == "type") "type " + (if (l.secret) "***" else l.typed.orEmpty().take(10)) else l.head).take(24), p!!, l.at) } +
+            listOfNotNull(r.endPic?.let { Triple(tr("结束时", "at the end"), it, null as Pair<Int, Int>?) })
+        if (cells.isEmpty()) return null
+        val cw = TeachPic.W; val ch = cells.maxOf { it.second.bmp.height }; val label = 26; val gap = 6
+        val cols = minOf(4, cells.size); val rows = (cells.size + cols - 1) / cols
+        val out = android.graphics.Bitmap.createBitmap(cols * cw + (cols + 1) * gap, rows * (ch + label) + (rows + 1) * gap, android.graphics.Bitmap.Config.RGB_565)
+        val c = android.graphics.Canvas(out)
+        c.drawColor(0xFF15131F.toInt())
+        val text = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt(); textSize = 17f }
+        val ring = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.STROKE; strokeWidth = 3f; color = 0xFFFF3B6B.toInt() }
+        cells.forEachIndexed { i, (name, p, at) ->
+            val x = gap + (i % cols) * (cw + gap); val y = gap + (i / cols) * (ch + label + gap)
+            c.drawText(name, x + 2f, y + 19f, text)
+            c.drawBitmap(p.bmp, x.toFloat(), (y + label).toFloat(), null)
+            at?.let { (ax, ay) -> c.drawCircle(x + ax * p.scale, y + label + ay * p.scale, 11f, ring) }
+        }
+        out
+    }.getOrNull()
+
+    const val SHEET_MAX = 8
+
+    /** Up to [n] of [xs], spread evenly, the first and the last always in. */
+    internal fun <T> spread(xs: List<T>, n: Int): List<T> = when {
+        n <= 0 -> emptyList()
+        xs.size <= n -> xs
+        n == 1 -> listOf(xs.last())
+        else -> (0 until n).map { xs[(it * (xs.size - 1).toDouble() / (n - 1)).roundToInt()] }.distinct()
+    }
+
     fun cancel() { synchronized(this) { rec = null; current = null; typing = null; typingStart = null; _count.value = null }; UserAsk.hold(null) }
 
     /** While recording an agent's request: who asked and what (the full screen page shows it in full). */
@@ -131,10 +182,22 @@ internal object Teach {
         return TeachSnap(runCatching { VScreenShell.topPackage(id) }.getOrNull(), els, runCatching { VScreenShell.topActivity(id) }.getOrNull())
     }
 
+    /** 1.3.0: the screen now as a small picture ([TeachPic.W] px wide), or null. */
+    private fun grab(): TeachPic? = runCatching {
+        if (snapSource != null) return null
+        val d = BackgroundOperation.state.value.ownerSessionId?.let { BackgroundOperation.previewDisplayFor(it) } ?: return null
+        val f = d.latestFrame() ?: return null
+        val w = TeachPic.W; val h = (f.height.toLong() * w / maxOf(1, f.width)).toInt().coerceAtLeast(1)
+        val small = android.graphics.Bitmap.createScaledBitmap(f, w, h, true)
+        val pic = small.copy(android.graphics.Bitmap.Config.RGB_565, false)
+        if (small !== f && small !== pic) small.recycle()
+        TeachPic(pic, w.toFloat() / maxOf(1, d.width))
+    }.getOrNull()
+
     private fun add(r: Rec, e: TeachEv) {
         if (r.events.size >= MAX) return
         r.events += e
-        e.pending = reader.submit { e.before = read(r.displayId) }
+        e.pending = reader.submit { e.before = read(r.displayId); e.pic = grab() }
         _count.value = r.events.size
     }
 
@@ -177,9 +240,22 @@ internal object Teach {
     fun typingNow(value: String?) = synchronized(this) {
         val r = rec ?: return
         val v = value?.takeIf { it.isNotEmpty() }
-        if (v != null && typing == null && typingStart == null) typingStart = TeachEv.Typed(System.currentTimeMillis(), "", whole = true).also { st -> st.pending = reader.submit { st.before = read(r.displayId) } }
+        if (v != null && typing == null && typingStart == null) startTyping(r)
         if (v == null) typingStart = null
         typing = v
+    }
+    private fun startTyping(r: Rec): TeachEv.Typed = TeachEv.Typed(System.currentTimeMillis(), "", whole = true).also { st ->
+        typingStart = st; st.pending = reader.submit { st.before = read(r.displayId); st.pic = grab() }
+    }
+    /**
+     * 1.3.0-beta19 (test M again): called before the first character of a typing run is sent; the caller waits for
+     * the returned reading. Read at the first keystroke was already too late: the first character had landed and the
+     * page had reacted (a voice-search icon gone), so the tap before it got `until gone:<icon>`.
+     */
+    fun beforeTyping(): Future<*>? = synchronized(this) {
+        val r = rec ?: return null
+        if (typing != null) return null
+        (typingStart ?: startTyping(r)).pending
     }
     fun commitTyping() = synchronized(this) { rec?.let { flushTyping(it) } }
     private fun flushTyping(r: Rec) {
@@ -190,7 +266,7 @@ internal object Teach {
         if (st == null) { add(r, e); return }
         if (r.events.size >= MAX) return
         r.events += e
-        e.pending = reader.submit { runCatching { st.pending?.get(4, TimeUnit.SECONDS) }; e.before = st.before }
+        e.pending = reader.submit { runCatching { st.pending?.get(4, TimeUnit.SECONDS) }; e.before = st.before; e.pic = st.pic }
         _count.value = r.events.size
     }
 
@@ -205,10 +281,11 @@ internal object Teach {
         _count.value = null
         Thread({
             val end = runCatching { reader.submit<TeachSnap?> { read(r.displayId) }.get(4, TimeUnit.SECONDS) }.getOrNull()
+            val endPic = runCatching { reader.submit<TeachPic?> { grab() }.get(2, TimeUnit.SECONDS) }.getOrNull()
             r.events.forEach { e -> runCatching { e.pending?.get(4, TimeUnit.SECONDS) } }
             val evs = r.events.filter { it !is TeachEv.Touch || (!it.cancelled && it.end > 0) }
             val app = evs.firstNotNullOfOrNull { it.before?.pkg } ?: end?.pkg
-            result = Result(r.session, r.purpose, r.askId, r.name, app, translate(evs, end))
+            result = Result(r.session, r.purpose, r.askId, r.name, app, translate(evs, end), endPic)
             ctx?.let { c -> runCatching { c.startActivity(Intent(c, com.kilon.agentvscreen.ui.TeachActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
         }, "vscreen-teach-stop").apply { isDaemon = true }.start()
     }
@@ -301,18 +378,18 @@ internal object Teach {
                 val sb = StringBuilder(e.text)
                 while (i + 1 < evs.size && evs[i + 1] is TeachEv.Typed) { i++; val n = evs[i] as TeachEv.Typed; if (n.whole) sb.setLength(0); sb.append(n.text) }
                 val secret = e.before?.els.orEmpty().any { it.focused && it.password }
-                out += TeachLine("type", null, if (secret) tr("在密码框里输入（原文不保存）", "typed into a password box (not kept)") else tr("输入「${sb.toString().take(30)}」", "typed \"${sb.toString().take(30)}\""),
-                    "type", typed = sb.toString(), secret = secret)
+                out += TeachLine("type", null, pic = e.pic, why = if (secret) tr("在密码框里输入（原文不保存）", "typed into a password box (not kept)") else tr("输入「${sb.toString().take(30)}」", "typed \"${sb.toString().take(30)}\""),
+                    kind = "type", typed = sb.toString(), secret = secret)
                 i++; continue
             }
             val next = evs.getOrNull(i + 1)?.before ?: end
             when (e) {
                 is TeachEv.Key -> {
                     val c = changeCond(e.before, next)
-                    out += TeachLine("key ${e.name}", c?.first, tr("按了 ${e.name}", "pressed ${e.name}") + (c?.let { "，" + it.second } ?: ""), "key",
+                    out += TeachLine("key ${e.name}", c?.first, tr("按了 ${e.name}", "pressed ${e.name}") + (c?.let { "，" + it.second } ?: ""), "key", pic = e.pic,
                         warn = if (c == null && next != null) tr("之后画面上没读到变化", "no change was read afterwards") else null)
                 }
-                is TeachEv.Touch -> out += touchLine(e, next)
+                is TeachEv.Touch -> out += touchLine(e, next).copy(pic = e.pic)
                 else -> {}
             }
             i++
@@ -451,7 +528,11 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
     val use = "use $seg" + (1..n).joinToString("") { " <$it>" }
     val data = org.json.JSONObject().put("what", what).put("name", seg).put("app", r.optString("app")).put("steps", r.optString("steps"))
         .put("params", n).put("described", r.optJSONArray("described") ?: org.json.JSONArray()).put("use", use)
-    data.put("message", tr("用户演示完并存成了段「$seg」（${r.optString("app")}）。照做：act \"$use\"" + (if (n > 0) "（按顺序填 $n 个参数，是用户当时输入的字的位置）" else "") + "。步骤：${r.optString("steps")}",
-        "The user showed it and saved it as segment \"$seg\" (${r.optString("app")}). Run it: act \"$use\"" + (if (n > 0) " (fill $n values in order: where the user typed)" else "") + ". Steps: ${r.optString("steps")}"))
+    // 1.3.0: the lesson's contact sheet (key steps as thumbnails), attached as a picture.
+    val pic = VScreenMap.picture(r.optString("app"), seg)?.let { f -> runCatching { android.graphics.BitmapFactory.decodeFile(f.path) }.getOrNull() }
+        ?.let { ShotStore.save(context, it, "lesson") }
+    pic?.let { data.put("picture", it) }
+    data.put("message", tr("用户演示完并存成了段「$seg」（${r.optString("app")}）。照做：act \"$use\"" + (if (n > 0) "（按顺序填 $n 个参数，是用户当时输入的字的位置）" else "") + "。步骤：${r.optString("steps")}" + (pic?.let { "。示教关键步骤缩略图（数字是步骤序号，红圈是点的位置）：$it" } ?: ""),
+        "The user showed it and saved it as segment \"$seg\" (${r.optString("app")}). Run it: act \"$use\"" + (if (n > 0) " (fill $n values in order: where the user typed)" else "") + ". Steps: ${r.optString("steps")}" + (pic?.let { ". Thumbnails of the key steps (numbers are step numbers, red rings are taps): $it" } ?: "")))
     return ok(args, data)
 }

@@ -120,10 +120,9 @@ import kotlin.math.roundToInt
  * to the background screen, and the bottom bar gives back / home / typing / enter. Stop, hand back and "move this
  * app to my screen" are one tap away.
  */
-class FullscreenActivity : ComponentActivity() {
+class FullscreenActivity : PageActivity() {
+    override val closeWhenHidden = true
     // The floating window shows the same picture: it steps aside while this page is in front.
-    override fun onStart() { super.onStart(); Overlay.fullscreenShown(true) }
-    override fun onStop() { Overlay.fullscreenShown(false); super.onStop() }
 
     /** 1.3 示教: opened from an agent's "show me how" (UserAsk TEACH): take over and record at once. */
     private val teachAsk = mutableStateOf(-1)
@@ -142,7 +141,7 @@ class FullscreenActivity : ComponentActivity() {
             AvsTheme {
                 val s by BackgroundOperation.state.collectAsState()
                 val session = s.ownerSessionId
-                LaunchedEffect(session, s.displayId) { if (session == null || s.displayId == null) finish() }
+                LaunchedEffect(session, s.displayId) { if (session == null || s.displayId == null) back() }
                 if (session != null) FullScreen(session)
             }
         }
@@ -258,7 +257,7 @@ class FullscreenActivity : ComponentActivity() {
             // Top block: the bar (it sets the picture's top), and the request card floating under it when at the top.
             Column(Modifier.fillMaxWidth().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().onGloballyPositioned { topEdge = it.boundsInRoot().bottom }.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Circle(Icons.Filled.CloseFullscreen, tr("退出全屏", "Exit full screen"), Color(0x33FFFFFF)) { if (Teach.recordingFor(session)) Teach.stop(applicationContext); finish() }
+                Circle(Icons.Filled.CloseFullscreen, tr("退出全屏", "Exit full screen"), Color(0x33FFFFFF)) { if (Teach.recordingFor(session)) Teach.stop(applicationContext); back() }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(appLabel ?: tr("后台副屏", "Background screen"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -277,7 +276,7 @@ class FullscreenActivity : ComponentActivity() {
                 when (mode) {
                     Mode.ACTING, Mode.STANDBY -> Pill(tr("停止 AI", "Stop AI"), Icons.Filled.Stop, Palette.stopped, Color.White) { BackgroundOperation.userStop() }
                     else -> Circle(Icons.Filled.Close, tr("关闭副屏", "Close screen"), Color(0x33FFFFFF)) {
-                        BackgroundOperation.releaseNow(session); finish()
+                        BackgroundOperation.releaseNow(session); back()
                     }
                 }
             }
@@ -367,7 +366,7 @@ class FullscreenActivity : ComponentActivity() {
                         Pill(tr("移到主屏", "Move to main screen"), Icons.Filled.PhoneAndroid, Color(0x22FFFFFF), Color.White) {
                             Thread {
                                 val (ok, msg) = runCatching { VScreenHandoff.userToMain(session) }.getOrElse { false to (it.message ?: tr("失败", "failed")) }
-                                toast(msg); if (ok) runOnUiThread { finish() }
+                                toast(msg); if (ok) runOnUiThread { back() }
                             }.start()
                         }
                     }
@@ -424,6 +423,8 @@ private class FieldMirror(private val session: String) {
             val st = BackgroundOperation.state.value
             val id = st.displayId ?: return@execute
             if (st.takeoverSessionId != session) return@execute
+            // 1.3.0 (test M): the lesson's "before typing" screen is read before the first character lands.
+            if (x != start) runCatching { Teach.beforeTyping()?.get(1500, java.util.concurrent.TimeUnit.MILLISECONDS) }
             runCatching { VScreenTyping.setField(id, x, sent) }.onSuccess { sent = x; Teach.typingNow(if (x != start) x else null) }
         }
     }

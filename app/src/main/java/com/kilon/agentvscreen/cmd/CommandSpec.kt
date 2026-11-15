@@ -131,7 +131,7 @@ internal object CommandSpec {
             sumEn = "run a stretch of steps on the screen (tap, swipe, type, wait) and return the screen now; no steps = look",
             scopeOf = { a -> if (looksOnly(a)) Scope.LOOK else Scope.OPERATE },
             scopeNoteZh = "不带步骤、或只有 wait 的 act 只需要 look", scopeNoteEn = "an act with no steps, or only wait steps, needs just look"),
-        Cmd("note", "[文字] | before \"<步骤>\" | after \"<步骤>\" | save <段名> \"<步骤>\" | human on|off | delete <编号|before|after|段名>", "[text] | before \"<steps>\" | after \"<steps>\" | save <segment> \"<steps>\" | human on|off | delete <number|before|after|segment>",
+        Cmd("note", "[文字] | before \"<步骤>\" | after \"<步骤>\" | save <段名> \"<步骤>\" | show <段名> | human on|off | delete <编号|before|after|段名>", "[text] | before \"<steps>\" | after \"<steps>\" | save <segment> \"<steps>\" | show <segment> | human on|off | delete <number|before|after|segment>",
             listOf("给当前应用记笔记（不带参数 = 列出笔记、段和前置/收尾步骤）。下次 launch 会列出来，并标明是谁、在应用哪个版本时记的。",
                 "before / after：每段 act 开始前先做 before 的步骤，做完、观察完再做 after 的步骤（--bare 跳过）。",
                 "例：会自己走的画面（游戏、播放器）记 before = 继续的步骤、after = 暂停的步骤，你思考时画面就停着；每次进页面都弹的窗记 before = 关掉它的步骤。",
@@ -324,7 +324,7 @@ internal object CommandSpec {
             "        步骤：tap 目标 | press 目标 | swipe x1 y1 x2 y2 | drag x1 y1 x2 y2 … | scroll down | type 文字 | key back | wait 条件 | use 段名 | try 一步 | if 条件 { … } else { … } | repeat 3 { … } | repeat { … } until 条件\n" +
             "        目标：x y | #N（【现在】列表的编号）| 画面上的字；动作后可加 until 条件（text:字 gone:字 change still stable color:x,y=#RRGGBB app:名）\n" +
             "        --stop 条件  --watch 2s  --fast  --bare  --keep notify|wake  --save 段名  --async\n" +
-            "  note [文字] | note before|after \"步骤\" | note save 段名 \"步骤\" | note delete 编号|段名\n" +
+            "  note [文字] | note before|after \"步骤\" | note save 段名 \"步骤\" | note show 段名 | note delete 编号|段名\n" +
             "  keep | keep off 名字      查看 / 停止本轮之后的盯守\n" +
             "  events [--wait 30s]       取盯守（--keep wake）发来的事件\n" +
             "  task [任务号]             查看 --async 开始的任务\n" +
@@ -343,7 +343,7 @@ internal object CommandSpec {
             "        steps: tap <target> | press <target> | swipe x1 y1 x2 y2 | drag x1 y1 x2 y2 … | scroll down | type <text> | key back | wait <condition> | use <segment> | try <step> | if <cond> { … } else { … } | repeat 3 { … } | repeat { … } until <cond>\n" +
             "        target: x y | #N (number in the [Now] list) | text on the screen; after an action add until <condition> (text:word gone:word change still stable color:x,y=#RRGGBB app:name)\n" +
             "        --stop <condition>  --watch 2s  --fast  --bare  --human  --keep notify|wake  --save <segment>  --async\n" +
-            "  note [text] | note before|after \"steps\" | note save <segment> \"steps\" | note delete <number|segment>\n" +
+            "  note [text] | note before|after \"steps\" | note save <segment> \"steps\" | note show <segment> | note delete <number|segment>\n" +
             "  keep | keep off <name>    list / stop watches that run after this turn\n" +
             "  events [--wait 30s]       fetch events sent by watches (--keep wake)\n" +
             "  task [id]                 look at tasks started with --async\n" +

@@ -147,7 +147,29 @@ internal object VScreenMap {
 
     @Synchronized fun deleteSegment(pkg: String, name: String): Boolean {
         val m = load(pkg)
-        return m.segments.removeAll { it.name == name }.also { if (it) save(m) }
+        return m.segments.removeAll { it.name == name }.also { if (it) { save(m); pictureFile(pkg, name)?.delete() } }
+    }
+
+    /**
+     * 1.3.0 (rainbow): a taught segment keeps a small contact sheet of the lesson (key steps as thumbnails), so an
+     * agent can look at what the steps were done on. One file per segment, deleted with it. Written when the lesson
+     * is saved; a later `note save` that rewrites the steps leaves it older than the segment ([pictureStale]).
+     */
+    fun pictureFile(pkg: String, name: String): File? = appContext?.let {
+        File(File(File(it.filesDir, "vscreen"), "lessons"), VScreenStore.safeName(pkg) + "/" + VScreenStore.safeName(name) + ".jpg")
+    }
+    fun savePicture(pkg: String, name: String, bmp: android.graphics.Bitmap): File? = runCatching {
+        val f = pictureFile(pkg, name) ?: return null
+        f.parentFile?.mkdirs()
+        java.io.FileOutputStream(f).use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, it) }
+        f
+    }.getOrNull()
+    fun picture(pkg: String, name: String): File? = pictureFile(pkg, name)?.takeIf { it.isFile }
+    /** The steps were rewritten after the picture was made. */
+    fun pictureStale(pkg: String, name: String): Boolean {
+        val f = picture(pkg, name) ?: return false
+        val seg = segment(pkg, name) ?: return false
+        return seg.at > f.lastModified() + 2_000
     }
 
     // ── profile ──────────────────────────────────────────────────────

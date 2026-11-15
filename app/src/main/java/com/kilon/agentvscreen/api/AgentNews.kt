@@ -142,6 +142,13 @@ object AgentNews {
             "Word targets (tap <words> / tap *x*@N) are looked up in the app's own elements first and settle without waiting for OCR when they can, which is much faster; the whole screen is read only when the elements have no match or more than one.",
             "Saving a lesson: a step before the typing never gets until text:<the typed words> any more (tapping the search box twice used to save that and replay got stuck); a tap on a result holding the typed value always waits for change.",
         )),
+        Entry(33, "1.3.0", listOf(
+            "示教存的段带一张关键步骤缩略图（最多 8 格：步骤前的画面、红圈是点的位置、最后一格是结束时）。teach 的回复里附上；之后用 note show 段名 再看（步骤后来改写过会注明）。",
+            "示教里打字前的画面在第一个字输入之前读，打字前那步不会再配上因输入才出现或消失的字。",
+        ), listOf(
+            "A taught segment keeps one contact sheet of its key steps (up to 8 cells: the screen before each step, red rings for taps, the last cell is the end). It is attached to the teach reply; see it again with note show <segment> (it says so when the steps were rewritten later).",
+            "In a lesson the screen before typing is read before the first character goes in, so the step before the typing no longer waits for words that only the typing made appear or go.",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */

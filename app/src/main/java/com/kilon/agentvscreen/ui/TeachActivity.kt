@@ -61,14 +61,12 @@ import org.json.JSONObject
  * typed words are kept as they were or become a blank the agent fills ({1}), name it, save. Saved, it is a segment of
  * the app (`use 名字`); when an agent asked for the lesson, the agent gets the steps as the answer.
  */
-class TeachActivity : ComponentActivity() {
-    override fun onStart() { super.onStart(); Overlay.fullscreenShown(true) }
-    override fun onStop() { Overlay.fullscreenShown(false); super.onStop() }
+class TeachActivity : PageActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val r = Teach.result
-        if (r == null) { finish(); return }
+        if (r == null) { back(); return }
         // Left without saving or discarding (back, swipe away): the steps are dropped and the question shows again.
         lifecycle.addObserver(androidx.lifecycle.LifecycleEventObserver { _, e ->
             if (e == androidx.lifecycle.Lifecycle.Event.ON_DESTROY && isFinishing && Teach.result === r) Teach.clearResult()
@@ -159,18 +157,20 @@ class TeachActivity : ComponentActivity() {
     private fun save(r: Teach.Result, name: String, steps: String, params: Int, keep: Set<Int>) {
         val app = r.app ?: return
         VScreenMap.saveSegment(app, name, steps)
+        // 1.3.0: the lesson's contact sheet, kept with the segment (before the answer: the agent's reply attaches it).
+        Teach.sheet(r, keep)?.let { VScreenMap.savePicture(app, name, it); it.recycle() } ?: VScreenMap.pictureFile(app, name)?.delete()
         r.askId?.let { id ->
             val lines = JSONArray(r.lines.withIndex().filter { it.index in keep }.map { it.value.why })
             UserAsk.answer(this, id, true, JSONObject().put("kind", "teach").put("name", name).put("app", app).put("steps", steps)
                 .put("params", params).put("described", lines))
         }
         Toast.makeText(this, tr("已存成「$name」", "Saved as \"$name\""), Toast.LENGTH_SHORT).show()
-        Teach.clearResult(); finish()
+        Teach.clearResult(); back()
     }
 
     private fun discard(r: Teach.Result) {
         r.askId?.let { UserAsk.answer(this, it, false) }
-        Teach.clearResult(); finish()
+        Teach.clearResult(); back()
     }
 
     private fun again(r: Teach.Result) {
@@ -183,6 +183,6 @@ class TeachActivity : ComponentActivity() {
         Teach.start(r.session, r.purpose, r.askId, r.name)
         Teach.clearResult()
         startActivity(Intent(this, FullscreenActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        finish()
+        back()
     }
 }

@@ -83,11 +83,9 @@ import kotlin.math.roundToInt
  * on its own card, the picture framed, options as lettered rows you pick and then send, and one bar at the bottom
  * (send on the right, decline on the left) in the same place for every kind.
  */
-class AskActivity : ComponentActivity() {
+class AskActivity : PageActivity() {
     // 1.3.0-beta18: like the full screen page, this page takes the floating window away while it is in front (it
     // came back with its card over the draw-a-box picture) and gives it back when it closes after the answer.
-    override fun onStart() { super.onStart(); Overlay.fullscreenShown(true) }
-    override fun onStop() { Overlay.fullscreenShown(false); super.onStop() }
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -103,12 +101,12 @@ class AskActivity : ComponentActivity() {
         horizontalAlignment = Alignment.CenterHorizontally) {
         AskMark(48f, alpha = 0.5f)
         Text(tr("这个问题已经回答过或过期了", "This question was already answered or has expired"), fontSize = 16.sp, fontWeight = FontWeight.Medium)
-        Button(onClick = { finish() }) { Text(tr("关闭", "Close")) }
+        Button(onClick = { back() }) { Text(tr("关闭", "Close")) }
     }
 
     private fun send(a: UserAsk.Ask, reply: JSONObject?) {
         UserAsk.answer(this, a.id, reply != null, reply)
-        finish()
+        back()
     }
 
     @Composable
@@ -121,7 +119,7 @@ class AskActivity : ComponentActivity() {
         var text by remember { mutableStateOf("") }
         var picked by remember { mutableIntStateOf(-1) }
         var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-        LaunchedEffect(a.id) { while (true) { delay(1000); now = System.currentTimeMillis(); if (!a.live) { finish(); break } } }
+        LaunchedEffect(a.id) { while (true) { delay(1000); now = System.currentTimeMillis(); if (!a.live) { back(); break } } }
         // From the picture as drawn (fills the width, keeps the aspect) to the screen's own coordinates.
         fun toScreen(o: Offset): Pair<Int, Int> {
             val w = view.width.coerceAtLeast(1); val h = view.height.coerceAtLeast(1)
@@ -156,7 +154,7 @@ class AskActivity : ComponentActivity() {
                     @Suppress("UNUSED_EXPRESSION") now
                     Text(tr("会话 ${a.session} · 还剩 ${AskWords.left(a)}", "Session ${a.session} · ${AskWords.left(a)} left"), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = { finish() }) { Icon(Icons.Filled.Close, tr("稍后回答", "Answer later")) }
+                IconButton(onClick = { back() }) { Icon(Icons.Filled.Close, tr("稍后回答", "Answer later")) }
             }
 
             Column(
@@ -220,7 +218,7 @@ class AskActivity : ComponentActivity() {
                     else -> tr("不回答", "Decline")
                 }) }
                 Spacer(Modifier.weight(1f))
-                Button(enabled = ready, onClick = { if (a.kind == UserAsk.Kind.CONFIRM) { UserAsk.answer(this@AskActivity, a.id, true, null); finish() } else send(a, reply()) }, modifier = Modifier.height(48.dp)) {
+                Button(enabled = ready, onClick = { if (a.kind == UserAsk.Kind.CONFIRM) { UserAsk.answer(this@AskActivity, a.id, true, null); back() } else send(a, reply()) }, modifier = Modifier.height(48.dp)) {
                     Text(when (a.kind) {
                         UserAsk.Kind.POINT, UserAsk.Kind.AREA -> tr("就是这里", "This one")
                         UserAsk.Kind.CONFIRM -> tr("允许", "Allow")

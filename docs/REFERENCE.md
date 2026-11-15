@@ -51,7 +51,7 @@
 
 权限范围: `operate`（不带步骤、或只有 wait 的 act 只需要 look） · 在副屏队列里执行
 
-### `note [文字] | before "<步骤>" | after "<步骤>" | save <段名> "<步骤>" | human on|off | delete <编号|before|after|段名>`
+### `note [文字] | before "<步骤>" | after "<步骤>" | save <段名> "<步骤>" | show <段名> | human on|off | delete <编号|before|after|段名>`
 
 给当前应用记笔记（不带参数 = 列出笔记、段和前置/收尾步骤）。下次 launch 会列出来，并标明是谁、在应用哪个版本时记的。
 before / after：每段 act 开始前先做 before 的步骤，做完、观察完再做 after 的步骤（--bare 跳过）。
@@ -351,7 +351,7 @@ e.g. act "tap Search; type headphones; key enter until text:All"
 
 scope: `operate` (an act with no steps, or only wait steps, needs just look) · runs in the screen queue
 
-### `note [text] | before "<steps>" | after "<steps>" | save <segment> "<steps>" | human on|off | delete <number|before|after|segment>`
+### `note [text] | before "<steps>" | after "<steps>" | save <segment> "<steps>" | show <segment> | human on|off | delete <number|before|after|segment>`
 
 keep notes for the current app (no arguments = list notes, segments and before/after steps). The next launch lists them, with who wrote each and for which app version.
 before / after: every act first does the before steps, and after acting and looking does the after steps (--bare skips them).
