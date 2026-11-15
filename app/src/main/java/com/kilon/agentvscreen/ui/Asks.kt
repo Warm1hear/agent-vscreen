@@ -55,7 +55,7 @@ internal fun pendingAsks(): List<UserAsk.Ask> {
     val open by UserAsk.open.collectAsState()
     var tick by remember { mutableLongStateOf(0L) }
     LaunchedEffect(open.isNotEmpty()) { while (open.isNotEmpty()) { delay(1000); tick++ } }
-    return remember(open, tick) { open.filter { it.live }.sortedByDescending { it.at } }
+    return remember(open, tick) { open.filter { it.live && it.id != UserAsk.heldId }.sortedByDescending { it.at } }
 }
 
 internal object AskWords {
@@ -73,7 +73,11 @@ internal object AskWords {
     fun letter(i: Int) = ('A' + i).toString()
     fun answer(ctx: Context, a: UserAsk.Ask, allow: Boolean, reply: JSONObject? = null) = UserAsk.answer(ctx, a.id, allow, reply)
     fun choose(ctx: Context, a: UserAsk.Ask, i: Int) = answer(ctx, a, true, JSONObject().put("kind", "choose").put("index", i + 1).put("choice", a.options[i]))
-    fun openPage(ctx: Context, a: UserAsk.Ask) = ctx.startActivity(UserAsk.answerIntent(ctx, a.id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    fun openPage(ctx: Context, a: UserAsk.Ask) {
+        // A lesson starts right on the tap (take over, record), whatever page opens after it.
+        if (a.kind == UserAsk.Kind.TEACH) com.kilon.agentvscreen.cmd.Teach.beginFor(a)
+        runCatching { ctx.startActivity(UserAsk.answerIntent(ctx, a.id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    }
 }
 
 /** The orchid question mark: the one sign of "an agent is waiting for you", on the card, the tab and the app. */
@@ -132,8 +136,8 @@ internal fun AskQuick(a: UserAsk.Ask, count: Int, k: Float, inOverlay: Boolean, 
                         .padding(horizontal = (8 * k).dp, vertical = (3 * k).dp))
             }
             else -> Row(horizontalArrangement = Arrangement.spacedBy((8 * k).dp)) {
-                GlassPill(AskWords.go(a.kind), true, k, Modifier.weight(1f).mark("go")) { AskWords.openPage(ctx, a) }
-                GlassPill(tr("不回答", "Decline"), false, k, Modifier.mark("skip")) { AskWords.answer(ctx, a, false) }
+                GlassPill(AskWords.go(a.kind), true, k, Modifier.weight(1.3f).mark("go")) { AskWords.openPage(ctx, a) }
+                GlassPill(tr("不回答", "Decline"), false, k, Modifier.weight(1f).mark("skip")) { AskWords.answer(ctx, a, false) }
             }
         }
     }

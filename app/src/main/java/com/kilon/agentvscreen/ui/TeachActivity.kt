@@ -67,6 +67,10 @@ class TeachActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val r = Teach.result
         if (r == null) { finish(); return }
+        // Left without saving or discarding (back, swipe away): the steps are dropped and the question shows again.
+        lifecycle.addObserver(androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_DESTROY && isFinishing && Teach.result === r) Teach.clearResult()
+        })
         setContent { AvsTheme { Surface(Modifier.fillMaxSize(), color = Color.Transparent) {
             Box(Modifier.fillMaxSize().backdrop()) { Review(r) }
         } } }

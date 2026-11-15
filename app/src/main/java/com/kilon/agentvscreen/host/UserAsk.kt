@@ -60,7 +60,14 @@ object UserAsk {
     /** Questions waiting for the user (the app shows them too). */
     val open: StateFlow<List<Ask>> = _open.asStateFlow()
 
-    private fun publish() { _open.value = asks.filter { it.live } }
+    /**
+     * 1.3.0-beta14: the question the user is answering right now (a lesson being recorded or reviewed). It stays open
+     * for the agent, but no card shows it: the user already took it. Released when that work ends without an answer.
+     */
+    @Volatile var heldId: Int = -1; private set
+    fun hold(id: Int?) = synchronized(lock) { heldId = id ?: -1; publish() }
+
+    private fun publish() { _open.value = asks.filter { it.live && it.id != heldId } }
 
     private fun prune(now: Long) {
         val gone = asks.filter { now - it.at > it.validMs && (it.answer == null || now - it.answeredAt > it.validMs) }
@@ -115,6 +122,27 @@ object UserAsk {
         Audit.consent(a.tokenName, a.session, "${a.title} — ${a.detail}", what)
         quiet("ask-cancel") { ctx.getSystemService(NotificationManager::class.java)?.cancel(noteId(id)) }
     }
+
+    /**
+     * 1.3.0-beta14: the background screen is gone (released, closed by the user). Questions answered ON that screen
+     * (point, area, lesson) cannot be answered any more: they end now, with [reason], instead of waiting out their
+     * 10–15 minutes while the agent is told "waiting for the user".
+     */
+    fun screenGone(ctx: Context?, reason: String) {
+        val ended = synchronized(lock) {
+            val now = System.currentTimeMillis()
+            asks.filter { it.answer == null && it.kind in setOf(Kind.POINT, Kind.AREA, Kind.TEACH) }.onEach {
+                it.reply = JSONObject().put("ended", reason); it.answer = false; it.answeredAt = now
+            }.also { if (it.isNotEmpty()) { if (it.any { a -> a.id == heldId }) heldId = -1; publish(); lock.notifyAll() } }
+        }
+        ended.forEach { a ->
+            Audit.consent(a.tokenName, a.session, "${a.title} — ${a.detail}", "ended: $reason")
+            ctx?.let { c -> quiet("ask-ended") { c.getSystemService(NotificationManager::class.java)?.cancel(noteId(a.id)) } }
+        }
+    }
+
+    /** Why a declined question ended without the user (the screen went away), or null when the user declined. */
+    fun endedWhy(a: Ask): String? = a.reply?.optString("ended")?.takeIf { it.isNotBlank() }
 
     /** The caller went away before an answer: take the question off the phone. */
     fun withdraw(ctx: Context, a: Ask) {

@@ -458,6 +458,9 @@ object BackgroundOperation {
         synchronized(lock) { tasks.values.forEach { it.rereadRequired = false; it.rereadReason = null } }
         _state.update { it.copy(displayId = null, ownerSessionId = null, takeoverSessionId = null, operating = false, note = reason) }
         AppLogger.info(TAG, "released display ${d.displayId} gen=${d.generation}: $reason")
+        // A lesson being recorded and the questions answered on this screen end with it (1.3.0-beta14).
+        com.kilon.agentvscreen.cmd.Teach.cancel()
+        com.kilon.agentvscreen.host.UserAsk.screenGone(appContext, reason)
     }
 
     // ── task lifecycle (driven by ChatViewModel's isStreaming edge) ────────

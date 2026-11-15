@@ -165,10 +165,10 @@ internal object Steps {
             "wait", "等" -> {
                 if (args.isEmpty()) bad(raw, tr("wait <条件> [最长时长] 或 wait 时长", "wait <condition> [max duration] or wait <duration>"))
                 val only = duration(args[0])
-                if (args.size == 1 && only != null) Step(raw, "sleep", ms = only.coerceIn(0L, MAX_WAIT_MS))
+                if (args.size == 1 && only != null) Step(raw, "sleep", ms = capMs(raw, only, MAX_WAIT_MS))
                 else {
                     val (c, max) = condsWithMax(args)
-                    Step(raw, "wait", until = c, untilMs = (max ?: WAIT_DEFAULT_MS).coerceIn(100L, MAX_WAIT_MS))
+                    Step(raw, "wait", until = c, untilMs = (max ?: WAIT_DEFAULT_MS).coerceAtLeast(100L))
                 }
             }
             "use", "用" -> Step(raw, "use", text = args.joinToString(" ").trim().ifEmpty { bad(raw, tr("use 后面写保存过的段名", "write a saved segment name after use")) })
@@ -221,7 +221,7 @@ internal object Steps {
         if (max != null && t.size >= 2 && t.last().lowercase() in setOf("max", "最长", "within")) t = t.dropLast(1)
         val conds = t.joinToString(" ").split(Regex("\\s+or\\s+|\\s*\\|\\s*|\\s+或\\s+")).map { it.trim() }.filter { it.isNotEmpty() }.map { cond(it) }
         if (conds.isEmpty()) throw ActionError("INVALID_STEP", tr("until / wait 后面要写条件：", "until / wait needs a condition: ") + CONDS_HELP)
-        return conds to max?.coerceIn(100L, MAX_WAIT_MS)
+        return conds to max?.let { capMs(toks.joinToString(" "), it, MAX_WAIT_MS).coerceAtLeast(100L) }
     }
 
     val CONDS_HELP: String get() = tr("text:字 | gone:字 | change[:x1,y1,x2,y2] | still[:x1,y1,x2,y2] | stable | color:x,y=#RRGGBB[~容差] | app:名字，多个用 or 连", "text:word | gone:word | change[:x1,y1,x2,y2] | still[:x1,y1,x2,y2] | stable | color:x,y=#RRGGBB[~tolerance] | app:name, join several with or")

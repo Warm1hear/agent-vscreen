@@ -122,7 +122,9 @@ class VScreenOffloadHandler(internal val context: Context) : NativeOffloadHandle
                     data = r.data?.also { d -> d.put("adjusted", org.json.JSONArray(left)) })
             }
         } catch (e: ActionError) {
-            err(e.code, e.message ?: e.code, data = e.data)
+            // A failure after a cut limit (a wait that timed out at the cap) says the cut too.
+            val left = takeAdjusted()
+            err(e.code, (e.message ?: e.code) + left.joinToString("") { tr("（参数被调整：$it）", " (options adjusted: $it)") }, data = e.data)
         } catch (e: OffloadArgs.BadOption) {
             err("INVALID_ARGS", e.message ?: tr("参数不对", "bad arguments"), 2)
         } catch (t: Exception) {

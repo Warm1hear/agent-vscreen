@@ -90,6 +90,15 @@ object AgentNews {
             "Moving areas no longer count screen changes caused by our own taps, swipes and drags; carousels that move every few seconds are recognized. collect no longer stops early because its own scroll made the whole page look moving.",
             "Text OCR split on one line is joined back into one item; collect no longer lists fixed top/bottom bar labels as entries.",
         )),
+        Entry(27, "1.3.0-beta14", listOf(
+            "示教录下的 until 和重放用同一条规则判断“这一步之后出现了什么”：点了画面没变的步骤不再带 until（审阅页标“可能点空了”），一直在原处的字（标题栏等）不再被当成新出现。",
+            "超过上限的时长（task --wait、events --wait、步骤里的 wait/sleep）会在结果里说明被截到多少，不再悄悄截短。task 一次最多等 2m。",
+            "副屏关闭或被释放时，要在副屏上回答的问题（point、area、teach）立刻结束，返回 ASK_DECLINED 并写明原因，不再一直等。",
+        ), listOf(
+            "A lesson's until and replay now judge \"what appeared after the step\" by the same rule: a step that changed nothing gets no until (the review page marks it as a possible miss), and words that stayed in place (title bars) no longer count as new.",
+            "A duration over its limit (task --wait, events --wait, wait/sleep steps) is reported in the result with the value used, instead of being cut silently. task waits at most 2m per call.",
+            "When the background screen is closed or released, questions answered on it (point, area, teach) end at once with ASK_DECLINED and the reason, instead of waiting on.",
+        )),
     )
 
     /** What changed for agents after [since] (a version code), newest last; at most the last few versions. */

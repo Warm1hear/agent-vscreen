@@ -55,6 +55,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -796,7 +797,11 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
     LaunchedEffect(owner, mode) {
         while (true) { left = Turns.leftMs(owner) ?: -1L; delay(1000) }
     }
-    val title = s.agentTitle ?: when (mode) {
+    // 1.3.0-beta14: a lesson is recorded wherever the user is (this window or the full screen page).
+    val teachN by com.kilon.agentvscreen.cmd.Teach.count.collectAsState()
+    val octx = LocalContext.current
+    LaunchedEffect(mode == Mode.TAKEOVER) { if (mode != Mode.TAKEOVER && com.kilon.agentvscreen.cmd.Teach.recordingFor(owner)) com.kilon.agentvscreen.cmd.Teach.stop(octx.applicationContext) }
+    val title = teachN?.let { tr("示教录制中 · 已记 $it 步", "Recording a lesson · $it steps") } ?: s.agentTitle ?: when (mode) {
         Mode.ACTING -> s.action?.take(18) ?: Palette.word(mode)
         Mode.STANDBY -> if (left >= 0) tr("AI 待命", "AI on standby") + " · ${left / 60000}:${"%02d".format((left / 1000) % 60)}" else Palette.word(mode)
         Mode.IDLE -> if (s.powerSaving) tr("空闲 · 省电暂停", "Idle · paused to save power") else tr("空闲", "Idle")
@@ -859,6 +864,19 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
                     modifier = Modifier.align(Alignment.Center).padding(horizontal = (12 * k).dp).clip(RoundedCornerShape(10.dp)).background(Color(0xDD7F1D1D)).padding(horizontal = 8.dp, vertical = 5.dp))
             }
 
+            // Recording a lesson: Done, bottom centre (hand back comes after the review).
+            if (teachN != null && mode == Mode.TAKEOVER) {
+                Row(
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = (10 * k).dp).control("teach-done")
+                        .clip(RoundedCornerShape(50)).background(Palette.asking).clickable { com.kilon.agentvscreen.cmd.Teach.stop(octx.applicationContext) }
+                        .padding(horizontal = (12 * k).dp, vertical = (6 * k).dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.Stop, null, tint = Color.White, modifier = Modifier.size((14 * k).dp))
+                    Spacer(Modifier.width((4 * k).dp))
+                    Text(tr("完成", "Done") + " · $teachN", color = Color.White, fontSize = (12 * k).sp, fontWeight = FontWeight.SemiBold)
+                }
+            } else
             // Hand back, bottom centre.
             if (mode == Mode.TAKEOVER || mode == Mode.STOPPED) {
                 Row(

@@ -201,5 +201,5 @@ fun GlassPill(label: String, primary: Boolean, k: Float = 1f, modifier: Modifier
         modifier.clip(RoundedCornerShape(50)).then(if (primary) Modifier.background(Glass.accent) else Modifier.background(Glass.darkChip).border(1.dp, Color(0x26FFFFFF), RoundedCornerShape(50)))
             .clickable(onClick = onClick).padding(horizontal = (14 * k).dp, vertical = (7 * k).dp),
         contentAlignment = Alignment.Center,
-    ) { Text(label, color = Color.White, fontSize = (12.5f * k).sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+    ) { Text(label, color = Color.White, fontSize = (12.5f * k).sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, overflow = TextOverflow.Visible) }
 }

@@ -78,18 +78,21 @@ internal object Tasks {
             if (t.result == null) t.call.cancelled = true
             return NativeOffloadResult(0, (if (t.result == null) tr("已要求任务 $id 停下：它会在当前这一步之后停。task $id 看它停在哪", "Task $id was asked to stop: it stops after its current step. task $id shows where it stopped") else tr("任务 $id 已经做完了，没有可取消的：task $id 取结果", "Task $id has already finished, nothing to cancel: task $id returns its result")) + "\n", "OK", JSONObject().put("task", id).put("state", t.state))
         }
-        val wait = (args.getLong("wait") ?: 0L).coerceIn(0L, 120_000L)
+        val wait = boundedMs("wait", args.getLong("wait") ?: 0L, 0L, WAIT_MAX_MS)
         val until = System.currentTimeMillis() + wait
         synchronized(t.lock) {
             while (t.result == null && System.currentTimeMillis() < until && Call.current()?.cancelled != true) t.lock.wait(250)
         }
         val r = t.result ?: return NativeOffloadResult(0, tr("任务 $id 还在运行（${(System.currentTimeMillis() - t.startedAt) / 1000}s）", "Task $id is still running (${(System.currentTimeMillis() - t.startedAt) / 1000}s)") +
-            (t.call.lastProgress?.let { tr("。最近完成的一步：$it", ". Last finished step: $it") } ?: "") + tr("。task $id --wait 60s 等它", ". task $id --wait 60s waits for it") + "\n", "TASK_RUNNING",
+            (t.call.lastProgress?.let { tr("。最近完成的一步：$it", ". Last finished step: $it") } ?: "") + tr("。task $id --wait 2m 再等（一次最长 2m）", ". task $id --wait 2m waits again (at most 2m per call)") + "\n", "TASK_RUNNING",
             JSONObject().put("task", id).put("state", t.state).put("last_step", t.call.lastProgress ?: JSONObject.NULL))
         // The task's own result, as if the command had been called directly.
         return r.copy(data = (r.data ?: JSONObject()).put("task", id).put("state", t.state))
     }
 
     /** For status / diag: running tasks, without their arguments. */
+    /** One `task <id> --wait` holds the connection at most this long (a client's HTTP timeout must not cut it). */
+    const val WAIT_MAX_MS = 120_000L
+
     fun running(): Int = synchronized(tasks) { tasks.values.count { it.result == null } }
 }

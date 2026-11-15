@@ -30,7 +30,8 @@ import kotlin.math.max
 //  - typed text becomes a parameter `{1}` by default (the same steps then search for anything); a password is never kept.
 
 /** One reading of the screen: the front app and the elements. */
-internal class TeachSnap(val pkg: String?, val els: List<El>)
+/** One reading of the screen while recording; [act] = the activity in front (a new one is a new page, as in replay). */
+internal class TeachSnap(val pkg: String?, val els: List<El>, val act: String? = null)
 
 /** One thing the user did. */
 internal sealed class TeachEv {
@@ -91,16 +92,33 @@ internal object Teach {
         val id = BackgroundOperation.state.value.displayId ?: return false
         synchronized(this) { rec = Rec(session, id, purpose, askId, name); current = null; result = null }
         _count.value = 0
+        UserAsk.hold(askId)
         return true
     }
 
-    fun cancel() = synchronized(this) { rec = null; current = null; _count.value = null }
+    /**
+     * 1.3.0-beta14: the user took an agent's "show me how" (from any card, the notification or the full screen page):
+     * take the screen over and record at once. The question's card goes away while the lesson is under way.
+     */
+    fun beginFor(a: UserAsk.Ask): Boolean {
+        if (!a.live || a.kind != UserAsk.Kind.TEACH) return false
+        if (rec?.askId == a.id) return true
+        val st = BackgroundOperation.state.value
+        val session = st.ownerSessionId ?: return false
+        if (st.userStopped) BackgroundOperation.userResume()
+        if (!BackgroundOperation.beginTakeover(session) && BackgroundOperation.state.value.takeoverSessionId != session) return false
+        return start(session, a.title, a.id, a.options.firstOrNull())
+    }
+
+    fun cancel() { synchronized(this) { rec = null; current = null; _count.value = null }; UserAsk.hold(null) }
 
     private fun read(id: Int): TeachSnap? {
         snapSource?.let { return it(id) }
         val d = BackgroundOperation.state.value.ownerSessionId?.let { BackgroundOperation.previewDisplayFor(it) } ?: return null
-        val els = runCatching { a11yRaw(d) }.getOrDefault(emptyList())
-        return TeachSnap(runCatching { VScreenShell.topPackage(id) }.getOrNull(), els)
+        // 1.3.0-beta14: a reading that failed (or came back empty) is "unknown", never "a blank screen": a blank before
+        // made every word on the page look new, and a lesson got `until text:<title bar words>` it could never meet.
+        val els = runCatching { a11yRaw(d) }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return null
+        return TeachSnap(runCatching { VScreenShell.topPackage(id) }.getOrNull(), els, runCatching { VScreenShell.topActivity(id) }.getOrNull())
     }
 
     private fun add(r: Rec, e: TeachEv) {
@@ -164,7 +182,8 @@ internal object Teach {
         return result
     }
 
-    fun clearResult() { result = null }
+    /** The review page is done with the steps (saved, discarded or left): an unanswered question shows again. */
+    fun clearResult() { result = null; if (rec == null) UserAsk.hold(null) }
 
     // ── from events to steps (pure) ──
 
@@ -197,13 +216,26 @@ internal object Teach {
     }
 
     /** What changed from [a] to [b], as a condition; null when the readings show no difference. */
+    /** Nothing a person could read moved, appeared or went away between [a] and [b] (the step changed nothing). */
+    internal fun sameScreen(a: TeachSnap, b: TeachSnap): Boolean {
+        fun key(sn: TeachSnap) = texts(sn).map { Triple(VScreenOcr.norm(it.text), it.box.centerX() / 24, it.box.centerY() / 24) }.toSet()
+        return a.pkg == b.pkg && a.act == b.act && key(a) == key(b)
+    }
+
+    /**
+     * The `until` for a step: what it caused, judged by the SAME rule replay uses ([counts], 1.3.0-beta14). Words count
+     * when they were not at that place before the step, unless the step opened a new page (another app or activity).
+     * A step after which nothing changed gets no `until` (replay would wait for a change that never comes).
+     */
     internal fun changeCond(a: TeachSnap?, b: TeachSnap?, skip: Set<String> = emptySet()): Pair<String, String>? {
-        if (a == null || b == null) return null
+        if (a == null || b == null || sameScreen(a, b)) return null
         val before = texts(a).map { VScreenOcr.norm(it.text) }.toSet()
         val after = texts(b).map { VScreenOcr.norm(it.text) }.toSet()
+        val newPage = (a.pkg != null && b.pkg != null && a.pkg != b.pkg) || (a.act != null && b.act != null && a.act != b.act)
+        fun priorAt(t: String) = texts(a).filter { VScreenOcr.norm(it.text) == VScreenOcr.norm(t) }.map { it.box }
         val skipN = skip.map { VScreenOcr.norm(it) }
         fun ok(t: String) = sign(t) && skipN.none { s -> s.isNotEmpty() && (VScreenOcr.norm(t).contains(s) || s.contains(VScreenOcr.norm(t))) }
-        val fresh = texts(b).filter { VScreenOcr.norm(it.text) !in before && ok(it.text.trim()) && unique(b, it.text.trim()) }
+        val fresh = texts(b).filter { counts(it.box, priorAt(it.text), null, newPage) && (newPage || VScreenOcr.norm(it.text) !in before) && ok(it.text.trim()) && unique(b, it.text.trim()) }
             .sortedWith(compareBy({ it.box.top }, { it.box.left }))
         fresh.firstOrNull()?.let { return "text:${it.text.trim()}" to tr("之后出现了「${it.text.trim()}」", "then \"${it.text.trim()}\" appeared") }
         if (a.pkg != null && b.pkg != null && a.pkg != b.pkg) return "app:${b.pkg}" to tr("之后换到了 ${b.pkg}", "then ${b.pkg} came to the front")
@@ -329,7 +361,8 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
     when (ask.answer) {
         null -> throw ActionError("ASK_PENDING", tr("请求已显示在手机上（通知、副屏小窗和 App 首页），用户 ${wait / 1000} 秒内还没做完。告诉用户去手机上演示；之后把同一条 teach 原样再发一次就能拿到结果（${ask.validMs / 60_000} 分钟内有效）",
             "The request is on the phone (notification, the floating window and the app's home page); the user has not finished within ${wait / 1000} s. Tell the user to show it on the phone; then send the same teach again for the result (valid for ${ask.validMs / 60_000} minutes)"))
-        false -> { UserAsk.markUsed(ask); throw ActionError("ASK_DECLINED", tr("用户没有演示（或丢弃了录下的步骤）：$what", "The user did not show it (or discarded the recording): $what")) }
+        false -> { UserAsk.markUsed(ask); UserAsk.endedWhy(ask)?.let { why -> throw ActionError("ASK_DECLINED", tr("副屏已经关闭（$why），示教请求结束了：$what。要演示请先 launch 应用再发 teach", "The background screen was closed ($why), so the lesson request ended: $what. launch the app first, then send teach again")) }
+            throw ActionError("ASK_DECLINED", tr("用户没有演示（或丢弃了录下的步骤）：$what", "The user did not show it (or discarded the recording): $what")) }
         true -> UserAsk.markUsed(ask)
     }
     val r = ask.reply ?: org.json.JSONObject()

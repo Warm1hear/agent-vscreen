@@ -66,7 +66,8 @@ internal fun VScreenOffloadHandler.askCmd(sid: String?, args: OffloadArgs): Nati
     when (ask.answer) {
         null -> throw ActionError("ASK_PENDING", tr("问题已显示在手机上（通知和 Agent-VScreen 首页），用户 ${wait / 1000} 秒内没回答。告诉用户去手机上回答；之后把同一条 ask 原样再发一次就能拿到答案（${ask.validMs / 60_000} 分钟内有效）",
             "The question is on the phone (notification and the Agent-VScreen home page); the user did not answer within ${wait / 1000} s. Tell the user to answer it on the phone; then send the same ask again to get the answer (valid for ${ask.validMs / 60_000} minutes)"))
-        false -> { UserAsk.markUsed(ask); throw ActionError("ASK_DECLINED", tr("用户选择不回答：$question", "The user chose not to answer: $question")) }
+        false -> { UserAsk.markUsed(ask); UserAsk.endedWhy(ask)?.let { why -> throw ActionError("ASK_DECLINED", tr("副屏已经关闭（$why），这个要在副屏上回答的问题结束了：$question", "The background screen was closed ($why), so this question about it ended: $question")) }
+            throw ActionError("ASK_DECLINED", tr("用户选择不回答：$question", "The user chose not to answer: $question")) }
         true -> UserAsk.markUsed(ask)
     }
     val reply = ask.reply ?: JSONObject()

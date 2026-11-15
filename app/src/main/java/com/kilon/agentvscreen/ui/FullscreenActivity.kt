@@ -157,11 +157,9 @@ class FullscreenActivity : ComponentActivity() {
         val recording = teachN != null
         val askId by teachAsk
         LaunchedEffect(askId) {
-            val a = UserAsk.byId(askId)?.takeIf { it.live && it.kind == UserAsk.Kind.TEACH } ?: return@LaunchedEffect
+            val a = UserAsk.byId(askId) ?: return@LaunchedEffect
             teachAsk.value = -1
-            if (s.userStopped) BackgroundOperation.userResume()
-            if (BackgroundOperation.beginTakeover(session) || BackgroundOperation.state.value.takeoverSessionId == session)
-                Teach.start(session, a.title, a.id, a.options.firstOrNull())
+            Teach.beginFor(a)
         }
 
         Box(Modifier.fillMaxSize().background(Color(0xFF07080D))) {

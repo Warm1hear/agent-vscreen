@@ -11,7 +11,7 @@ import java.util.Locale
 /** `events [--wait T]`: take the events posted for this session (a keep with --keep wake saw its condition). */
 internal fun VScreenOffloadHandler.eventsCmd(sid: String?, args: OffloadArgs): NativeOffloadResult {
     val s = sid ?: VScreenOffloadHandler.DEFAULT_SESSION
-    val want = args.getLong("wait") ?: 0L
+    val want = boundedMs("wait", args.getLong("wait") ?: 0L, 0L, 120_000L)
     // 1.1: events come only from this session's running --keep wake watches. With none running, waiting cannot bring
     // anything, so the reply says that at once instead of silently returning early or uselessly blocking.
     val watching = VScreenRules.running().count { it.spec.wake && it.spec.sid == s }

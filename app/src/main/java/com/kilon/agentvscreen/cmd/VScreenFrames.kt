@@ -156,7 +156,7 @@ internal fun VScreenOffloadHandler.framesCmd(sid: String?, args: OffloadArgs): N
         return now - parseDuration(v.removePrefix("-"), 0L).also { if (it <= 0L) throw ActionError("INVALID_ARGS", tr("--$name 写成多久以前（30s、2m）或钟点（14:03:10）", "write --$name as how long ago (30s, 2m) or a clock time (14:03:10)")) }
     }
     val big = args.hasFlag("big")
-    val count = (args.getInt("count") ?: 12).coerceIn(1, 36)
+    val count = bounded("count", args.getInt("count") ?: 12, 1, 36)
     val every = args.get("every")?.let { parseDuration(it, 0L).coerceAtLeast(100L) }
     val win = synchronized(lastWindows) { lastWindows[s] }
     val (from, to, said) = when {
