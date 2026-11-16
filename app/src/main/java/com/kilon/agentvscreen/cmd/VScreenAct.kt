@@ -630,7 +630,8 @@ internal fun <T> readingOrder(list: List<T>, box: (T) -> Rect): List<T> {
         val first = r?.firstOrNull()
         if (first != null && Math.abs(box(e).centerY() - box(first).centerY()) <= minOf(box(e).height(), box(first).height()) / 2) r.add(e) else rows += mutableListOf(e)
     }
-    return rows.flatMap { row -> row.sortedBy { box(it).left } }
+    // 1.4.0-beta8 (test: 搜索@1 was the wide search box whose left edge is further left): left to right by the middle, as the list is.
+    return rows.flatMap { row -> row.sortedBy { box(it).centerX() } }
 }
 
 internal fun near(a: El, b: El): Boolean = Rect(a.box).apply { inset(-12, -12) }.contains(b.box.centerX(), b.box.centerY()) || Rect(b.box).apply { inset(-12, -12) }.contains(a.box.centerX(), a.box.centerY())
@@ -700,7 +701,14 @@ private fun VScreenOffloadHandler.target(sid: String, d: VScreenDisplay, t: Step
     is StepTarget.Words -> run {
         // 1.4.0-beta5: with an offset the point is beside the words, not on them (no box: it is a point tap).
         fun hit(e: El): Target = if (t.dx == 0 && t.dy == 0) Target(e.box.centerX(), e.box.centerY(), e.label, box = e.box)
-            else Target((e.box.centerX() + t.dx).coerceAtLeast(0), (e.box.centerY() + t.dy).coerceAtLeast(0), tr("「${e.label.orEmpty().take(24)}」旁", "beside \"${e.label.orEmpty().take(24)}\""))
+            else {
+                // 1.4.0-beta8 (test: `tap 蓝牙 +60%,+0%` tapped off the screen and only said "nothing changed"): a point
+                // beside words that falls off the screen is refused, as a point off the screen is.
+                val x = e.box.centerX() + t.dx; val y = e.box.centerY() + t.dy
+                if (x !in 0 until d.width || y !in 0 until d.height)
+                    throw StepRefused("OUT_OF_BOUNDS", tr("「${e.label.orEmpty().take(24)}」在 (${e.box.centerX()},${e.box.centerY()})，偏移后 ($x,$y) 在副屏 ${d.width}x${d.height} 外面；百分比偏移按整屏宽高算", "\"${e.label.orEmpty().take(24)}\" is at (${e.box.centerX()},${e.box.centerY()}); with the offset ($x,$y) is outside the ${d.width}x${d.height} screen; % offsets are shares of the whole screen"))
+                Target(x, y, tr("「${e.label.orEmpty().take(24)}」旁", "beside \"${e.label.orEmpty().take(24)}\""))
+            }
         fun choose(hits: List<El>): El? = if (t.nth != 0) hits.getOrNull(if (t.nth > 0) t.nth - 1 else hits.size + t.nth)
             else hits.singleOrNull() ?: hits.filter { it.clickable || it.editable }.singleOrNull()
         // 1.3.0-beta19 (test N, a pattern tap took 10.9 s): the app's own elements answer first. A full look waits for

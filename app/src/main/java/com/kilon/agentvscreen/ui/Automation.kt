@@ -33,6 +33,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Remove
@@ -319,11 +322,25 @@ internal fun LessonsList(tick: Int) {
     val q = query.trim()
     val shown = if (q.isEmpty()) all else all.filter { (p, s) -> lessonMatches(q, s.name, labels[p] ?: p, p, s.steps) }
     fun keyOf(p: String, s: VScreenMap.Segment) = "$p/${s.name}"
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        top.yukonga.miuix.kmp.basic.TextField(value = query, onValueChange = { query = it.take(40) }, modifier = Modifier.weight(1f), singleLine = true,
-            label = tr("搜索名字、应用或步骤", "Search name, app or steps"), useLabelAsPlaceholder = true,
-            trailingIcon = { if (query.isNotEmpty()) Icon(Icons.Filled.Close, tr("清空", "Clear"), Modifier.padding(end = 12.dp).clickable { query = "" }.size(18.dp)) })
-        LinkButton(onClick = { picking = !picking; picked = emptySet() }) { Text(if (picking) tr("取消", "Cancel") else tr("选择", "Select")) }
+    // 1.4.0-beta8 (rainbow: the search box looked off): a slim pill with a search glyph, in the page's own surface
+    // tone (not a tinted block); selecting is an icon at its end.
+    Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.weight(1f).height(42.dp).clip(RoundedCornerShape(50)).background(MiuixTheme.colorScheme.surfaceContainer).padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Search, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Box(Modifier.weight(1f).padding(start = 8.dp), contentAlignment = Alignment.CenterStart) {
+                if (query.isEmpty()) Text(tr("搜索名字、应用或步骤", "Search name, app or steps"), fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                androidx.compose.foundation.text.BasicTextField(value = query, onValueChange = { query = it.take(40) }, singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurface),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(MiuixTheme.colorScheme.primary), modifier = Modifier.fillMaxWidth())
+            }
+            if (query.isNotEmpty()) Icon(Icons.Filled.Close, tr("清空", "Clear"), Modifier.size(18.dp).clip(CircleShape).clickable { query = "" }, tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        }
+        Box(Modifier.size(42.dp).clip(CircleShape).background(if (picking) MiuixTheme.colorScheme.primary.copy(alpha = 0.16f) else MiuixTheme.colorScheme.surfaceContainer)
+            .clickable { picking = !picking; picked = emptySet() }, contentAlignment = Alignment.Center) {
+            Icon(if (picking) Icons.Filled.Close else Icons.Filled.Checklist, if (picking) tr("取消选择", "Cancel") else tr("选择", "Select"), Modifier.size(20.dp),
+                tint = if (picking) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        }
     }
     if (picking) {
         val keys = shown.map { keyOf(it.first, it.second) }.toSet()

@@ -119,8 +119,16 @@ internal object Teach {
     fun recAskId(): Int? = rec?.askId
     fun recordingFor(session: String) = rec?.session == session
 
-    fun start(session: String, purpose: String?, askId: Int?, name: String? = null): Boolean {
+    fun start(session: String, purpose0: String?, askId0: Int?, name0: String? = null): Boolean {
         val id = BackgroundOperation.state.value.displayId ?: return false
+        // 1.4.0-beta8 (test beta6 P0-2: the agent kept getting ASK_PENDING after the user showed it and tapped Done):
+        // a recording started without a request (the page's own record button, used because the request card was in
+        // the way) still answers the agent's open teach request for this screen. A lesson exists to answer the
+        // request in front of the user; one of the user's own only when nobody asked.
+        val bound = if (askId0 != null) null else openRequestFor(session)
+        val askId = askId0 ?: bound?.id
+        val purpose = purpose0 ?: bound?.title
+        val name = name0 ?: bound?.options?.firstOrNull()
         val r = Rec(session, id, purpose, askId, name)
         r.startRead = reader.submit { r.start = read(id) }
         synchronized(this) { rec = r; current = null; result = null }
@@ -143,6 +151,11 @@ internal object Teach {
         val a = _prep.value?.let { UserAsk.byId(it) }?.takeIf { it.live }
         return start(session, a?.title, a?.id, a?.options?.firstOrNull())
     }
+
+    /** The live teach request this screen's lesson answers: the one being prepared for, else the newest for [session]. */
+    internal fun openRequestFor(session: String): UserAsk.Ask? =
+        _prep.value?.let { UserAsk.byId(it) }?.takeIf { it.live && it.kind == UserAsk.Kind.TEACH }
+            ?: UserAsk.liveOf(UserAsk.Kind.TEACH).filter { it.session == session }.maxByOrNull { it.at }
 
     fun cancelPrep() { _prep.value = null; UserAsk.hold(null) }
 

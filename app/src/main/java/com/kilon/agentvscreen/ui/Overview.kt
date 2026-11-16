@@ -179,7 +179,7 @@ fun OverviewTab(bottom: Dp) {
                 if (tasks.isNotEmpty()) {
                     Row(Modifier.fillMaxWidth().padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         SmallTitle(tr("刚才", "Just now"), modifier = Modifier.weight(1f))
-                        LinkButton(onClick = { nav.tab(1) }) { Text(tr("全部记录", "All records")) }
+                        LinkButton(onClick = { nav.tab(TAB_RECORDS) }) { Text(tr("全部记录", "All records")) }
                     }
                     Card(Modifier.padding(horizontal = 12.dp).fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
                         tasks.forEach { t -> TaskRow(t) { nav.go(Route.Task(t.id)) } }
@@ -410,7 +410,7 @@ private fun NextUp(beat: Int, tick: Int) {
             val next = e.pending(System.currentTimeMillis())
             NextCard(tr("预约", "Booked"), next?.let { ServiceControl.hhmm(it) } ?: "--:--", e.spec.describe()) { nav.go(Route.Schedules) }
         }
-        watches.forEach { l -> NextCard(tr("盯守", "Watching"), l.status, l.spec.name) { nav.tab(1) } }
+        watches.forEach { l -> NextCard(tr("盯守", "Watching"), l.status, l.spec.name) { nav.tab(TAB_RECORDS) } }
     }
 }
 

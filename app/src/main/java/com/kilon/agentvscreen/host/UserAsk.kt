@@ -81,6 +81,9 @@ object UserAsk {
         asks.lastOrNull { it.key == key && it.token == token && !(it.used && !it.reusable) }
     }
 
+    /** Live asks of [kind], held or not. */
+    fun liveOf(kind: Kind): List<Ask> = synchronized(lock) { asks.filter { it.kind == kind && it.live } }
+
     fun byId(id: Int): Ask? = synchronized(lock) { asks.firstOrNull { it.id == id } }
 
     /** Put a new question in front of the user. */

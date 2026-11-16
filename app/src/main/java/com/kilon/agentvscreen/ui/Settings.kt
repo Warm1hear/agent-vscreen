@@ -110,10 +110,8 @@ fun SettingsTab(bottom: Dp) {
                     WayLine(w, onClick = { if (i == 0) nav.go(Route.Connect) else nav.go(Route.Remote) })
                 }
                 if (ways.size == 1) WayLine(null, onClick = { nav.go(Route.Remote) })
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PrimaryButton(onClick = { nav.go(Route.Connect) }, modifier = Modifier.weight(1f)) { Text(tr("接入新的 agent", "Connect an agent")) }
-                    SoftButton(onClick = { nav.go(Route.Tokens) }) { Text(tr("令牌 ${tokens.size}", "Tokens ${tokens.size}")) }
-                }
+                // 1.4.0-beta8: connecting an agent is the 接入 tab now; here only the tokens.
+                SoftButton(onClick = { nav.go(Route.Tokens) }, modifier = Modifier.fillMaxWidth()) { Text(tr("令牌 ${tokens.size}", "Tokens ${tokens.size}")) }
             }
         }
 

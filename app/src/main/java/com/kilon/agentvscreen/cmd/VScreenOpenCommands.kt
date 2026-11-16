@@ -149,8 +149,10 @@ internal fun VScreenOffloadHandler.handoffSkip(): Set<String> =
 internal fun VScreenOffloadHandler.handoffCmd(sid: String?, args: OffloadArgs): NativeOffloadResult {
     val s = sid ?: throw ActionError("NO_SESSION", tr("没有会话（请求头 X-VScreen-Session）", "No session (header X-VScreen-Session)"))
     return when (val op = args.positional.getOrNull(0)) {
-        "in" -> handoffIn(s, args.positional.getOrNull(1))
-        "out" -> handoffOut(s, args.positional.getOrNull(1), args.get("note"))
+        // 1.4.0-beta8 (test: `handoff out 时钟` said no task, the package name worked; launch takes names): an app is
+        // named the same way in every command, by its name or its package.
+        "in" -> handoffIn(s, args.positional.getOrNull(1)?.let { VScreenKnowledge.resolveApp(it) ?: it })
+        "out" -> handoffOut(s, args.positional.getOrNull(1)?.let { VScreenKnowledge.resolveApp(it) ?: it }, args.get("note"))
         else -> {
             val skip = handoffSkip()
             val main = VScreenHandoff.tasksOn(0)

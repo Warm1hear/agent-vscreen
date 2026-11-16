@@ -1,5 +1,6 @@
 package com.kilon.agentvscreen.ui
 
+import androidx.compose.material.icons.outlined.AddLink
 import top.yukonga.miuix.kmp.basic.Icon
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -121,7 +122,8 @@ interface AppHost {
 /** Moving between pages. */
 @Stable
 class Nav(val stack: NavBackStack, private val selectTab: (Int) -> Unit) {
-    fun go(r: Route) { if (r !in stack) stack.add(r) }
+    /** 1.4.0-beta8: 接入 is a tab of its own (rainbow: the way in was too deep); its old route opens the tab. */
+    fun go(r: Route) { if (r == Route.Connect) { tab(TAB_CONNECT); return }; if (r !in stack) stack.add(r) }
     fun back() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
     /** Back to the main tabs, on tab [i]. */
     fun tab(i: Int) { while (stack.size > 1) stack.removeAt(stack.lastIndex); selectTab(i) }
@@ -140,6 +142,9 @@ class AppState {
     fun bump() { tick++ }
 }
 
+const val TAB_CONNECT = 1
+const val TAB_RECORDS = 2
+
 val LocalHost = staticCompositionLocalOf<AppHost> { error("no host") }
 val LocalNav = staticCompositionLocalOf<Nav> { error("no nav") }
 val LocalApp = staticCompositionLocalOf<AppState> { error("no state") }
@@ -157,7 +162,7 @@ fun AppRoot(host: AppHost, firstPage: Route?, snack: SnackbarHostState, firstTab
             delay(2_000)
         }
     }
-    val pager = rememberPagerState(initialPage = firstTab, pageCount = { 3 })
+    val pager = rememberPagerState(initialPage = firstTab, pageCount = { 4 })
     val scope = rememberCoroutineScope()
     val stack = rememberNavBackStack<Route>(Route.Main)
     val nav = remember(stack) { Nav(stack) { i -> scope.launch { pager.animateScrollToPage(i) } } }
@@ -193,8 +198,9 @@ private fun MainTabs(pager: androidx.compose.foundation.pager.PagerState) {
     val app = LocalApp.current
     val tabs = listOf(
         Triple(tr("现在", "Now"), MiuixIcons.Home, 0),
-        Triple(tr("记录", "Records"), MiuixIcons.Recent, 1),
-        Triple(tr("设置", "Settings"), MiuixIcons.Settings, 2),
+        Triple(tr("接入", "Connect"), androidx.compose.material.icons.Icons.Outlined.AddLink, TAB_CONNECT),
+        Triple(tr("记录", "Records"), MiuixIcons.Recent, TAB_RECORDS),
+        Triple(tr("设置", "Settings"), MiuixIcons.Settings, 3),
     )
     Scaffold(
         bottomBar = {
@@ -226,7 +232,8 @@ private fun MainTabs(pager: androidx.compose.foundation.pager.PagerState) {
                 val bottom = pad.calculateBottomPadding()
                 when (page) {
                     0 -> OverviewTab(bottom)
-                    1 -> RecordsTab(bottom)
+                    TAB_CONNECT -> ConnectPage(tab = true, bottom = bottom)
+                    TAB_RECORDS -> RecordsTab(bottom)
                     else -> SettingsTab(bottom)
                 }
             }

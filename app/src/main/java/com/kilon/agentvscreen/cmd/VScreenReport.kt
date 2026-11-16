@@ -213,7 +213,16 @@ internal fun mergeElements(d: VScreenDisplay, a11y: List<El>, ocr: List<VScreenO
         val label = a11y.filter { c -> c !== w && c.kind == ElKind.TEXT && !c.editable && w.box.contains(c.box.centerX(), c.box.centerY()) && area(c.box) < area(w.box) }
             .filter { c -> val cn = VScreenOcr.norm(c.text); cn.isNotEmpty() && (w.kind == ElKind.NO_TEXT || (wn != cn && wn.startsWith(cn))) }
         // A wrapper with several labels (a whole list row) stays out of this: only a single label is its name.
-        val one = label.singleOrNull() ?: continue
+        // 1.4.0-beta8 (test: 计时器 still twice, "计时器" and "O · 计时器" 37 px apart): the label need not sit inside
+        // the wrapper's box. A wordless wrapper whose drawn words, glyphs aside, are exactly what one overlapping
+        // element with words says is that element's place too.
+        val one = label.singleOrNull() ?: run {
+            if (w.kind != ElKind.NO_TEXT || label.isNotEmpty()) return@run null
+            val drawn = items.filter { it !in usedOcr && w.box.contains(it.box.centerX(), it.box.centerY()) }
+            val words = drawn.map { VScreenOcr.norm(it.text) }.filter { it.length > 1 }
+            if (words.size != 1) return@run null
+            a11y.filter { c -> c !== w && c.kind == ElKind.TEXT && !c.editable && VScreenOcr.norm(c.text) == words[0] && Rect.intersects(w.box, c.box) }.singleOrNull()
+        } ?: continue
         dropped += w
         if (w.clickable) tappable += one
         items.filter { it !in usedOcr && w.box.contains(it.box.centerX(), it.box.centerY()) && VScreenOcr.norm(it.text).length <= 1 }.forEach { usedOcr += it }

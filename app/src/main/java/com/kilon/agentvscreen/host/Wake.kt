@@ -72,7 +72,8 @@ object Wake {
             if (date != null) return tr("仅 ${date.monthValue}-${date.dayOfMonth} ", "only on ${date.monthValue}-${date.dayOfMonth} ") + times.joinToString(",") { "%02d:%02d".format(it / 60, it % 60) } + tr("（一次）", " (once)")
             val dayText = when (days) {
                 0x7F -> tr("每天", "daily"); 0x1F -> tr("工作日", "weekdays"); 0x60 -> tr("周末", "weekends")
-                else -> DayOfWeek.entries.filter { runsOn(it) }.joinToString(",") { it.name.take(3).lowercase() }
+                // 1.4.0-beta8: named days read like the other kinds (were left as "mon,wed,fri").
+                else -> DayOfWeek.entries.filter { runsOn(it) }.joinToString(tr("、", ",")) { tr("周" + "一二三四五六日"[it.ordinal], it.name.take(3).lowercase()) }
             }
             fun hm(m: Int) = "%02d:%02d".format(m / 60, m % 60)
             return if (everyMin > 0) "$dayText " + tr("每 ${everyMin} 分钟", "every $everyMin min") + (if (fromMin > 0 || toMin < 1440) " ${hm(fromMin)}–${hm(toMin)}" else "")

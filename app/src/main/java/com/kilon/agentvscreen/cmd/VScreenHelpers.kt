@@ -147,7 +147,11 @@ internal fun entriesOf(items: List<VScreenOcr.Item>): List<String> {
  */
 internal fun entriesOfEls(els: List<El>, screenW: Int, screenH: Int, fixed: List<Rect> = emptyList()): List<Pair<String, Rect>> {
     fun isFixed(e: El) = fixed.any { f -> Math.abs(f.centerX() - e.box.centerX()) <= 16 && Math.abs(f.centerY() - e.box.centerY()) <= 16 }
-    val live = els.filter { !isFixed(it) && (it.kind == ElKind.TEXT && it.text.isNotBlank()) }
+    // 1.4.0-beta8 (test: a settings list began with "搜索设置项 · 语音搜索"): an input box and what sits inside it (its
+    // hint, its mic button) are a control, not content.
+    val inputs = els.filter { it.editable || it.placeholder }.map { it.box }
+    fun inInput(e: El) = e.editable || e.placeholder || inputs.any { it.contains(e.box.centerX(), e.box.centerY()) }
+    val live = els.filter { !isFixed(it) && (it.kind == ElKind.TEXT && it.text.isNotBlank()) && !inInput(it) }
     val area = screenW.toLong() * screenH
     val cards = live.filter { it.fromA11y && it.clickable && it.box.width().toLong() * it.box.height() in (area / 60)..(area / 2) }
         .sortedByDescending { it.box.width().toLong() * it.box.height() }
@@ -176,7 +180,9 @@ internal fun entriesOfEls(els: List<El>, screenW: Int, screenH: Int, fixed: List
         open.forEach { out += it.sb.toString() to it.box }
     }
     val row = maxOf(16, screenH / 120)
-    return out.sortedWith(compareBy({ it.second.top / row }, { it.second.left }))
+    // 1.4.0-beta8 (test: entries "281", "373", "60%"): a lone number with no words names nothing; it stays only as part
+    // of an entry that has words.
+    return out.filter { (t, _) -> t.any { it.isLetter() } }.sortedWith(compareBy({ it.second.top / row }, { it.second.left }))
 }
 
 /**
