@@ -1,5 +1,6 @@
 package com.kilon.agentvscreen.ui
 
+import top.yukonga.miuix.kmp.basic.Text
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -81,7 +82,7 @@ fun SetupFlowPage() {
                     Text(tr("都配好了", "All set"), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                     Text(if (skipped.isEmpty()) tr("现在可以去接入 agent。", "You can connect an agent now.") else tr("跳过的可选项在下面的列表里，随时能补上。", "Skipped optional items are in the list below; add them any time."),
                         fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, textAlign = TextAlign.Center)
-                    Button(onClick = { nav.back(); nav.go(Route.Connect) }, modifier = Modifier.fillMaxWidth(), color = MiuixTheme.colorScheme.primary) {
+                    PrimaryButton(onClick = { nav.back(); nav.go(Route.Connect) }, modifier = Modifier.fillMaxWidth(), color = MiuixTheme.colorScheme.primary) {
                         Text(tr("接入 agent", "Connect an agent"), color = MiuixTheme.colorScheme.onPrimary)
                     }
                 } else {
@@ -115,10 +116,10 @@ fun SetupFlowPage() {
                             })
                         }
                     }
-                    Button(onClick = act, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 6.dp), color = MiuixTheme.colorScheme.primary) {
+                    PrimaryButton(onClick = act, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 6.dp), color = MiuixTheme.colorScheme.primary) {
                         Text(label, color = MiuixTheme.colorScheme.onPrimary)
                     }
-                    if (step.key in OPTIONAL) TextButton(onClick = { skipped += step.key }) { Text(tr("跳过这一步", "Skip this step")) }
+                    if (step.key in OPTIONAL) LinkButton(onClick = { skipped += step.key }) { Text(tr("跳过这一步", "Skip this step")) }
                     if (step.key == "accessibility" && ready) Text(tr("无障碍只能由你在系统设置里打开。", "Only you can turn accessibility on, in system settings."),
                         fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }

@@ -64,7 +64,7 @@ internal object CommandSpec {
         if (a.get("keep") != null || a.get("save") != null) return false
         val body = a.positional.joinToString(" ").trim()
         if (body.isEmpty()) return true
-        return runCatching { Steps.parseAll(body).all { it.kind == "wait" || it.kind == "sleep" } }.getOrDefault(false)
+        return runCatching { Steps.parseAll(body).all { it.kind == StepKind.WAIT || it.kind == StepKind.SLEEP } }.getOrDefault(false)
     }
 
     private val ASYNC = Opt("async", Kind.SWITCH, null, null,
@@ -318,45 +318,34 @@ internal object CommandSpec {
     }
 
     /** `help` (short). */
-    fun quickHelp(): String = tr(
-        "vscreen — Agent-VScreen：在看不见的副屏里操作应用，不占用户主屏（完整说明：help all；单条：help act；代码表：help codes）\n" +
-            "  launch 应用名            打开应用，返回四段（做了什么 / 这段时间 / 现在 / 注意）\n" +
-            "  act \"步骤; 步骤; …\"      做一段操作，返回四段；act 不带步骤 = 看一眼\n" +
-            "        步骤：tap 目标 | press 目标 | swipe x1 y1 x2 y2 | drag x1 y1 x2 y2 … | scroll down | type 文字 | key back | wait 条件 | use 段名 | try 一步 | if 条件 { … } else { … } | repeat 3 { … } | repeat { … } until 条件\n" +
-            "        目标：x y | #N（【现在】列表的编号）| 画面上的字；动作后可加 until 条件（text:字 gone:字 change still stable color:x,y=#RRGGBB app:名）\n" +
-            "        --stop 条件  --watch 2s  --fast  --bare  --keep notify|wake  --save 段名  --async\n" +
-            "  note [文字] | note before|after \"步骤\" | note save 段名 \"步骤\" | note show 段名 | note delete 编号|段名\n" +
-            "  keep | keep off 名字      查看 / 停止本轮之后的盯守\n" +
-            "  events [--wait 30s]       取盯守（--keep wake）发来的事件\n" +
-            "  task [任务号]             查看 --async 开始的任务\n" +
-            "  ask \"问题\" [--area|--choose \"甲|乙\"|--text]  在手机上问用户；默认让用户在副屏画面上点出你要找的东西\n" +
-            "  teach \"要演示什么\" [--name 名字]  请用户在副屏上亲手做一遍，存成段，之后 use 名字 照做\n" +
-            "  schedule \"07:00\" | schedule off 名字  预约定时任务要用手机的时间（到点前拉起并检查）\n" +
-            "  title 文字 | done         告诉用户你在做什么（悬浮窗上显示）| 这一轮做完了（副屏让出，页面保留）\n" +
-            "  look [区域 | --last 30s] [--detail high]  要图：现在的画面 / 放大一块 / 回看录像（每次最多 8 张，旧写法 zoom、frames）\n" +
-            "  stop | release | handoff in|out | status | apps 关键词 | spots | zoom 区域 | collect | fix | diag\n" +
-            "成功与否看退出码 / ok：0 整段按预期做完；1 停在某一步或被拒绝（【注意】里的代码说明原因，help codes 查怎么办）；2 命令写错。\n" +
+    /** Commands kept only as old forms of another (listed once, at the end of the quick help). */
+    private val OLD_FORMS = mapOf("zoom" to "look x1,y1,x2,y2", "frames" to "look --last …")
+
+    /**
+     * `help` (short). 1.4.0-beta2: generated from the command table and the step / condition kinds, so a new command,
+     * option, step or condition is in it without anyone remembering to add a line.
+     */
+    fun quickHelp(): String = buildString {
+        append(tr("vscreen — Agent-VScreen：在看不见的副屏里操作应用，不占用户主屏（完整说明：help all；单条：help act；代码表：help codes）",
+            "vscreen — Agent-VScreen: operate apps on an invisible background screen without taking the user's screen (full guide: help all; one command: help act; codes: help codes)")).append('\n')
+        for (c in commands) {
+            if (c.name in OLD_FORMS) continue
+            val use = (c.name + " " + c.positional).trim()
+            append("  ").append(use.padEnd(24)).append("  ").append(c.summary.substringBefore(tr("。", ". ")).trimEnd('.', '。')).append('\n')
+            if (c.name == "act") {
+                append(tr("        步骤：", "        steps: ")).append(Steps.STEPS_HELP).append('\n')
+                append(tr("        目标：x y | #N（【现在】列表的编号）| 画面上的字；动作后可加 until 条件：", "        target: x y | #N (number in the [Now] list) | text on the screen; after an action add until <condition>: ")).append(Steps.CONDS_HELP).append('\n')
+                append("        ").append(c.allOpts.filter { !it.deprecated }.joinToString("  ") { it.usage() }).append('\n')
+            }
+        }
+        append(tr("  旧写法：", "  old forms: ")).append(OLD_FORMS.entries.joinToString(tr("；", "; ")) { "${it.key} = ${it.value}" }).append('\n')
+        append(tr("成功与否看退出码 / ok：0 整段按预期做完；1 停在某一步或被拒绝（【注意】里的代码说明原因，help codes 查怎么办）；2 命令写错。\n" +
             "一步没达到预期（until 没等到、字没输进去、找不到或有歧义）这段就停在那一步，后面的不做，【注意】里写明现在的画面。\n" +
             "输出很长时完整结果也存在截图目录的 last.txt（路径见 help all），可以用 head / sed 分段看。",
-        "vscreen — Agent-VScreen: operate apps on an invisible background screen without taking the user's screen (full guide: help all; one command: help act; codes: help codes)\n" +
-            "  launch <app>              open an app, returns four blocks (Done / Meanwhile / Now / Notes)\n" +
-            "  act \"step; step; …\"       do a stretch of steps, returns four blocks; act with no steps = take a look\n" +
-            "        steps: tap <target> | press <target> | swipe x1 y1 x2 y2 | drag x1 y1 x2 y2 … | scroll down | type <text> | key back | wait <condition> | use <segment> | try <step> | if <cond> { … } else { … } | repeat 3 { … } | repeat { … } until <cond>\n" +
-            "        target: x y | #N (number in the [Now] list) | text on the screen; after an action add until <condition> (text:word gone:word change still stable color:x,y=#RRGGBB app:name)\n" +
-            "        --stop <condition>  --watch 2s  --fast  --bare  --human  --keep notify|wake  --save <segment>  --async\n" +
-            "  note [text] | note before|after \"steps\" | note save <segment> \"steps\" | note show <segment> | note delete <number|segment>\n" +
-            "  keep | keep off <name>    list / stop watches that run after this turn\n" +
-            "  events [--wait 30s]       fetch events sent by watches (--keep wake)\n" +
-            "  task [id]                 look at tasks started with --async\n" +
-            "  ask \"question\" [--area|--choose \"A|B\"|--text]  ask the user on the phone; by default the user taps what you mean on the screen's picture\n" +
-            "  teach \"what to show\" [--name name]  the user does it once on the screen; saved as a segment you run with use <name>\n" +
-            "  schedule \"07:00\" | schedule off <name>  book when a timed task will use the phone (started and checked before)\n" +
-            "  title <text> | done       tell the user what you are doing (shown on the floating window) | this turn is finished (screen freed, page kept)\n" +
-            "  look [region | --last 30s] [--detail high]  pictures: the screen now / a region / the recording (at most 8 a reply; old forms zoom, frames)\n" +
-            "  stop | release | handoff in|out | status | apps <keyword> | spots | zoom <region> | collect | fix | diag\n" +
             "Success is in the exit code / ok: 0 the whole stretch went as expected; 1 it stopped at a step or was refused (the code in [Notes] says why, help codes says what to do); 2 the command was written wrong.\n" +
             "If a step does not reach what it expects (until never came, text was not typed in, not found or ambiguous), the stretch stops at that step, skips the rest, and [Notes] describes the screen now.\n" +
-            "When output is long, the full result is also saved as last.txt in the screenshot folder (path in help all); read it in parts with head / sed.")
+            "When output is long, the full result is also saved as last.txt in the screenshot folder (path in help all); read it in parts with head / sed."))
+    }
 
     /** `help <command>`; null when there is no such command. */
     fun helpFor(name: String): String? = of(name)?.help()?.joinToString("\n")

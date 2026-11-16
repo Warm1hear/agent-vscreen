@@ -130,23 +130,23 @@ internal object Report {
 internal fun a11yRaw(d: VScreenDisplay): List<El> {
     val raw = ArrayList<El>()
     val screenArea = d.width.toLong() * d.height
-    var seen = 0
     // 1.1: a clickable container with no words of its own (a list row, a card, a search box drawn by the app) takes the
     // words of the plain text nodes inside it, and those nodes are not listed again: one line per thing a person
     // would tap, with the words they would read on it. A wordless node is listed only when it is small (an icon
     // button); big wordless wrappers are layout, not targets. Its view id (stable across rotating placeholder
     // words) is shown when the app gives one.
-    fun walk(n: AccessibilityNodeInfo?, depth: Int) {
-        if (n == null || depth > 50 || seen++ > 3_000 || raw.size > 400) return
-        val visible = n.isVisibleToUser
-        val text = if (visible) (n.text ?: n.contentDescription)?.toString()?.replace('\n', ' ')?.trim()?.takeIf { it.isNotEmpty() && !isJunkLabel(it) } else null
+    fun walk(node: com.kilon.agentvscreen.core.A11yTree.Node) {
+        if (raw.size > 400) return
+        val n = node.info
+        val visible = node.visible
+        val text = if (visible) node.words?.takeIf { !isJunkLabel(it) } else null
         val actionable = n.isClickable || n.isEditable || n.isCheckable || n.isScrollable
-        val b = Rect().also { n.getBoundsInScreen(it) }
+        val b = node.box
         val inside = visible && b.width() > 0 && b.height() > 0 && b.centerX() in 0 until d.width && b.centerY() in 0 until d.height
         val area = b.width().toLong() * b.height()
         val big = area > screenArea / 4
         val start = raw.size
-        for (i in 0 until n.childCount) walk(runCatching { n.getChild(i) }.getOrNull(), depth + 1)
+        node.children.forEach { walk(it) }
         if (!inside || !(text != null || (actionable && !big) || n.isEditable)) return
         var words: Pair<ElKind, String>? = text?.let { tidy(it) }
         if (words == null && !n.isEditable && (n.isClickable || n.isCheckable)) {
@@ -169,7 +169,7 @@ internal fun a11yRaw(d: VScreenDisplay): List<El> {
             clickable = n.isClickable, editable = n.isEditable, scrollable = n.isScrollable,
             checked = if (n.isCheckable) n.isChecked else null, focused = n.isFocused, password = n.isPassword, kind = kind, hint = hint))
     }
-    BackgroundOperation.nodeRoots(d.displayId).forEach { walk(it, 0) }
+    com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).roots.forEach { walk(it) }
     // Same element at (nearly) the same place: once.
     val out = ArrayList<El>()
     for (r in raw) if (out.none { it.key == r.key && Math.abs(it.box.centerX() - r.box.centerX()) <= 20 && Math.abs(it.box.centerY() - r.box.centerY()) <= 20 }) out += r
@@ -291,7 +291,7 @@ private fun samePicture(a: Bitmap, b: Bitmap, mask: com.kilon.agentvscreen.core.
     if (a === b) return true
     val x = VScreenPerception.small(a); val y = VScreenPerception.small(b)
     // 1.3: a playing area (video, carousel) does not make the page "still changing": it is not read again for it.
-    return try { x.width == y.width && x.height == y.height && com.kilon.agentvscreen.core.VPixels.regionDiff(x, y, Rect(0, 0, x.width, x.height), mask?.rectsIn(x.width, x.height).orEmpty()) in 0.0..0.002 }
+    return try { com.kilon.agentvscreen.core.Change.same(x, y, com.kilon.agentvscreen.core.Change.Level.SETTLED, skip = mask?.rectsIn(x.width, x.height).orEmpty()) }
     finally { x.recycle(); y.recycle() }
 }
 

@@ -38,7 +38,10 @@ object Abilities {
         val howZh: String, val howEn: String,
         /** The commands this ability is made of (each command belongs to exactly one ability). */
         val commands: List<String>,
+        /** What changed for agents in [changed], one line (the update notice); empty = nothing to say beyond the new note. */
+        val newsZh: String = "", val newsEn: String = "",
     ) {
+        val news: String get() = tr(newsZh, newsEn)
         val whenText: String get() = tr(whenZh, whenEn)
         val can: String get() = tr(canZh, canEn)
         val how: String get() = tr(howZh, howEn)
@@ -109,7 +112,9 @@ object Abilities {
             "`vscreen handoff out` puts the app on the user's screen with what to do; `vscreen handoff in` takes the app from the user's screen",
             "`vscreen handoff out --note \"请输入验证码\"` 把应用交到主屏，用户做完你再 `handoff in` 或重新 launch。`handoff in` 要用户在手机上确认。用户正在主屏用的应用，launch 会返回 APP_IN_USE：先 `vscreen ask` 问用户，同意了再 `launch 应用 --asked`（另开一份）或 `handoff in`（接着他的页面）。用户在主屏打开了你正在用的应用，它就交给用户：动作返回 APP_WITH_USER，`vscreen events --wait` 等 handback 再继续。",
             "`vscreen handoff out --note \"enter the code\"` puts the app on the main screen; when the user is done, `handoff in` or launch again. `handoff in` is confirmed by the user on the phone. For an app the user is using on the main screen, launch returns APP_IN_USE: ask with `vscreen ask` first, then `launch <app> --asked` (a separate copy) or `handoff in` (from their page) once they agree. When the user opens the app you are using on the main screen, it is theirs: actions return APP_WITH_USER; wait for handback with `vscreen events --wait` before going on.",
-            listOf("handoff")),
+            listOf("handoff"),
+            "用户正在主屏用的应用，launch 返回 APP_IN_USE：先问用户，同意后加 --asked 或用 handoff in。用户在主屏打开你正在用的应用时它交给用户：动作返回 APP_WITH_USER、事件 handover；交回时有 handback 事件，先看画面再继续。",
+            "For an app the user is using on the main screen, launch returns APP_IN_USE: ask the user, then add --asked or use handoff in. When the user opens the app you are using on the main screen it is theirs: actions return APP_WITH_USER and a handover event comes; a handback event comes when they hand it back: look first, then go on."),
         Ability("look", 1, 35,
             "画面上的字太小、是图标，或者根本没有字（游戏、画布、图表），或想回看刚才发生了什么",
             "the text is too small or an icon, or there is no text at all (games, canvas, charts), or I need to see what just happened",
@@ -117,15 +122,19 @@ object Abilities {
             "`vscreen look` asks for pictures: the screen now, a region up close, or the recording; `vscreen spots` finds tappable color patches",
             "回执只在画面变了或出错时附一张压缩图；要看就 `vscreen look`（`--detail high` 更清楚）；`vscreen look x1,y1,x2,y2` 放大一块；`vscreen look --last 30s` 回看（`--every 0.3s` 更密，`--from 14:03:10` 指定时间，`--layout single|strip|grid 3x4` 排法，`--marks off` 去标注，超过 8 张用 `--page 2`）；`vscreen spots` 找色块（`--color` 只找一种颜色）（本地，不调模型）。zoom、frames 是 look 的旧写法。",
             "Replies attach one compact picture only when the screen changed or something failed; to see it, `vscreen look` (`--detail high` for clearer); `vscreen look x1,y1,x2,y2` zooms into a region; `vscreen look --last 30s` replays (`--every 0.3s` denser, `--from 14:03:10` a given time, `--layout single|strip|grid 3x4`, `--marks off`, `--page 2` past 8 pictures); `vscreen spots` finds color patches (`--color` for one color) (local, no model). zoom and frames are old forms of look.",
-            listOf("look", "zoom", "spots", "frames")),
-        Ability("trouble", 1, 34,
+            listOf("look", "zoom", "spots", "frames"),
+            "新命令 look 主动要图（现在的画面、放大一块、回看录像），--detail low|normal|high、--layout、--marks off、--page，每次最多 8 张、约 3 MB；zoom、frames 是它的旧写法。MCP 和直接读图的接入方式只在画面和你上一张不同或出错时附一张压缩图，否则写“没附图”，要看就 look。",
+            "New command look asks for pictures (the screen now, a region, the recording) with --detail low|normal|high, --layout, --marks off, --page; at most 8 pictures, about 3 MB a reply; zoom and frames are old forms of it. Over MCP and clients that read images directly, one compact picture comes only when the screen differs from your last picture or something failed; otherwise the reply says none was attached: look shows it."),
+        Ability("trouble", 1, 35,
             "连不上手机、命令一直失败或出了怪问题",
             "the phone cannot be reached, commands keep failing, or something odd happens",
             "`vscreen status` 看状态，`vscreen fix` 修，`vscreen diag` 导出诊断",
             "`vscreen status` shows the state, `vscreen fix` repairs, `vscreen diag` exports diagnostics",
             "`vscreen status`（ready、readiness.blocking、remote.user_action 说明要用户做什么），`vscreen fix` 按提示修（改系统设置的步骤手机上会问用户），`vscreen diag` 导出诊断交给开发者。",
             "`vscreen status` (ready, readiness.blocking, remote.user_action say what the user must do), `vscreen fix` repairs what it can (steps that change system settings ask the user), `vscreen diag` exports diagnostics for the developer.",
-            listOf("status", "fix", "diag")),
+            listOf("status", "fix", "diag"),
+            "文字识别失败时回执写 OCR_DOWN：那时元素只来自无障碍，以截图为准；vscreen diag 里有文字识别自检。",
+            "When text recognition fails the reply says OCR_DOWN: elements then come from accessibility only; trust the screenshot. vscreen diag has a text recognition self-test."),
     )
 
     /** Which ability a command belongs to (null = not disclosed: AbilitiesTest fails on that). */

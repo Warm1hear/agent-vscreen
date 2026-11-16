@@ -146,27 +146,9 @@ internal object VPixels {
 
     private fun region(e: Expect, r: Rect, before: Bitmap?, after: Bitmap, change: Boolean): Outcome {
         if (before == null) return Outcome(e, null, tr("没有动作前的画面可比", "no picture from before the action to compare"))
-        val f = regionDiff(before, after, r)
+        val f = Change.ratio(before, after, r)
         if (f < 0) return Outcome(e, null, tr("区域不在画面里", "the region is outside the picture"))
-        return Outcome(e, if (change) f > 0.08 else f < 0.03, tr("区域里 ${(f * 100).roundToInt()}% 的像素变了", "${(f * 100).roundToInt()}% of the pixels in the region changed"))
-    }
-
-    /** Share of sampled pixels in [r0] that differ noticeably between two same-size frames; -1 = cannot compare. */
-    fun regionDiff(a: Bitmap, b: Bitmap, r0: Rect, skip: List<Rect> = emptyList()): Double {
-        if (a.width != b.width || a.height != b.height) return -1.0
-        val r = clip(r0, a.width, a.height)
-        if (r.width() <= 0 || r.height() <= 0) return -1.0
-        var n = 0; var diff = 0
-        var y = r.top
-        while (y < r.bottom) {
-            var x = r.left
-            while (x < r.right) {
-                if (skip.isEmpty() || skip.none { it.contains(x, y) }) { n++; if (dist(a.getPixel(x, y), b.getPixel(x, y)) > 40) diff++ }
-                x += 2
-            }
-            y += 2
-        }
-        return if (n == 0) -1.0 else diff.toDouble() / n
+        return Outcome(e, if (change) f > Change.REGION_CHANGED else f < Change.REGION_SAME, tr("区域里 ${(f * 100).roundToInt()}% 的像素变了", "${(f * 100).roundToInt()}% of the pixels in the region changed"))
     }
 
     fun hex(c: Int) = String.format("#%06X", c and 0xFFFFFF)

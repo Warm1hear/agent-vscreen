@@ -204,10 +204,7 @@ class VScreenOffloadHandler(internal val context: Context) : NativeOffloadHandle
     internal fun enforceRules(sub: String) {
         if (VScreenStore.rules.value.isEmpty() || sub in RULE_FREE) return
         val id = BackgroundOperation.state.value.displayId ?: return
-        val pkg = com.kilon.agentvscreen.core.VScreenShell.topPackage(id) ?: return
-        if (VScreenStore.ruleFor(pkg) == VScreenStore.Rule.BLOCK)
-            throw ActionError("APP_BLOCKED", tr("副屏上现在是 $pkg，用户禁止后台操作它（不能读屏也不能操作）：act \"key back\" 离开或 stop。这是用户在 Agent-VScreen › 应用限制 里定的，不要绕过",
-                "The screen now shows $pkg, which the user blocked from background operation (no reading, no actions): leave with act \"key back\" or stop. The user set this in Agent-VScreen › App rules; don't get around it"))
+        com.kilon.agentvscreen.core.Guard.require(com.kilon.agentvscreen.core.Guard.Act.READ, com.kilon.agentvscreen.core.VScreenShell.topPackage(id))
     }
 
     internal fun dispatch(sub: String, args: OffloadArgs, sid: String?): NativeOffloadResult = when (sub) {

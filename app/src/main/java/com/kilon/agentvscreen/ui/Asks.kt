@@ -1,5 +1,7 @@
 package com.kilon.agentvscreen.ui
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Text
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
@@ -16,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -157,25 +158,25 @@ internal fun HomeAskCard(a: UserAsk.Ask, count: Int) {
             AskMark(26f)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(AskWords.who(a), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                Text(AskWords.who(a), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MiuixTheme.colorScheme.primary)
                 Text(tr("会话 ${a.session} · 还剩 ${AskWords.left(a)}", "Session ${a.session} · ${AskWords.left(a)} left") + if (count > 1) tr(" · 还有 ${count - 1} 个", " · ${count - 1} more") else "",
-                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
         }
         Text(a.title, fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold)
-        if (a.detail.isNotBlank()) Text(a.detail, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (a.detail.isNotBlank()) Text(a.detail, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         when (a.kind) {
             UserAsk.Kind.CONFIRM -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = { AskWords.answer(ctx, a, true) }, modifier = Modifier.weight(1f)) { Text(tr("允许", "Allow")) }
-                OutlinedButton(onClick = { AskWords.answer(ctx, a, false) }, modifier = Modifier.weight(1f)) { Text(tr("拒绝", "Deny")) }
+                PrimaryButton(onClick = { AskWords.answer(ctx, a, true) }, modifier = Modifier.weight(1f)) { Text(tr("允许", "Allow")) }
+                SoftButton(onClick = { AskWords.answer(ctx, a, false) }, modifier = Modifier.weight(1f)) { Text(tr("拒绝", "Deny")) }
             }
             UserAsk.Kind.CHOOSE -> {
                 a.options.forEachIndexed { i, o -> OptionRow(i, o) { AskWords.choose(ctx, a, i) } }
-                TextButton(onClick = { AskWords.answer(ctx, a, false) }, modifier = Modifier.align(Alignment.End)) { Text(tr("都不是 / 不回答", "None / decline")) }
+                LinkButton(onClick = { AskWords.answer(ctx, a, false) }, modifier = Modifier.align(Alignment.End)) { Text(tr("都不是 / 不回答", "None / decline")) }
             }
             else -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = { AskWords.openPage(ctx, a) }, modifier = Modifier.weight(1f)) { Text(AskWords.go(a.kind)) }
-                TextButton(onClick = { AskWords.answer(ctx, a, false) }) { Text(tr("不回答", "Decline")) }
+                PrimaryButton(onClick = { AskWords.openPage(ctx, a) }, modifier = Modifier.weight(1f)) { Text(AskWords.go(a.kind)) }
+                LinkButton(onClick = { AskWords.answer(ctx, a, false) }) { Text(tr("不回答", "Decline")) }
             }
         }
     }
@@ -187,8 +188,8 @@ internal fun OptionRow(i: Int, text: String, selected: Boolean = false, onClick:
     val shape = RoundedCornerShape(16.dp)
     Row(
         Modifier.fillMaxWidth().clip(shape)
-            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f))
-            .border(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, shape)
+            .background(if (selected) MiuixTheme.colorScheme.primaryContainer else MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f))
+            .border(1.dp, if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.dividerLine, shape)
             .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

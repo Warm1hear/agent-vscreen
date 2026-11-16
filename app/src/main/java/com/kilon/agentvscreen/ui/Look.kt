@@ -35,12 +35,12 @@ import com.kilon.agentvscreen.core.BackgroundOperation
 /** Who has the background screen right now, as the user sees it (drives colours, buttons and words). */
 enum class Mode { ACTING, STANDBY, IDLE, TAKEOVER, STOPPED }
 
-fun modeOf(s: BackgroundOperation.State): Mode = when {
-    s.userStopped -> Mode.STOPPED
-    s.takeoverSessionId != null && s.takeoverSessionId == s.ownerSessionId -> Mode.TAKEOVER
-    s.operating -> Mode.ACTING
-    s.idle || s.powerSaving -> Mode.IDLE
-    else -> Mode.STANDBY
+/** 1.4.0-beta2: read from ScreenPhase (the one answer to "what is the screen in"), plus whether an action is running now. */
+fun modeOf(s: BackgroundOperation.State): Mode = when (com.kilon.agentvscreen.core.ScreenPhase.of(s, null)) {
+    com.kilon.agentvscreen.core.ScreenPhase.STOPPED -> Mode.STOPPED
+    com.kilon.agentvscreen.core.ScreenPhase.TAKEN_OVER -> Mode.TAKEOVER
+    com.kilon.agentvscreen.core.ScreenPhase.IDLE, com.kilon.agentvscreen.core.ScreenPhase.PARKED -> Mode.IDLE
+    else -> if (s.operating) Mode.ACTING else Mode.STANDBY
 }
 
 object Palette {

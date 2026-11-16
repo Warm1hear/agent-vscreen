@@ -97,7 +97,7 @@ internal object VScreenOcr {
         val sig = ScreenSig.of(frame) ?: return false
         val old = c.sig ?: return false
         val ch = sig.compare(old)
-        return ch.kind == ScreenSig.Kind.NONE && ch.ratio < 0.004
+        return ch.kind == ScreenSig.Kind.NONE && ch.ratio < Change.Level.STILL.max
     }
 
     /** Average time of an accurate reading on this phone (0 = none yet). */

@@ -24,8 +24,8 @@ class V130Beta4Test {
         assertTrue(AgentNews.since(BuildConfig.VERSION_CODE).isEmpty())
         val all = AgentNews.since(0)
         assertTrue(all.isNotEmpty())
-        assertTrue(all.all { it.code <= BuildConfig.VERSION_CODE })
-        assertTrue(AgentNews.since(15).none { it.code <= 15 })
+        assertTrue(all.all { it.changed <= BuildConfig.VERSION_CODE })
+        assertTrue(AgentNews.since(15).none { it.changed <= 15 })
         assertEquals("1.3.0-beta2", AgentNews.nameOf(16))
     }
 

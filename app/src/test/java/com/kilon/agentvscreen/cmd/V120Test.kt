@@ -47,8 +47,8 @@ class V120Test {
     }
 
     @Test fun theReferenceDocIsGeneratedFromTheTables() {
-        // docs/REFERENCE.md is the command table and the code table, written out. When it is missing this writes it;
-        // otherwise it must match (delete the file and run the tests to regenerate after changing a table).
+        // docs/REFERENCE.md is the command table and the code table, written out. It must match; `./build.sh regen`
+        // (AVS_REGEN=1) rewrites it. A test never writes the source tree otherwise.
         val f = java.io.File("../docs/REFERENCE.md")
         if (f.parentFile?.isDirectory != true) return
         fun part(): String = "## " + com.kilon.agentvscreen.tr("命令", "Commands") + "\n\n" + CommandSpec.markdown() + "## " + com.kilon.agentvscreen.tr("结果代码", "Result codes") + "\n\n" + Codes.markdown() + "\n"
@@ -56,8 +56,8 @@ class V120Test {
         I18n.choice = I18n.Lang.EN; val en = part()
         I18n.choice = I18n.Lang.ZH
         val want = "# Agent-VScreen 命令与代码参考 / Command and code reference\n\n> 由代码里的命令表和代码表生成，不要手改。Generated from the command and code tables in the source; do not edit by hand.\n\n# 中文\n\n" + zh + "\n# English\n\n" + en
-        if (!f.isFile) f.writeText(want)
-        assertEquals("docs/REFERENCE.md is out of date: delete it and run the tests", want, f.readText())
+        if (System.getenv("AVS_REGEN") == "1") f.writeText(want)
+        assertEquals("docs/REFERENCE.md is out of date: ./build.sh regen rewrites it", want, f.readText())
     }
 
     // ── codes and typed results ─────────────────────────────────────────

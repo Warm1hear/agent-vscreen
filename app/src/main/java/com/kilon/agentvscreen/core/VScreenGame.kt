@@ -98,18 +98,6 @@ internal object VScreenGame {
         }.getOrNull()
     }
 
-    /** Share of pixels of region [r] that changed between [a] and [b] (same size frames). -1 = cannot tell. */
-    fun regionDiff(a: Bitmap?, b: Bitmap?, r: Rect): Double {
-        if (a == null || b == null || a.width != b.width || a.height != b.height) return -1.0
-        val s = (64f / maxOf(r.width(), r.height(), 1)).coerceIn(0.05f, 1f)
-        val ga = gray(a, r, s) ?: return -1.0
-        val gb = gray(b, r, s) ?: return -1.0
-        if (ga.second != gb.second || ga.third != gb.third) return -1.0
-        var n = 0
-        for (i in ga.first.indices) if (abs(ga.first[i] - gb.first[i]) > 28) n++
-        return n.toDouble() / ga.first.size
-    }
-
     // ── patch tracking ──────────────────────────────────────────────────────
 
     /** A remembered look of one target: grayscale template at [scale] of [box]. */

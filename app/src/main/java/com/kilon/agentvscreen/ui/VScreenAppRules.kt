@@ -1,5 +1,7 @@
 package com.kilon.agentvscreen.ui
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Text
 import com.kilon.agentvscreen.tr
 
 import android.content.Intent
@@ -15,8 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -65,11 +65,11 @@ fun VScreenAppRules() {
     }
 
     if (rules.isEmpty()) {
-        Text(tr("还没有限制，所有应用都可以操作", "No rules yet: every app can be operated"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(tr("还没有限制，所有应用都可以操作", "No rules yet: every app can be operated"), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     } else {
         rules.entries.sortedBy { labels[it.key] ?: it.key }.forEach { (pkg, rule) ->
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MiuixTheme.colorScheme.surfaceContainerHigh)
                     .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -77,19 +77,19 @@ fun VScreenAppRules() {
                     Text(labels[pkg] ?: pkg, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         "${rule.zh} · $pkg", fontSize = 12.sp,
-                        color = if (rule == VScreenStore.Rule.BLOCK) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (rule == VScreenStore.Rule.BLOCK) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
-                TextButton(onClick = {
+                LinkButton(onClick = {
                     val all = VScreenStore.Rule.values()
                     VScreenStore.setRule(pkg, all[(all.indexOf(rule) + 1) % all.size])
                 }) { Text(tr("换一种", "Change")) }
-                TextButton(onClick = { VScreenStore.setRule(pkg, null) }) { Text(tr("移除", "Remove")) }
+                LinkButton(onClick = { VScreenStore.setRule(pkg, null) }) { Text(tr("移除", "Remove")) }
             }
         }
     }
-    OutlinedButton(onClick = { adding = true }, modifier = Modifier.fillMaxWidth()) { Text(tr("添加应用", "Add app")) }
+    SoftButton(onClick = { adding = true }, modifier = Modifier.fillMaxWidth()) { Text(tr("添加应用", "Add app")) }
 
     if (adding) AddRuleDialog(apps, rules.keys, onDismiss = { adding = false }) { pkg, rule ->
         VScreenStore.setRule(pkg, rule)
@@ -107,16 +107,16 @@ private fun AddRuleDialog(
 ) {
     var query by remember { mutableStateOf("") }
     var picked by remember { mutableStateOf<Pair<String, String>?>(null) }
-    AlertDialog(
+    GlassDialog(
         onDismissRequest = onDismiss,
         title = { Text(picked?.first ?: tr("选择应用", "Choose app")) },
         text = {
             val p = picked
             if (p == null) {
                 Column {
-                    OutlinedTextField(
+                    top.yukonga.miuix.kmp.basic.TextField(
                         value = query, onValueChange = { query = it }, singleLine = true,
-                        placeholder = { Text(tr("搜索名称或包名", "Search name or package")) }, modifier = Modifier.fillMaxWidth(),
+                        label = tr("搜索名称或包名", "Search name or package"), useLabelAsPlaceholder = true, modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
                     val q = query.trim().lowercase()
@@ -124,22 +124,22 @@ private fun AddRuleDialog(
                     LazyColumn(Modifier.fillMaxWidth().height(360.dp)) {
                         items(shown, key = { it.second }) { a ->
                             Column(Modifier.fillMaxWidth().clickable { picked = a }.padding(vertical = 8.dp)) {
-                                Text(a.first, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(a.second, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(a.first, style = MiuixTheme.textStyles.body1, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(a.second, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(p.second, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedButton(onClick = { onPick(p.second, VScreenStore.Rule.BLOCK) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(p.second, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    SoftButton(onClick = { onPick(p.second, VScreenStore.Rule.BLOCK) }, modifier = Modifier.fillMaxWidth()) {
                         Text(tr("禁止操作（不能打开、读屏、操作）", "Blocked (no opening, reading or operating)"))
                     }
-                    OutlinedButton(onClick = { onPick(p.second, VScreenStore.Rule.READONLY) }, modifier = Modifier.fillMaxWidth()) {
+                    SoftButton(onClick = { onPick(p.second, VScreenStore.Rule.READONLY) }, modifier = Modifier.fillMaxWidth()) {
                         Text(tr("只读（能看和滚动，不能点击输入）", "Read-only (look and scroll, no tapping or typing)"))
                     }
-                    OutlinedButton(onClick = { onPick(p.second, VScreenStore.Rule.ASK) }, modifier = Modifier.fillMaxWidth()) {
+                    SoftButton(onClick = { onPick(p.second, VScreenStore.Rule.ASK) }, modifier = Modifier.fillMaxWidth()) {
                         Text(tr("每次询问（操作前在手机上问你）", "Ask every time (asks you on the phone before acting)"))
                     }
                 }
@@ -147,7 +147,7 @@ private fun AddRuleDialog(
         },
         confirmButton = {},
         dismissButton = {
-            TextButton(onClick = { if (picked != null) picked = null else onDismiss() }) { Text(if (picked != null) tr("返回", "Back") else tr("取消", "Cancel")) }
+            LinkButton(onClick = { if (picked != null) picked = null else onDismiss() }) { Text(if (picked != null) tr("返回", "Back") else tr("取消", "Cancel")) }
         },
     )
 }

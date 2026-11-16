@@ -1,5 +1,8 @@
 package com.kilon.agentvscreen.ui
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.Icon
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -70,7 +73,7 @@ fun RecordsTab(bottom: Dp) {
                     title = l.spec.name,
                     summary = l.spec.describe() + " · " + (if (running) l.status + tr(" · 还剩 ${l.json().opt("ends_in_min")} 分钟", " · ${l.json().opt("ends_in_min")} min left") else (l.endReason ?: tr("已结束", "ended"))),
                     endActions = {
-                        TextButton(onClick = { if (running) VScreenRules.stop(l.spec.name) else VScreenRules.clearEnded(l.spec.name); app.bump() }) {
+                        LinkButton(onClick = { if (running) VScreenRules.stop(l.spec.name) else VScreenRules.clearEnded(l.spec.name); app.bump() }) {
                             Text(if (running) tr("停止", "Stop") else tr("清掉", "Clear"))
                         }
                     },
@@ -177,12 +180,12 @@ fun LogPage() {
         Text(tr("谁（哪个令牌、哪台设备）、什么时候、做了什么、结果；输入的文字只记字数。", "Who (token, device), when, what and the result; typed text is recorded as a length only."),
             fontSize = 12.sp, color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
     }
-    if (askClear) AlertDialog(
+    if (askClear) GlassDialog(
         onDismissRequest = { askClear = false },
         title = { DialogTitle(tr("清空操作日志？", "Clear the activity log?")) },
         text = { Text(tr("清掉后无法找回。", "This cannot be undone.")) },
-        confirmButton = { TextButton(onClick = { Audit.clear(); askClear = false; n++ }) { Text(tr("清空", "Clear"), color = Palette.stopped) } },
-        dismissButton = { TextButton(onClick = { askClear = false }) { Text(tr("取消", "Cancel")) } },
+        confirmButton = { LinkButton(onClick = { Audit.clear(); askClear = false; n++ }) { Text(tr("清空", "Clear"), color = Palette.stopped) } },
+        dismissButton = { LinkButton(onClick = { askClear = false }) { Text(tr("取消", "Cancel")) } },
     )
 }
 

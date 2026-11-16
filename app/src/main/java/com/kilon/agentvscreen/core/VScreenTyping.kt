@@ -63,16 +63,9 @@ object VScreenTyping {
         val roots = BackgroundOperation.nodeRoots(displayId)
         roots.firstNotNullOfOrNull { runCatching { it.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }.getOrNull() }
             ?.takeIf { it.isEditable }?.let { return it }
-        val edits = ArrayList<AccessibilityNodeInfo>()
-        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
-            if (n == null || depth > 50 || edits.size > 16) return
-            if (n.isVisibleToUser && n.isEditable) edits += n
-            for (i in 0 until n.childCount) walk(runCatching { n.getChild(i) }.getOrNull(), depth + 1)
-        }
-        roots.forEach { walk(it, 0) }
-        edits.firstOrNull { it.isFocused }?.let { return it }
-        if (at != null) return edits.filter { e -> Rect().also { e.getBoundsInScreen(it) }.let { r -> r.contains(at.first, at.second) } }
-            .minByOrNull { e -> Rect().also { e.getBoundsInScreen(it) }.let { r -> r.width().toLong() * r.height() } }
+        val edits = A11yTree.snapshot(displayId).editables()
+        edits.firstOrNull { it.focused }?.let { return it.info }
+        if (at != null) return edits.filter { it.box.contains(at.first, at.second) }.minByOrNull { it.box.width().toLong() * it.box.height() }?.info
         return null
     }
 

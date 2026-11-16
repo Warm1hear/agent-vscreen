@@ -113,7 +113,8 @@ object BackgroundOperation {
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
-    @Volatile private var appContext: Context? = null
+    @Volatile internal var appContext: Context? = null
+        private set
     private lateinit var prefs: SharedPreferences
     private val lock = Any()
     @Volatile private var display: VScreenDisplay? = null
@@ -923,11 +924,7 @@ object BackgroundOperation {
         waitWhileTakenOver(sid)
         // 1.4.0-beta2: the app this session was working on is with the user on the main screen. Whatever is under it
         // on the background screen now is not what the agent planned for: refuse, never act on it.
-        if (!isRead && !freshPage) VScreenOwnership.blocking(sid)?.let { g ->
-            val app = appContext?.let { VScreenOwnership.label(it, g.pkg) } ?: g.pkg
-            throw ActionError("APP_WITH_USER", tr("$app 现在在用户手上（${when (g.why) { "user" -> "用户在主屏打开了它"; "ours" -> "你的上一步让它跑到了主屏，handoff in 可以拿回"; else -> "你把它交给了用户" }}），副屏上已经没有它，动作没有执行。等用户交回（vscreen events --wait 收 handback），或 launch 别的应用去做别的事",
-                "$app is with the user now (${when (g.why) { "user" -> "the user opened it on the main screen"; "ours" -> "your last step moved it to the main screen; handoff in takes it back"; else -> "you handed it to the user" }}); it is no longer on the background screen and the action was not done. Wait for the hand-back (vscreen events --wait for handback), or launch another app to do something else"))
-        }
+        if (!isRead && !freshPage) Guard.require(Guard.Act.INPUT.takeIf { VScreenOwnership.blocking(sid) != null } ?: Guard.Act.READ, null, sid)
         val d = acquire(sid, create = false)
         val startedMs = System.currentTimeMillis()
         if (!isRead) actionStarted[d.displayId] = startedMs
@@ -1007,116 +1004,6 @@ object BackgroundOperation {
     fun nodeRoots(displayId: Int): List<AccessibilityNodeInfo> =
         VScreenAccessibilityService.getInstance()?.rootNodesForDisplay(displayId) ?: emptyList()
 
-
-    /** Visible texts / descriptions of [displayId]'s accessibility tree, or null when the service sees nothing there. */
-    /**
-     * 1.2.0: whether a visible node on [displayId] shows [norm] (normalised text) right now. A node whose cached text
-     * matches is refreshed and checked again: the cache of a background screen can keep a cleared box's old text, and
-     * `until gone:` then waited for words that were already gone. Null when the tree cannot be read.
-     */
-    fun a11yShows(displayId: Int, norm: (String) -> String, want: String): String? = a11yShows(displayId) { norm(it).contains(want) }
-
-    /** 1.3.0-beta18: the same with any test of the words (a pattern with `*`). */
-    fun a11yShows(displayId: Int, match: (String) -> Boolean): String? {
-        val roots = nodeRoots(displayId)
-        if (roots.isEmpty()) return null
-        var hit: String? = null
-        var seen = 0
-        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
-            if (n == null || depth > 40 || hit != null || ++seen > 1500) return
-            val t = (n.text ?: n.contentDescription)?.toString()
-            if (t != null && n.isVisibleToUser && match(t)) {
-                val fresh = runCatching { n.refresh() }.getOrDefault(false)
-                val t2 = if (fresh) (n.text ?: n.contentDescription)?.toString() else t
-                if (t2 != null && (!fresh || n.isVisibleToUser) && match(t2)) { hit = t2.replace('\n', ' ').trim().take(40); return }
-            }
-            for (i in 0 until n.childCount) walk(runCatching { n.getChild(i) }.getOrNull(), depth + 1)
-        }
-        roots.forEach { walk(it, 0) }
-        return hit ?: ""
-    }
-
-    /**
-     * 1.3: every visible node whose words contain [want] (normalised), with its box; refreshed before it counts.
-     * Null when the tree cannot be read.
-     */
-    fun a11yFind(displayId: Int, norm: (String) -> String, want: String): List<Pair<String, android.graphics.Rect>>? = a11yFind(displayId) { norm(it).contains(want) }
-
-    fun a11yFind(displayId: Int, match: (String) -> Boolean): List<Pair<String, android.graphics.Rect>>? {
-        val roots = nodeRoots(displayId)
-        if (roots.isEmpty()) return null
-        val out = ArrayList<Pair<String, android.graphics.Rect>>()
-        var seen = 0
-        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
-            if (n == null || depth > 40 || out.size >= 20 || ++seen > 1500) return
-            val t = (n.text ?: n.contentDescription)?.toString()
-            if (t != null && n.isVisibleToUser && match(t)) {
-                val fresh = runCatching { n.refresh() }.getOrDefault(false)
-                val t2 = if (fresh) (n.text ?: n.contentDescription)?.toString() else t
-                if (t2 != null && (!fresh || n.isVisibleToUser) && match(t2))
-                    out += t2.replace('\n', ' ').trim().take(40) to android.graphics.Rect().also { n.getBoundsInScreen(it) }
-            }
-            for (i in 0 until n.childCount) walk(runCatching { n.getChild(i) }.getOrNull(), depth + 1)
-        }
-        roots.forEach { walk(it, 0) }
-        return out
-    }
-
-    /**
-     * 1.3 beta2: whether the biggest scrollable view on [displayId] can still scroll back (up): there is content above.
-     * Null when no scrollable view is found (the tree does not say).
-     */
-    fun canScrollBack(displayId: Int): Boolean? = canScroll(displayId, forward = false)
-
-    /** 1.3.0-beta18: the largest scrollable area on [displayId] says it can go further down (null: no such area seen). */
-    fun canScrollForward(displayId: Int): Boolean? = canScroll(displayId, forward = true)
-
-    private fun canScroll(displayId: Int, forward: Boolean): Boolean? {
-        var best: AccessibilityNodeInfo? = null; var bestArea = 0L
-        var seen = 0
-        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
-            if (n == null || depth > 40 || ++seen > 1500) return
-            if (n.isScrollable && n.isVisibleToUser) {
-                val r = android.graphics.Rect().also { n.getBoundsInScreen(it) }
-                val a = r.width().toLong() * r.height()
-                if (a > bestArea) { best = n; bestArea = a }
-            }
-            for (i in 0 until n.childCount) walk(runCatching { n.getChild(i) }.getOrNull(), depth + 1)
-        }
-        nodeRoots(displayId).forEach { walk(it, 0) }
-        val b = best ?: return null
-        val ids = b.actionList.map { it.id }
-        return if (forward) AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD.id in ids || AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.id in ids
-            else AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD.id in ids || AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.id in ids
-    }
-
-    /** 1.3: the box of the focused input field on [displayId] (where typing went), or null. */
-    fun focusedInput(displayId: Int): android.graphics.Rect? {
-        var hit: android.graphics.Rect? = null
-        var seen = 0
-        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
-            if (n == null || depth > 40 || hit != null || ++seen > 1500) return
-            if (n.isEditable && n.isFocused && n.isVisibleToUser) { hit = android.graphics.Rect().also { n.getBoundsInScreen(it) }; return }
-            for (i in 0 until n.childCount) walk(runCatching { n.getChild(i) }.getOrNull(), depth + 1)
-        }
-        nodeRoots(displayId).forEach { walk(it, 0) }
-        return hit
-    }
-
-    fun a11yTexts(displayId: Int, max: Int = 400): List<String>? {
-        val roots = nodeRoots(displayId)
-        if (roots.isEmpty()) return null
-        val out = ArrayList<String>()
-        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
-            if (n == null || depth > 40 || out.size >= max) return
-            if (n.isVisibleToUser) {
-                (n.text ?: n.contentDescription)?.toString()?.replace('\n', ' ')?.trim()?.takeIf { it.isNotEmpty() }?.let { out += it.take(120) }
-            }
-            for (i in 0 until n.childCount) walk(runCatching { n.getChild(i) }.getOrNull(), depth + 1)
-        }
-        roots.forEach { walk(it, 0) }
-        return out
-    }
 
     private fun mainScreenMetrics(context: Context): Triple<Int, Int, Int> {
         val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager

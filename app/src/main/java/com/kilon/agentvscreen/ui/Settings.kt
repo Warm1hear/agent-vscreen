@@ -1,5 +1,7 @@
 package com.kilon.agentvscreen.ui
 
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.Icon
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
@@ -154,7 +156,7 @@ fun SettingsTab(bottom: Dp) {
     }
     if (eventDialog) {
         var target by remember { mutableStateOf(ApiConfig.eventTarget.orEmpty()) }
-        AlertDialog(
+        GlassDialog(
             onDismissRequest = { eventDialog = false },
             title = { DialogTitle(tr("事件广播", "Event broadcast")) },
             text = {
@@ -164,8 +166,8 @@ fun SettingsTab(bottom: Dp) {
                     TextField(value = target, onValueChange = { target = it.trim() }, label = tr("包名", "Package"), useLabelAsPlaceholder = true, singleLine = true, modifier = Modifier.fillMaxWidth())
                 }
             },
-            confirmButton = { TextButton(onClick = { ApiConfig.eventTarget = target.ifEmpty { null }; eventDialog = false; app.bump() }) { Text(tr("保存", "Save")) } },
-            dismissButton = { TextButton(onClick = { eventDialog = false }) { Text(tr("取消", "Cancel")) } },
+            confirmButton = { LinkButton(onClick = { ApiConfig.eventTarget = target.ifEmpty { null }; eventDialog = false; app.bump() }) { Text(tr("保存", "Save")) } },
+            dismissButton = { LinkButton(onClick = { eventDialog = false }) { Text(tr("取消", "Cancel")) } },
         )
     }
     update?.let { u -> UpdateDialog(u) { update = null } }
@@ -177,7 +179,7 @@ private fun UpdateDialog(u: Updates.Outcome, close: () -> Unit) {
     val ctx = LocalContext.current
     fun view(url: String) { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }; close() }
     when (u) {
-        is Updates.Outcome.Newer -> AlertDialog(
+        is Updates.Outcome.Newer -> GlassDialog(
             onDismissRequest = close,
             title = { DialogTitle(tr("新版本 ${u.r.version}", "New version ${u.r.version}")) },
             text = {
@@ -186,21 +188,21 @@ private fun UpdateDialog(u: Updates.Outcome, close: () -> Unit) {
                     if (u.r.notes.isNotBlank()) Text(u.r.notes.take(3000), fontSize = 13.sp, lineHeight = 19.sp)
                 }
             },
-            confirmButton = { TextButton(onClick = { view(u.r.apk ?: u.r.page) }) { Text(if (u.r.apk != null) tr("下载 APK", "Download APK") else tr("打开发布页", "Open the release")) } },
-            dismissButton = { TextButton(onClick = close) { Text(tr("稍后", "Later")) } },
+            confirmButton = { LinkButton(onClick = { view(u.r.apk ?: u.r.page) }) { Text(if (u.r.apk != null) tr("下载 APK", "Download APK") else tr("打开发布页", "Open the release")) } },
+            dismissButton = { LinkButton(onClick = close) { Text(tr("稍后", "Later")) } },
         )
-        is Updates.Outcome.Latest -> AlertDialog(
+        is Updates.Outcome.Latest -> GlassDialog(
             onDismissRequest = close,
             title = { DialogTitle(tr("已是最新", "Up to date")) },
             text = { Text(tr("现在是 ${BuildConfig.VERSION_NAME}", "You have ${BuildConfig.VERSION_NAME}") + (u.newest?.let { tr("，GitHub 上最新的发布是 $it", "; the newest release on GitHub is $it") } ?: "")) },
-            confirmButton = { TextButton(onClick = close) { Text(tr("好", "OK")) } },
+            confirmButton = { LinkButton(onClick = close) { Text(tr("好", "OK")) } },
         )
-        is Updates.Outcome.Failed -> AlertDialog(
+        is Updates.Outcome.Failed -> GlassDialog(
             onDismissRequest = close,
             title = { DialogTitle(tr("没查到", "Could not check")) },
             text = { Text(u.why) },
-            confirmButton = { TextButton(onClick = { view(Updates.PAGE) }) { Text(tr("打开发布页", "Open releases")) } },
-            dismissButton = { TextButton(onClick = close) { Text(tr("关闭", "Close")) } },
+            confirmButton = { LinkButton(onClick = { view(Updates.PAGE) }) { Text(tr("打开发布页", "Open releases")) } },
+            dismissButton = { LinkButton(onClick = close) { Text(tr("关闭", "Close")) } },
         )
     }
 }
@@ -238,12 +240,12 @@ fun TokensPage() {
             TokensPanel(ApiConfig.baseUrl) { l, t -> host.copy(l, t) }
         }
     }
-    if (askRenew) AlertDialog(
+    if (askRenew) GlassDialog(
         onDismissRequest = { askRenew = false },
         title = { DialogTitle(tr("换一个主令牌？", "Make a new main token?")) },
         text = { Text(tr("旧的立即失效，用它的 agent 都要重新接入。", "The old one stops working at once; every agent using it has to connect again.")) },
-        confirmButton = { TextButton(onClick = { ApiConfig.resetToken(); token = ApiConfig.token; askRenew = false; host.say(tr("已换新令牌", "New token made")) }) { Text(tr("换新的", "Renew")) } },
-        dismissButton = { TextButton(onClick = { askRenew = false }) { Text(tr("取消", "Cancel")) } },
+        confirmButton = { LinkButton(onClick = { ApiConfig.resetToken(); token = ApiConfig.token; askRenew = false; host.say(tr("已换新令牌", "New token made")) }) { Text(tr("换新的", "Renew")) } },
+        dismissButton = { LinkButton(onClick = { askRenew = false }) { Text(tr("取消", "Cancel")) } },
     )
 }
 

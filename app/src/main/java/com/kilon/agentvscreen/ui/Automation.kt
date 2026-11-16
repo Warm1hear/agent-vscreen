@@ -1,5 +1,9 @@
 package com.kilon.agentvscreen.ui
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Switch
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
@@ -28,7 +32,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -112,15 +115,15 @@ internal fun SchedulesCards(tick: Int) {
             else -> e.spec.times.joinToString("  ") { hm(it) }
         }
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.06f))
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MiuixTheme.colorScheme.primary.copy(alpha = 0.06f))
                 .clickable { editing = e }.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f).alpha(if (e.on) 1f else 0.45f)) {
                 Text(big, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(e.spec.describe() + tr(" · 保持 ${e.forMin} 分钟", " · ${e.forMin} min"), fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(e.spec.describe() + tr(" · 保持 ${e.forMin} 分钟", " · ${e.forMin} min"), fontSize = 12.5.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text((if (e.on) tr("下次 ${j.optString("next_local", "—")}", "Next ${j.optString("next_local", "—")}") else tr("已关闭", "Off")) + " · ${e.name} · ${e.by}",
-                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Switch(checked = e.on, onCheckedChange = { v ->
                 runCatching { Wake.edit(ctx, e.name, e.text, e.forMin, v) }; again++
@@ -147,7 +150,7 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(tr("调整预约", "Edit schedule"), fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Text(e.name, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(e.name, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
 
             // How it repeats.
@@ -174,10 +177,10 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
                             }
                         }
                         if (d.times.size < 24) Box(
-                            Modifier.clip(RoundedCornerShape(50)).border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(50))
+                            Modifier.clip(RoundedCornerShape(50)).border(1.dp, MiuixTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(50))
                                 .clickable { pickTime(ctx, (d.times.lastOrNull() ?: 480) + 60) { n -> d = d.copy(times = (d.times + n).distinct().sorted()) } }
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
-                        ) { Icon(Icons.Filled.Add, tr("加一个时间", "Add a time"), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)) }
+                        ) { Icon(Icons.Filled.Add, tr("加一个时间", "Add a time"), tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(20.dp)) }
                     }
                 }
             }
@@ -193,15 +196,15 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
                         val on = d.days and (1 shl i) != 0
                         Box(
                             Modifier.size(36.dp).clip(CircleShape)
-                                .background(if (on) Glass.accent else Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f), MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))))
+                                .background(if (on) Glass.accent else Brush.linearGradient(listOf(MiuixTheme.colorScheme.primary.copy(alpha = 0.08f), MiuixTheme.colorScheme.primary.copy(alpha = 0.08f))))
                                 .clickable { val n = d.days xor (1 shl i); if (n != 0) d = d.copy(days = n) },
                             contentAlignment = Alignment.Center,
-                        ) { Text(l, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (on) Color.White else MaterialTheme.colorScheme.onSurfaceVariant) }
+                        ) { Text(l, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (on) Color.White else MiuixTheme.colorScheme.onSurfaceVariantSummary) }
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(tr("每天", "Daily") to 0x7F, tr("工作日", "Weekdays") to 0x1F, tr("周末", "Weekends") to 0x60).forEach { (w, m) ->
-                        Text(w, fontSize = 12.sp, color = if (d.days == m) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        Text(w, fontSize = 12.sp, color = if (d.days == m) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             fontWeight = if (d.days == m) FontWeight.SemiBold else FontWeight.Normal,
                             modifier = Modifier.clip(RoundedCornerShape(50)).clickable { d = d.copy(days = m) }.padding(horizontal = 8.dp, vertical = 4.dp))
                     }
@@ -217,9 +220,9 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
             error?.let { Text(it, fontSize = 13.sp, color = Palette.stopped) }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { askDelete = true }) { Text(tr("删除", "Delete"), color = Palette.stopped) }
+                LinkButton(onClick = { askDelete = true }) { Text(tr("删除", "Delete"), color = Palette.stopped) }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onClose) { Text(tr("取消", "Cancel")) }
+                LinkButton(onClick = onClose) { Text(tr("取消", "Cancel")) }
                 Spacer(Modifier.width(6.dp))
                 Box(
                     Modifier.clip(RoundedCornerShape(50)).background(Glass.accent).clickable {
@@ -230,32 +233,32 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
             }
         }
     }
-    if (askDelete) AlertDialog(
+    if (askDelete) GlassDialog(
         onDismissRequest = { askDelete = false },
         title = { Text(tr("删除这个预约？", "Delete this schedule?")) },
         text = { Text(tr("${e.by} 预约的「${e.name}」会被删掉，到点不再拉起服务。", "\"${e.name}\" booked by ${e.by} goes; the service is no longer started for it.")) },
-        confirmButton = { TextButton(onClick = { Wake.remove(ctx, e.name); askDelete = false; onClose() }) { Text(tr("删除", "Delete"), color = Palette.stopped) } },
-        dismissButton = { TextButton(onClick = { askDelete = false }) { Text(tr("取消", "Cancel")) } },
+        confirmButton = { LinkButton(onClick = { Wake.remove(ctx, e.name); askDelete = false; onClose() }) { Text(tr("删除", "Delete"), color = Palette.stopped) } },
+        dismissButton = { LinkButton(onClick = { askDelete = false }) { Text(tr("取消", "Cancel")) } },
     )
 }
 
 @Composable
 private fun EditGroup(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+        Text(title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MiuixTheme.colorScheme.primary)
         content()
     }
 }
 
 @Composable
 private fun Segmented(items: List<String>, selected: Int, onPick: (Int) -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)).padding(4.dp)) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(MiuixTheme.colorScheme.primary.copy(alpha = 0.08f)).padding(4.dp)) {
         items.forEachIndexed { i, s ->
             Box(
                 Modifier.weight(1f).clip(RoundedCornerShape(50)).then(if (i == selected) Modifier.background(Glass.accent) else Modifier)
                     .clickable { onPick(i) }.padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center,
-            ) { Text(s, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (i == selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant) }
+            ) { Text(s, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (i == selected) Color.White else MiuixTheme.colorScheme.onSurfaceVariantSummary) }
         }
     }
 }
@@ -263,13 +266,13 @@ private fun Segmented(items: List<String>, selected: Int, onPick: (Int) -> Unit)
 @Composable
 private fun TimeChip(label: String, onRemove: (() -> Unit)? = null, onClick: () -> Unit) {
     Row(
-        Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)).clickable(onClick = onClick)
+        Modifier.clip(RoundedCornerShape(50)).background(MiuixTheme.colorScheme.primary.copy(alpha = 0.10f)).clickable(onClick = onClick)
             .padding(start = 16.dp, end = if (onRemove != null) 6.dp else 16.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
         if (onRemove != null) Box(Modifier.padding(start = 4.dp).size(28.dp).clip(CircleShape).clickable(onClick = onRemove), contentAlignment = Alignment.Center) {
-            Icon(Icons.Filled.Close, tr("去掉", "Remove"), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Filled.Close, tr("去掉", "Remove"), modifier = Modifier.size(16.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
     }
 }
@@ -285,8 +288,8 @@ private fun Stepper(value: String, minus: () -> Unit, plus: () -> Unit) {
 
 @Composable
 private fun RoundIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    Box(Modifier.size(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Icon(icon, label, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+    Box(Modifier.size(36.dp).clip(CircleShape).background(MiuixTheme.colorScheme.primary.copy(alpha = 0.10f)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(icon, label, tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -308,26 +311,25 @@ internal fun LessonsList(tick: Int) {
     val shown = if (q.isEmpty()) all else all.filter { (p, s) -> lessonMatches(q, s.name, labels[p] ?: p, p, s.steps) }
     fun keyOf(p: String, s: VScreenMap.Segment) = "$p/${s.name}"
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        androidx.compose.material3.OutlinedTextField(query, { query = it.take(40) }, Modifier.weight(1f), singleLine = true,
-            placeholder = { Text(tr("搜索名字、应用或步骤", "Search name, app or steps"), fontSize = 13.sp) },
-            trailingIcon = { if (query.isNotEmpty()) Icon(Icons.Filled.Close, tr("清空", "Clear"), Modifier.clickable { query = "" }.size(18.dp)) },
-            shape = RoundedCornerShape(18.dp), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp))
-        TextButton(onClick = { picking = !picking; picked = emptySet() }) { Text(if (picking) tr("取消", "Cancel") else tr("选择", "Select")) }
+        top.yukonga.miuix.kmp.basic.TextField(value = query, onValueChange = { query = it.take(40) }, modifier = Modifier.weight(1f), singleLine = true,
+            label = tr("搜索名字、应用或步骤", "Search name, app or steps"), useLabelAsPlaceholder = true,
+            trailingIcon = { if (query.isNotEmpty()) Icon(Icons.Filled.Close, tr("清空", "Clear"), Modifier.padding(end = 12.dp).clickable { query = "" }.size(18.dp)) })
+        LinkButton(onClick = { picking = !picking; picked = emptySet() }) { Text(if (picking) tr("取消", "Cancel") else tr("选择", "Select")) }
     }
     if (picking) {
         val keys = shown.map { keyOf(it.first, it.second) }.toSet()
         val allOn = keys.isNotEmpty() && picked.containsAll(keys)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(tr("已选 ${picked.size} 个", "${picked.size} selected"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-            TextButton(onClick = { picked = if (allOn) picked - keys else picked + keys }) { Text(if (allOn) tr("全不选", "Select none") else tr("全选", "Select all")) }
-            TextButton(enabled = picked.isNotEmpty(), onClick = { askDelete = all.filter { keyOf(it.first, it.second) in picked } }) {
-                Text(tr("删除", "Delete"), color = if (picked.isNotEmpty()) Palette.stopped else MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(tr("已选 ${picked.size} 个", "${picked.size} selected"), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.weight(1f))
+            LinkButton(onClick = { picked = if (allOn) picked - keys else picked + keys }) { Text(if (allOn) tr("全不选", "Select none") else tr("全选", "Select all")) }
+            LinkButton(enabled = picked.isNotEmpty(), onClick = { askDelete = all.filter { keyOf(it.first, it.second) in picked } }) {
+                Text(tr("删除", "Delete"), color = if (picked.isNotEmpty()) Palette.stopped else MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
         }
     }
     if (shown.isEmpty()) Note(tr("没有匹配“$q”的示教", "No lessons match \"$q\""))
     shown.groupBy { it.first }.forEach { (pkg, list) ->
-        Text(labels[pkg] ?: pkg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(labels[pkg] ?: pkg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         list.forEach { (p, s) ->
             val key = keyOf(p, s)
             // 1.3.0-beta18: try / if / repeat show as blocks, their steps indented.
@@ -337,23 +339,23 @@ internal fun LessonsList(tick: Int) {
             val on = key in picked
             val turn by androidx.compose.animation.core.animateFloatAsState(if (isOpen) 180f else 0f, label = "lesson")
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = if (on) 0.16f else 0.06f))
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MiuixTheme.colorScheme.primary.copy(alpha = if (on) 0.16f else 0.06f))
                     .clickable { if (picking) picked = if (on) picked - key else picked + key else open = if (isOpen) null else key }
                     .padding(horizontal = 14.dp, vertical = 12.dp).animateContentSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (picking) {
-                        androidx.compose.material3.Checkbox(on, { picked = if (on) picked - key else picked + key })
+                        top.yukonga.miuix.kmp.basic.Checkbox(state = androidx.compose.ui.state.ToggleableState(on), onClick = { picked = if (on) picked - key else picked + key })
                         Spacer(Modifier.width(4.dp))
                     }
                     Column(Modifier.weight(1f)) {
                         Text(s.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(tr("$count 步", "$count steps") + (if (s.uses > 0) tr(" · 用过 ${s.uses} 次", " · used ${s.uses}×") else "") +
                             " · " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(s.at)),
-                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
-                    if (!picking) Icon(Icons.Filled.KeyboardArrowDown, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.rotate(turn))
+                    if (!picking) Icon(Icons.Filled.KeyboardArrowDown, null, tint = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.rotate(turn))
                 }
                 if (isOpen) {
                     var no = 0
@@ -367,12 +369,12 @@ internal fun LessonsList(tick: Int) {
                                 }
                                 Spacer(Modifier.width(10.dp))
                             } else Spacer(Modifier.width(32.dp))
-                            Text(st, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f), color = if (closing) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified)
+                            Text(st, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f), color = if (closing) MiuixTheme.colorScheme.onSurfaceVariantSummary else Color.Unspecified)
                         }
                     }
                     Row {
-                        Text(tr("agent 用：act \"use ${s.name}\"", "Agents run it with: act \"use ${s.name}\""), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f).align(Alignment.CenterVertically))
-                        TextButton(onClick = { askDelete = listOf(p to s) }) { Text(tr("删除", "Delete"), color = Palette.stopped) }
+                        Text(tr("agent 用：act \"use ${s.name}\"", "Agents run it with: act \"use ${s.name}\""), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.weight(1f).align(Alignment.CenterVertically))
+                        LinkButton(onClick = { askDelete = listOf(p to s) }) { Text(tr("删除", "Delete"), color = Palette.stopped) }
                     }
                 }
             }
@@ -380,17 +382,17 @@ internal fun LessonsList(tick: Int) {
     }
     askDelete?.let { list ->
         val one = list.singleOrNull()?.second
-        AlertDialog(
+        GlassDialog(
             onDismissRequest = { askDelete = null },
             title = { Text(if (one != null) tr("删除示教「${one.name}」？", "Delete lesson \"${one.name}\"?") else tr("删除这 ${list.size} 个示教？", "Delete these ${list.size} lessons?")) },
             text = { Text(if (one != null) tr("agent 以后不能再用 use ${one.name} 重放它。", "Agents can no longer replay it with use ${one.name}.")
                 else list.joinToString(tr("、", ", ")) { it.second.name }.take(200) + tr("\nagent 以后不能再用 use 重放它们。", "\nAgents can no longer replay them with use.")) },
-            confirmButton = { TextButton(onClick = {
+            confirmButton = { LinkButton(onClick = {
                 list.forEach { (p, s) -> VScreenMap.deleteSegment(p, s.name) }
                 picked = picked - list.map { keyOf(it.first, it.second) }.toSet(); if (picked.isEmpty()) picking = false
                 askDelete = null; again++
             }) { Text(tr("删除", "Delete"), color = Palette.stopped) } },
-            dismissButton = { TextButton(onClick = { askDelete = null }) { Text(tr("取消", "Cancel")) } },
+            dismissButton = { LinkButton(onClick = { askDelete = null }) { Text(tr("取消", "Cancel")) } },
         )
     }
 }

@@ -71,7 +71,7 @@ internal fun VScreenOffloadHandler.doLaunch(sid: String, pkg: String, orient: Bo
         VScreenPerception.ensure(d)
         // Wait for a still, non-blank picture (at most 10 s): facts, not a readiness verdict.
         val t0 = SystemClock.elapsedRealtime()
-        val p = Probe(this, d, listOf(Cond("stable", "stable")))
+        val p = Probe(this, d, listOf(Cond("stable", CondKind.STABLE)))
         var w: WaitOut
         try {
             while (true) {
@@ -167,8 +167,7 @@ private fun VScreenOffloadHandler.handoffIn(sid: String, pkgArg: String?): Nativ
         ?: throw ActionError("HANDOFF_NO_TASK", tr("主屏上没有 $pkgArg 的任务。可以 launch $pkgArg 在副屏另开一份（不带用户的页面）", "No task of $pkgArg on the main screen. launch $pkgArg opens a separate copy on the screen (without the user's page)"))
     else main.firstOrNull { it.pkg !in handoffSkip() }
         ?: throw ActionError("HANDOFF_NO_TASK", tr("主屏最近没有可接手的应用（只有桌面和 Agent-VScreen 自己）：请用户先打开那个应用，或说是哪个应用", "No app on the main screen to take over (only the launcher and Agent-VScreen): ask the user to open that app first, or to say which one"))
-    if (VScreenStore.ruleFor(pick.pkg) == VScreenStore.Rule.BLOCK)
-        throw ActionError("APP_BLOCKED", tr("用户禁止后台操作 ${pick.pkg}（Agent-VScreen › 应用限制），不能接手它", "The user blocked background operation of ${pick.pkg} (Agent-VScreen › App rules); it can't be taken over"))
+    com.kilon.agentvscreen.core.Guard.require(com.kilon.agentvscreen.core.Guard.Act.TAKE, pick.pkg)
     // 1.2: taking the app the user is using off their screen is theirs to allow, on the phone.
     run { val app = VScreenKnowledge.label(pick.pkg) ?: pick.pkg
         com.kilon.agentvscreen.host.Consent.require(context, "handoff:${pick.pkg}", tr("把你正在用的 $app 接到后台副屏", "move $app, which you are using, to the background screen"), tr("它会从主屏消失，停在当前页面，由 Agent 在后台继续操作", "it leaves the main screen, stays on its current page, and the agent carries on in the background"), kind = "system") }

@@ -86,11 +86,13 @@ class AbilitiesTest {
         val root = File("..")
         if (!File(root, "README.md").isFile) return
         val (zh, en) = block().split("\n\u0000")
+        // 1.4.0-beta2: a test only checks; the files are rewritten only when asked (AVS_REGEN=1 ./build.sh regen).
+        val regen = System.getenv("AVS_REGEN") == "1"
         val changed = ArrayList<String>()
         fun sync(f: File, start: String, end: String, body: String) {
             val now = f.readText()
             val want = replaceBetween(now, start, end, body)
-            if (want != now) { f.writeText(want); changed += f.path }
+            if (want != now) { if (regen) f.writeText(want); changed += f.path }
         }
         sync(File(root, "README.zh-CN.md"), "<!-- abilities:start -->", "<!-- abilities:end -->", zh)
         sync(File(root, "README.md"), "<!-- abilities:start -->", "<!-- abilities:end -->", en)
@@ -107,8 +109,8 @@ class AbilitiesTest {
             require(i >= 0 && lines[i + 1].trimStart().startsWith("\"en\": \"Agent-VScreen advice")) { "Operit advice lines not found" }
             val pad = lines[i].takeWhile { it == ' ' }
             val want = listOf("$pad\"zh\": ${q(az)},", "$pad\"en\": ${q(ae)}")
-            if (lines.subList(i, i + 2) != want) { lines[i] = want[0]; lines[i + 1] = want[1]; js.writeText(lines.joinToString("\n") + "\n"); changed += js.path }
+            if (lines.subList(i, i + 2) != want) { lines[i] = want[0]; lines[i + 1] = want[1]; if (regen) js.writeText(lines.joinToString("\n") + "\n"); changed += js.path }
         }
-        assertTrue("generated from Abilities and rewritten (run the tests again): $changed", changed.isEmpty())
+        assertTrue("out of date, generated from Abilities (./build.sh regen rewrites them): $changed", regen || changed.isEmpty())
     }
 }

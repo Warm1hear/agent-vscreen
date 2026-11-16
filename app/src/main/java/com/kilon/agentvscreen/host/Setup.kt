@@ -68,28 +68,10 @@ object Setup {
         if (!Settings.canDrawOverlays(ctx)) step(tr("悬浮窗", "Floating window"), arrayOf("appops", "set", pkg, "SYSTEM_ALERT_WINDOW", "allow"))
         if (Build.VERSION.SDK_INT >= 33 && ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             step(tr("通知", "Notifications"), arrayOf("pm", "grant", pkg, Manifest.permission.POST_NOTIFICATIONS))
-        if (VScreenAccessibilityService.getInstance() == null) out += enableAccessibility(ctx).let { (ok, m) -> (if (ok) "✓ " else "✗ ") + m }
-        if (!VScreenPower.check(ctx).ok) out += VScreenPower.whitelist(ctx).let { (ok, m) -> (if (ok) "✓ " else "✗ ") + tr("后台白名单：$m", "Background exemption: $m") }
+        if (VScreenAccessibilityService.getInstance() == null) out += Heal.accessibility(ctx).let { (ok, m) -> (if (ok) "✓ " else "✗ ") + m }
+        if (!VScreenPower.check(ctx).ok) out += Heal.power(ctx).let { (ok, m) -> (if (ok) "✓ " else "✗ ") + tr("后台白名单：$m", "Background exemption: $m") }
         if (out.isEmpty()) out += tr("全部已就绪", "All set")
         AppLogger.info("Setup", out.joinToString(" | "))
         return out
-    }
-
-    /** Add this app's read-only accessibility service to the enabled list, keeping every service already there. */
-    fun enableAccessibility(ctx: Context): Pair<Boolean, String> {
-        val comp = "${ctx.packageName}/${VScreenAccessibilityService::class.java.name}"
-        val cur = VScreenShell.run(arrayOf("settings", "get", "secure", "enabled_accessibility_services")).stdout.trim()
-            .takeIf { it.isNotEmpty() && it != "null" }
-        val list = cur?.split(':')?.filter { it.isNotBlank() }.orEmpty()
-        val next = (list.filter { it != comp } + comp).joinToString(":")
-        val w = VScreenShell.run(arrayOf("settings", "put", "secure", "enabled_accessibility_services", next))
-        VScreenShell.run(arrayOf("settings", "put", "secure", "accessibility_enabled", "1"))
-        if (w.exitCode != 0) return false to tr("无障碍：写系统设置失败（${w.combined.take(80)}），请在 系统设置 › 无障碍 › Agent-VScreen 手动打开", "Accessibility: writing system settings failed (${w.combined.take(80)}); turn it on in Settings › Accessibility › Agent-VScreen")
-        val t0 = System.currentTimeMillis()
-        while (System.currentTimeMillis() - t0 < 4_000) {
-            if (VScreenAccessibilityService.getInstance() != null) return true to tr("无障碍已打开（其它无障碍服务保持不变）", "Accessibility turned on (other accessibility services unchanged)")
-            Thread.sleep(200)
-        }
-        return false to tr("无障碍：已写入设置但 4 秒内没连上，部分系统会拦截，请在 系统设置 › 无障碍 › Agent-VScreen 手动打开一次", "Accessibility: the setting was written but did not connect within 4 s (some systems block it); turn it on once in Settings › Accessibility › Agent-VScreen")
     }
 }

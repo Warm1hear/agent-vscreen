@@ -1,5 +1,7 @@
 package com.kilon.agentvscreen.ui
 
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.Icon
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -114,7 +116,7 @@ fun ConnectPage() {
             ).forEach { (t, sub, i) -> RadioButtonPreference(title = t, summary = sub, selected = how == i, onClick = { how = i; raw = false }) }
         }
         Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
-            Button(onClick = {
+            PrimaryButton(onClick = {
                 host.copy(tr("给 agent 的话", "Message for your agent"), when (how) { 1 -> AgentGuide.onboardMcp(base); 2 -> AgentGuide.onboardHttp(base); else -> AgentGuide.onboard(base) })
             }, enabled = canCopy, modifier = Modifier.fillMaxWidth(), color = MiuixTheme.colorScheme.primary) {
                 Text(tr("复制给 agent 的话", "Copy message for your agent"), color = MiuixTheme.colorScheme.onPrimary)
@@ -165,7 +167,7 @@ fun InfoCard(color: Color, title: String, body: String = "") {
 /** One action under a card: a full-width button, primary or plain. */
 @Composable
 private fun CardAction(text: String, primary: Boolean = true, onClick: () -> Unit) =
-    Button(onClick = onClick, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), color = if (primary) MiuixTheme.colorScheme.primary else null) {
+    PrimaryButton(onClick = onClick, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), color = if (primary) MiuixTheme.colorScheme.primary else null) {
         Text(text, color = if (primary) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface)
     }
 
@@ -245,8 +247,8 @@ fun RemotePage() {
             TextField(value = key, onValueChange = { key = it }, label = tr("auth key（可选，代替网页登录）", "Auth key (optional, instead of the web login)"), useLabelAsPlaceholder = true, singleLine = true, modifier = Modifier.fillMaxWidth())
             Text(tr("每个服务器的登录分开保存，换回原来的服务器不用重新登录。内置节点不接管手机上网，所以没有出口节点这一项。", "Each server keeps its own login, so switching back needs no new login. The built-in node does not carry the phone's own traffic, so there is no exit node option."),
                 fontSize = 12.sp, lineHeight = 17.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(horizontal = 12.dp))
-            Button(onClick = {
-                if (problem != null) { host.say(problem); return@Button }
+            PrimaryButton(onClick = {
+                if (problem != null) { host.say(problem); return@PrimaryButton }
                 val k = key.trim(); val c = ctl
                 Thread { Tailnet.configure(ctx.applicationContext, c, k) }.start()
                 advanced = false

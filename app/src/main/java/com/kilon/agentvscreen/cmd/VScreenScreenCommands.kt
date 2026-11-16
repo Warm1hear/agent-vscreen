@@ -44,7 +44,6 @@ private val FIX_WHAT = mapOf(
     "background_network" to tr("通过 Shizuku 把 Agent-VScreen 加入电池优化/后台运行/后台数据白名单（改系统设置）；没有 Shizuku 时给出手动步骤", "exempt Agent-VScreen from battery optimization / background limits / background data limits via Shizuku (changes system settings); without Shizuku, give manual steps"),
 )
 
-private val A11Y_SERVICE = "com.kilon.agentvscreen.host.VScreenAccessibilityService"
 
 
 // ── status / state ────────────────────────────────────────────────────
@@ -168,48 +167,11 @@ internal fun VScreenOffloadHandler.a11yLive(waitMs: Long = 0): Boolean {
     }
 }
 
+/** Codes and texts of everything not right now (Readiness.full: the one health model), as status and fix give them. */
 internal fun VScreenOffloadHandler.degraded(d: VScreenDisplay?): Pair<JSONArray, JSONArray> {
-    val s = BackgroundOperation.state.value
-    val deg = JSONArray(); val sug = JSONArray()
-    val live = com.kilon.agentvscreen.host.Liveness
-    if (com.kilon.agentvscreen.host.HostService.isAlive && !live.foreground) {
-        deg.put("not_foreground_service")
-        sug.put(run { val why = live.foregroundError ?: tr("原因未知", "unknown reason"); tr("Agent-VScreen 的服务没能成为前台服务（$why）：它在后台会被冻结，命令会卡住直到用户打开它。请用户打开一次 Agent-VScreen（会自动补上）。", "Agent-VScreen's service could not become a foreground service ($why): it gets frozen in the background and commands hang until the user opens it. Ask the user to open Agent-VScreen once (that fixes it).") })
-    } else if (live.frozenUnresolved()) {
-        deg.put("frozen_in_background")
-        sug.put(tr("亮屏时系统在后台冻结过 Agent-VScreen ${live.screenOnFreezesSinceVisit} 次（最近一次 ${live.lastScreenOnFreezeMs / 1000} 秒），那段时间的命令会一直等。", "With the screen on, the system froze Agent-VScreen in the background ${live.screenOnFreezesSinceVisit} times (last time ${live.lastScreenOnFreezeMs / 1000} s); commands wait during that time.") +
-            tr("请用户打开 Agent-VScreen，点首页“后台运行受限”的“去设置”，把它设为允许自启动、关联启动和后台活动（荣耀/华为：应用启动管理 › 手动管理）。", "Ask the user to open Agent-VScreen, tap Settings on \"Background running restricted\" on the home page, and allow auto-start, start by other apps and background activity (Honor/Huawei: App launch › Manage manually)."))
-    }
-    if (s.privilege.name != "READY") {
-        deg.put("no_privilege")
-        sug.put(tr("Shizuku 不可用（${s.privilege.name}）：后台操作无法建屏和注入输入。fix no_privilege 会告诉用户怎么启动/授权。", "Shizuku unavailable (${s.privilege.name}): background operation cannot create a screen or inject input. fix no_privilege tells the user how to start / grant it."))
-    } else if (s.enabled && (s.connection.name == "ERROR" || s.needsExplicitReconnect)) {
-        deg.put("not_connected")
-        sug.put(run { val why = s.connectionError ?: tr("需要重新连接", "needs reconnecting"); tr("后台连接已断开（$why）：fix not_connected 会重新连接。", "The background connection dropped ($why): fix not_connected reconnects.") })
-    }
-    if (!a11yLive()) {
-        deg.put("no_accessibility")
-        sug.put(tr("无障碍服务当前未连接（Agent-VScreen 刚启动时系统可能还在绑定，几秒后 status 会更新）：元素列表只有 OCR 文字（图标按钮没有文字、中文输入只能走剪贴板粘贴）。需要更稳时，请用户在 系统设置 › 无障碍 › 已安装的应用 › Agent-VScreen 打开。", "The accessibility service is not connected (right after Agent-VScreen starts the system may still be binding it; status updates in a few seconds): element lists have OCR text only (icon buttons have no text, non-ASCII typing goes through clipboard paste). For more reliability, ask the user to turn it on in Settings › Accessibility › Installed apps › Agent-VScreen."))
-    } else if (d != null && BackgroundOperation.nodeRoots(d.displayId).isEmpty() && VScreenShell.topActivity(d.displayId) != null) {
-        deg.put("accessibility_cannot_see_display")
-        sug.put(tr("无障碍已开启，但系统没有把副屏窗口交给它：控件树为空，元素列表只有 OCR 文字和截图。", "Accessibility is on, but the system does not give it the screen's windows: the widget tree is empty and element lists have only OCR text and screenshots."))
-    }
-    val pw = com.kilon.agentvscreen.core.VScreenPower.check(context)
-    if (!pw.ok) {
-        deg.put("background_network")
-        sug.put(run { val p = pw.problems().joinToString(tr("、", ", ")); tr("Agent-VScreen 切到后台后系统可能切断它的网络（$p），模型请求会报 connection abort。", "The system may cut Agent-VScreen's network in the background ($p); model requests may fail with connection abort. ") } +
-            (if (s.privilege.name == "READY") tr("fix background_network 可用 Shizuku 自动加白名单（改系统设置，先征得用户同意）。", "fix background_network can add the exemptions via Shizuku (changes system settings; ask the user first).")
-             else tr("请用户手动设置：${com.kilon.agentvscreen.core.VScreenPower.manualSteps()}", "Ask the user to set by hand: ${com.kilon.agentvscreen.core.VScreenPower.manualSteps()}")))
-    }
-    if (d != null && !d.ownFocus) {
-        deg.put("no_display_focus")
-        sug.put(tr("副屏没有独立输入焦点（需要 Android 14+）：key back/enter 可能送不到；无效时直接 tap 页面上的返回/搜索按钮。", "The screen has no input focus of its own (needs Android 14+): key back/enter may not arrive; if they do nothing, tap the page's back / search buttons."))
-    }
-    if (d != null && !d.shellOwned) {
-        deg.put("app_owned_display")
-        sug.put(tr("Shizuku 副屏服务不可用，只能用 App 自建副屏：系统可能把应用开到主屏。请用户在设置里重新连接后台操作。", "The Shizuku screen service is unavailable, so only the app's own screen can be used: the system may open apps on the main screen. Ask the user to reconnect background operation in settings."))
-    }
-    return deg to sug
+    a11yLive(0)
+    val items = com.kilon.agentvscreen.host.Readiness.full(context, d)
+    return JSONArray(items.map { it.code }) to JSONArray(items.map { it.text })
 }
 
 internal fun VScreenOffloadHandler.fix(sid: String?, args: OffloadArgs): NativeOffloadResult {
@@ -262,18 +224,7 @@ internal fun VScreenOffloadHandler.fixOne(sid: String?, code: String, args: Offl
         }
         "no_accessibility" -> {
             if (a11yLive()) return true to tr("无障碍服务已连接", "the accessibility service is connected")
-            if (s.privilege.name != "READY") return false to tr("需要先修好 Shizuku（fix no_privilege），或请用户在 系统设置 › 无障碍 › 已安装的应用 › Agent-VScreen 手动打开", "Fix Shizuku first (fix no_privilege), or ask the user to turn it on in Settings › Accessibility › Installed apps › Agent-VScreen")
-            val comp = "${context.packageName}/$A11Y_SERVICE"
-            val cur = VScreenShell.run(arrayOf("settings", "get", "secure", "enabled_accessibility_services")).stdout.trim()
-                .takeIf { it.isNotEmpty() && it != "null" }
-            val list = cur?.split(':')?.filter { it.isNotBlank() }.orEmpty()
-            val next = (list.filter { it != comp } + comp).joinToString(":")
-            // Re-writing the list (ours removed then added) also re-binds a crashed service.
-            val w = VScreenShell.run(arrayOf("settings", "put", "secure", "enabled_accessibility_services", next))
-            VScreenShell.run(arrayOf("settings", "put", "secure", "accessibility_enabled", "1"))
-            if (w.exitCode != 0) return false to tr("写入系统设置失败（${w.combined.take(120)}）；请用户在 系统设置 › 无障碍 里手动打开 Agent-VScreen", "Writing system settings failed (${w.combined.take(120)}); ask the user to turn on Agent-VScreen in Settings › Accessibility")
-            if (a11yLive(4_000)) true to tr("已通过 Shizuku 打开 Agent-VScreen 的无障碍服务", "Turned on Agent-VScreen's accessibility service via Shizuku")
-            else false to tr("已写入设置，但服务 4 秒内没有连上：部分系统（荣耀/华为）会拦截，请用户在 系统设置 › 无障碍 里手动打开一次", "The setting was written but the service did not connect within 4 s: some systems (Honor/Huawei) block it; ask the user to turn it on once in Settings › Accessibility")
+            com.kilon.agentvscreen.host.Heal.accessibility(context)
         }
         "accessibility_cannot_see_display", "a11y_not_ready" -> {
             val d = BackgroundOperation.previewDisplayFor(sid ?: "") ?: return false to tr("当前没有副屏", "there is no screen right now")
@@ -283,14 +234,8 @@ internal fun VScreenOffloadHandler.fixOne(sid: String?, code: String, args: Offl
                 Thread.sleep(300)
             }
             if (code == "accessibility_cannot_see_display" && s.privilege.name == "READY") {
-                val comp = "${context.packageName}/$A11Y_SERVICE"
-                val cur = VScreenShell.run(arrayOf("settings", "get", "secure", "enabled_accessibility_services")).stdout.trim()
-                val rest = cur.split(':').filter { it.isNotBlank() && it != "null" && it != comp }
-                if (rest.isEmpty()) VScreenShell.run(arrayOf("settings", "delete", "secure", "enabled_accessibility_services"))
-                else VScreenShell.run(arrayOf("settings", "put", "secure", "enabled_accessibility_services", rest.joinToString(":")))
-                Thread.sleep(500)
-                VScreenShell.run(arrayOf("settings", "put", "secure", "enabled_accessibility_services", (rest + comp).joinToString(":")))
-                if (a11yLive(4_000)) {
+                com.kilon.agentvscreen.host.Heal.accessibility(context, restart = true)
+                if (VScreenAccessibilityService.getInstance() != null) {
                     val t1 = SystemClock.elapsedRealtime()
                     while (SystemClock.elapsedRealtime() - t1 < 3_000) {
                         if (BackgroundOperation.nodeRoots(d.displayId).isNotEmpty()) return true to tr("已重启无障碍服务，现在能看到副屏控件", "Restarted the accessibility service; the screen's widgets are visible now")
@@ -310,13 +255,13 @@ internal fun VScreenOffloadHandler.fixOne(sid: String?, code: String, args: Offl
             val pw = com.kilon.agentvscreen.core.VScreenPower
             if (pw.check(context).ok) return true to tr("后台网络不受限制", "background network is not restricted")
             if (s.privilege.name != "READY") return false to tr("没有 Shizuku，无法自动设置。请用户手动：${pw.manualSteps()}", "No Shizuku, so this can't be set automatically. Ask the user to do it by hand: ${pw.manualSteps()}")
-            val (ok, msg) = pw.whitelist(context)
+            val (ok, msg) = com.kilon.agentvscreen.host.Heal.power(context)
             if (ok) true to msg else false to tr("$msg。其余请用户手动：${pw.manualSteps()}", "$msg. The rest the user does by hand: ${pw.manualSteps()}")
         }
         "no_display_focus" -> false to tr("副屏没有独立输入焦点是系统限制（需要 Android 14+），无法修复；back 无效时直接点页面上的返回按钮", "The screen lacking its own input focus is a system limit (needs Android 14+) and can't be fixed; if back does nothing, tap the page's back button")
         "not_foreground_service" -> false to tr("要用户打开一次 Agent-VScreen：在前台时服务会自动补成前台服务。之后 status 的 host.foreground_service 应为 true", "The user needs to open Agent-VScreen once: in the foreground the service becomes a foreground service again. Afterwards host.foreground_service in status should be true")
         "frozen_in_background" -> {
-            val (ok, msg) = com.kilon.agentvscreen.core.VScreenPower.whitelist(context)
+            val (ok, msg) = com.kilon.agentvscreen.host.Heal.power(context)
             false to tr("系统白名单：$msg${if (ok) "（已全部生效）" else ""}。厂商自己的后台管理只能用户手动设：请用户打开 Agent-VScreen，点“后台运行受限”的“去设置”，允许自启动、关联启动和后台活动", "System exemptions: $msg${if (ok) " (all in effect)" else ""}. The vendor's own background management can only be set by the user: ask the user to open Agent-VScreen, tap Settings on \"Background running restricted\", and allow auto-start, start by other apps and background activity")
         }
         else -> false to run { val keys = FIX_WHAT.keys.joinToString(tr("、", ", ")); tr("不认识的问题代码：$code（可用：$keys）", "Unknown problem code: $code (available: $keys)") }

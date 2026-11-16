@@ -1,5 +1,8 @@
 package com.kilon.agentvscreen.ui
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.Icon
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,7 +25,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -136,41 +138,11 @@ fun Help(title: String, body: String, tint: Color = top.yukonga.miuix.kmp.theme.
     Box(Modifier.size(32.dp).clip(CircleShape).clickable { open = true }, contentAlignment = Alignment.Center) {
         Icon(Icons.AutoMirrored.Outlined.HelpOutline, tr("说明", "About this"), tint = tint, modifier = Modifier.size(18.dp))
     }
-    if (open) AlertDialog(
+    if (open) GlassDialog(
         onDismissRequest = { open = false },
         title = { DialogTitle(title) },
         text = { Text(body, fontSize = 14.sp, lineHeight = 21.sp) },
-        confirmButton = { TextButton(onClick = { open = false }) { Text(tr("知道了", "Got it")) } },
-    )
-}
-
-/**
- * One group: a small title above a glass card (miuix SmallTitle + Card layout), the "?" beside the title. Groups are
- * how a page is organised; nothing long is written inside them.
- */
-@Composable
-fun Section(title: String? = null, help: String? = null, trailing: (@Composable () -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
-    val c = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (title != null) Row(Modifier.fillMaxWidth().heightIn(min = 30.dp).padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.onBackgroundVariant, modifier = Modifier.weight(1f))
-            trailing?.invoke()
-            if (help != null) Help(title, help)
-        }
-        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(20.dp)).padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
-    }
-}
-
-/** A row that opens something (miuix arrow preference): icon, title, a short value, the arrow. */
-@Composable
-fun NavRow(title: String, value: String? = null, icon: ImageVector? = null, valueColor: Color? = null, onClick: () -> Unit) {
-    val c = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
-    top.yukonga.miuix.kmp.preference.ArrowPreference(
-        title = title,
-        startAction = icon?.let { { Row { IconBubble(it, c.primary, 32); Spacer(Modifier.width(12.dp)) } } },
-        endActions = { if (value != null) Text(value, fontSize = 13.sp, color = valueColor ?: c.onSurfaceVariantActions, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 4.dp)) },
-        insideMargin = androidx.compose.foundation.layout.PaddingValues(vertical = 10.dp),
-        onClick = onClick,
+        confirmButton = { LinkButton(onClick = { open = false }) { Text(tr("知道了", "Got it")) } },
     )
 }
 
@@ -193,36 +165,6 @@ fun Note(t: String, color: Color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorS
 fun IconBubble(icon: ImageVector, color: Color, size: Int = 36) {
     Box(Modifier.size(size.dp).clip(RoundedCornerShape((size * 0.32f).dp)).background(color.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
         Icon(icon, null, tint = color, modifier = Modifier.size((size * 0.55f).dp))
-    }
-}
-
-/** A tile on the home grid (miuix card, sinks when pressed): an icon, a name, and the one fact worth seeing. */
-@Composable
-fun Tile(icon: ImageVector, title: String, value: String, color: Color, modifier: Modifier = Modifier, alert: Boolean = false, onClick: () -> Unit) {
-    val c = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
-    top.yukonga.miuix.kmp.basic.Card(
-        modifier = modifier, cornerRadius = 20.dp, insideMargin = androidx.compose.foundation.layout.PaddingValues(14.dp),
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = c.surfaceContainer.copy(alpha = if (isSystemInDarkTheme()) 0.78f else 0.86f)),
-        pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink, onClick = onClick,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconBubble(icon, color)
-            Spacer(Modifier.weight(1f))
-            if (alert) Box(Modifier.size(9.dp).clip(CircleShape).background(Palette.stopped))
-        }
-        Spacer(Modifier.height(10.dp))
-        Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(value, fontSize = 12.sp, color = if (alert) Palette.stopped else c.onSurfaceVariantSummary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-/** A second-level page: back, title, its "?" when the page needs words, then glass sections. */
-@Composable
-fun PageHeader(title: String, help: String? = null, onBack: () -> Unit) {
-    Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
-        top.yukonga.miuix.kmp.basic.IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, tr("返回", "Back")) }
-        Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f).padding(start = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (help != null) Help(title, help)
     }
 }
 

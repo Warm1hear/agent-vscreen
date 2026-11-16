@@ -33,14 +33,35 @@ internal sealed class StepTarget {
 }
 
 /** One fact to wait for or stop at. [area] null = the whole screen. */
-internal data class Cond(val raw: String, val kind: String, val text: String? = null, val area: Rect? = null,
+/** 1.4.0-beta2: the kinds of condition and step are types; the parser is the only place that reads them from words. */
+internal enum class CondKind(val key: String, private val zh: String, private val en: String) {
+    TEXT("text", "text:字", "text:word"), GONE("gone", "gone:字", "gone:word"),
+    CHANGE("change", "change[:x1,y1,x2,y2]", "change[:x1,y1,x2,y2]"), STILL("still", "still[:x1,y1,x2,y2]", "still[:x1,y1,x2,y2]"),
+    STABLE("stable", "stable", "stable"), COLOR("color", "color:x,y=#RRGGBB[~容差]", "color:x,y=#RRGGBB[~tolerance]"), APP("app", "app:名字", "app:name");
+    /** How it is written (help, error messages): generated, so the help cannot miss a kind. */
+    val form: String get() = tr(zh, en)
+    override fun toString() = key
+}
+
+internal enum class StepKind(val key: String, private val zh: String, private val en: String) {
+    TAP("tap", "tap 目标", "tap <target>"), PRESS("press", "press 目标", "press <target>"),
+    SWIPE("swipe", "swipe x1 y1 x2 y2", "swipe x1 y1 x2 y2"), DRAG("drag", "drag x1 y1 x2 y2 …", "drag x1 y1 x2 y2 …"),
+    SCROLL("scroll", "scroll down", "scroll down"), TYPE("type", "type 文字", "type <text>"), KEY("key", "key back", "key back"),
+    WAIT("wait", "wait 条件", "wait <condition>"), SLEEP("sleep", "wait 2s", "wait 2s"), USE("use", "use 段名", "use <segment>"),
+    TRY("try", "try 一步", "try <step>"), IF("if", "if 条件 { … } else { … }", "if <cond> { … } else { … }"),
+    REPEAT("repeat", "repeat 3 { … } | repeat { … } until 条件", "repeat 3 { … } | repeat { … } until <cond>");
+    /** How it is written (help): generated, so the help cannot miss a kind. */
+    val form: String get() = tr(zh, en)
+    override fun toString() = key
+}
+
+internal data class Cond(val raw: String, val kind: CondKind, val text: String? = null, val area: Rect? = null,
                          val x: Int = 0, val y: Int = 0, val color: Int = 0, val tol: Int = 40)
 
 /** One step of a segment. */
 internal data class Step(
     val raw: String,
-    /** tap, press, swipe, drag, scroll, type, key, wait, sleep, use */
-    val kind: String,
+    val kind: StepKind,
     val target: StepTarget? = null,
     val points: List<Pair<Int, Int>> = emptyList(),
     val text: String? = null,
@@ -54,8 +75,8 @@ internal data class Step(
     val alt: List<Step> = emptyList(),
     val times: Int = 0,
 ) {
-    val isAction: Boolean get() = kind !in BLOCKS && kind !in setOf("wait", "sleep", "use")
-    companion object { val BLOCKS = setOf("try", "if", "repeat") }
+    val isAction: Boolean get() = kind !in BLOCKS && kind !in setOf(StepKind.WAIT, StepKind.SLEEP, StepKind.USE)
+    companion object { val BLOCKS = setOf(StepKind.TRY, StepKind.IF, StepKind.REPEAT) }
 }
 
 /**
@@ -211,10 +232,10 @@ internal object Steps {
         when (verb) {
             "try", "试" -> {
                 if (rest.isEmpty()) bad(raw, tr("try 后面写一步，或 { 几步 }", "write a step, or { steps }, after try"))
-                if (!rest.startsWith("{")) return Step(raw, "try", body = listOf(parse(rest)))
+                if (!rest.startsWith("{")) return Step(raw, StepKind.TRY, body = listOf(parse(rest)))
                 val (body, close) = block(raw, rest, 0)
                 if (rest.substring(close + 1).isNotBlank()) bad(raw, tr("try { … } 后面不能再写东西（下一步用 ; 分开）", "nothing may follow try { … } (separate the next step with ;)"))
-                return Step(raw, "try", body = body)
+                return Step(raw, StepKind.TRY, body = body)
             }
             "if", "如果" -> {
                 val open = openBrace(rest)
@@ -232,7 +253,7 @@ internal object Steps {
                     }
                     else -> bad(raw, tr("} 后面只能接 else", "only else may follow }"))
                 }
-                return Step(raw, "if", until = conds, untilMs = max ?: CHECK_DEFAULT_MS, body = body, alt = alt)
+                return Step(raw, StepKind.IF, until = conds, untilMs = max ?: CHECK_DEFAULT_MS, body = body, alt = alt)
             }
             else -> {
                 val open = openBrace(rest)
@@ -248,7 +269,7 @@ internal object Steps {
                 }
                 if (n == null && until == null) bad(raw, tr("repeat 要写次数，或在 } 后面写 until <条件>（最多做 $REPEAT_DEFAULT 次）", "repeat needs a number of times, or until <condition> after } (at most $REPEAT_DEFAULT times)"))
                 if (n != null && n !in 1..REPEAT_MAX) bad(raw, tr("repeat 次数是 1 到 $REPEAT_MAX", "repeat takes 1 to $REPEAT_MAX times"))
-                return Step(raw, "repeat", until = until, untilMs = max ?: CHECK_DEFAULT_MS, body = body, times = n ?: REPEAT_DEFAULT)
+                return Step(raw, StepKind.REPEAT, until = until, untilMs = max ?: CHECK_DEFAULT_MS, body = body, times = n ?: REPEAT_DEFAULT)
             }
         }
     }
@@ -274,10 +295,10 @@ internal object Steps {
         if (verb == "until") bad(raw, tr("until 要接在一个动作后面，如 tap 搜索 until text:结果；只想等待就写 wait text:结果",
             "until goes after an action, e.g. tap Search until text:Results; to only wait, write wait text:Results"))
         return when (verb) {
-            "tap", "click", "点" -> Step(raw, "tap", target = target(raw, args, allowDuration = false).first, until = until, untilMs = untilMs)
+            "tap", "click", "点" -> Step(raw, StepKind.TAP, target = target(raw, args, allowDuration = false).first, until = until, untilMs = untilMs)
             "press", "longpress", "hold", "长按" -> {
                 val (t, ms) = target(raw, args, allowDuration = true)
-                Step(raw, "press", target = t, ms = (ms ?: 800L).coerceIn(100L, 10_000L), until = until, untilMs = untilMs)
+                Step(raw, StepKind.PRESS, target = t, ms = (ms ?: 800L).coerceIn(100L, 10_000L), until = until, untilMs = untilMs)
             }
             "swipe", "drag", "滑", "拖" -> {
                 val isDrag = verb == "drag" || verb == "拖"
@@ -286,7 +307,7 @@ internal object Steps {
                 if (nums.size < 4 || nums.size % 2 != 0) bad(raw, run { val more = if (isDrag) " [x3 y3 …]" else ""; tr("$verb 要成对的坐标：x1 y1 x2 y2$more（收到 ${nums.size} 个数）", "$verb needs coordinate pairs: x1 y1 x2 y2$more (got ${nums.size} numbers)") })
                 if (!isDrag && nums.size != 4) bad(raw, tr("swipe 只有起点和终点；经过多个点用 drag", "swipe has only a start and an end; use drag to pass through more points"))
                 val pts = nums.chunked(2).map { it[0] to it[1] }
-                Step(raw, if (isDrag) "drag" else "swipe", points = pts, ms = (ms ?: if (isDrag) 600L else 300L).coerceIn(50L, 10_000L), until = until, untilMs = untilMs)
+                Step(raw, if (isDrag) StepKind.DRAG else StepKind.SWIPE, points = pts, ms = (ms ?: if (isDrag) 600L else 300L).coerceIn(50L, 10_000L), until = until, untilMs = untilMs)
             }
             "scroll", "滚" -> {
                 val dir = args.firstOrNull()?.lowercase()?.let { d -> mapOf("上" to "up", "下" to "down", "左" to "left", "右" to "right")[d] ?: d }
@@ -294,33 +315,33 @@ internal object Steps {
                 val t = if (args.size > 1) target(raw, args.drop(1), allowDuration = false).first.also {
                     if (it is StepTarget.Words) bad(raw, tr("scroll 的位置写 #N 或 x y", "write scroll's position as #N or x y"))
                 } else null
-                Step(raw, "scroll", target = t, text = dir, until = until, untilMs = untilMs)
+                Step(raw, StepKind.SCROLL, target = t, text = dir, until = until, untilMs = untilMs)
             }
             "type", "type+", "输入" -> {
                 val body = rawAfterVerb(raw, toks0[0]).let { r ->
                     if (until != null) r.substring(0, r.lastIndexOf("until").coerceAtLeast(0)).trimEnd() else r
                 }.let { unquote(it) }
                 if (body.isEmpty()) bad(raw, tr("type 后面写要输入的文字", "write the text to type after type"))
-                Step(raw, "type", text = body, append = verb == "type+", until = until, untilMs = untilMs)
+                Step(raw, StepKind.TYPE, text = body, append = verb == "type+", until = until, untilMs = untilMs)
             }
             "key", "press-key", "按键" -> {
                 val k = args.firstOrNull()?.lowercase() ?: bad(raw, tr("key 后面写键名：$KEY_NAMES", "write a key name after key: $KEY_NAMES"))
                 if (k == "home" || k == "app_switch" || k == "recent" || k == "recents") bad(raw, tr("没有 $k 键：副屏没有桌面和多任务界面（它们在用户的主屏上）。要离开当前应用用 stop，要开别的应用用 launch", "there is no $k key: the background screen has no launcher or recents (those are on the user's main screen). To leave the app use stop; to open another use launch"))
                 if (!isKey(k)) bad(raw, tr("不认识的键 $k（可用：$KEY_NAMES，或数字 keycode）", "unknown key $k (available: $KEY_NAMES, or a numeric keycode)"))
-                Step(raw, "key", text = k, until = until, untilMs = untilMs)
+                Step(raw, StepKind.KEY, text = k, until = until, untilMs = untilMs)
             }
-            "back" -> Step(raw, "key", text = "back", until = until, untilMs = untilMs)
-            "enter" -> Step(raw, "key", text = "enter", until = until, untilMs = untilMs)
+            "back" -> Step(raw, StepKind.KEY, text = "back", until = until, untilMs = untilMs)
+            "enter" -> Step(raw, StepKind.KEY, text = "enter", until = until, untilMs = untilMs)
             "wait", "等" -> {
                 if (args.isEmpty()) bad(raw, tr("wait <条件> [最长时长] 或 wait 时长", "wait <condition> [max duration] or wait <duration>"))
                 val only = duration(args[0])
-                if (args.size == 1 && only != null) Step(raw, "sleep", ms = capMs(raw, only, MAX_WAIT_MS, withValue = false))
+                if (args.size == 1 && only != null) Step(raw, StepKind.SLEEP, ms = capMs(raw, only, MAX_WAIT_MS, withValue = false))
                 else {
                     val (c, max) = condsWithMax(args)
-                    Step(raw, "wait", until = c, untilMs = (max ?: WAIT_DEFAULT_MS).coerceAtLeast(100L))
+                    Step(raw, StepKind.WAIT, until = c, untilMs = (max ?: WAIT_DEFAULT_MS).coerceAtLeast(100L))
                 }
             }
-            "use", "用" -> Step(raw, "use", text = args.joinToString(" ").trim().ifEmpty { bad(raw, tr("use 后面写保存过的段名", "write a saved segment name after use")) })
+            "use", "用" -> Step(raw, StepKind.USE, text = args.joinToString(" ").trim().ifEmpty { bad(raw, tr("use 后面写保存过的段名", "write a saved segment name after use")) })
             else -> bad(raw, tr("不认识的步骤“$verb”", "unknown step \"$verb\""))
         }
     }
@@ -376,7 +397,8 @@ internal object Steps {
         return conds to max?.let { capMs(toks.joinToString(" "), it, MAX_WAIT_MS, withValue = false).coerceAtLeast(100L) }
     }
 
-    val CONDS_HELP: String get() = tr("text:字 | gone:字 | change[:x1,y1,x2,y2] | still[:x1,y1,x2,y2] | stable | color:x,y=#RRGGBB[~容差] | app:名字，多个用 or 连", "text:word | gone:word | change[:x1,y1,x2,y2] | still[:x1,y1,x2,y2] | stable | color:x,y=#RRGGBB[~tolerance] | app:name, join several with or")
+    val CONDS_HELP: String get() = CondKind.entries.joinToString(" | ") { it.form } + tr("，多个用 or 连", ", join several with or")
+    val STEPS_HELP: String get() = StepKind.entries.joinToString(" | ") { it.form }
 
     /** One condition. */
     fun cond(s0: String): Cond {
@@ -385,16 +407,16 @@ internal object Steps {
         val v = if (':' in s) s.substringAfter(':').trim() else ""
         fun area(): Rect? = if (v.isEmpty()) null else parseRect(v, tr("区域", "region"))
         return when (kind) {
-            "text", "gone" -> { if (v.isEmpty()) throw ActionError("INVALID_STEP", tr("$kind: 后面写字（$s）", "write text after $kind: ($s)")); Cond(s, kind, text = v) }
-            "change", "changed" -> Cond(s, "change", area = area())
-            "still" -> Cond(s, "still", area = area())
-            "stable" -> Cond(s, "stable", area = area())
-            "app", "activity" -> { if (v.isEmpty()) throw ActionError("INVALID_STEP", tr("app: 后面写包名或界面名（$s）", "write a package or screen name after app: ($s)")); Cond(s, "app", text = v) }
+            "text", "gone" -> { if (v.isEmpty()) throw ActionError("INVALID_STEP", tr("$kind: 后面写字（$s）", "write text after $kind: ($s)")); Cond(s, if (kind == "text") CondKind.TEXT else CondKind.GONE, text = v) }
+            "change", "changed" -> Cond(s, CondKind.CHANGE, area = area())
+            "still" -> Cond(s, CondKind.STILL, area = area())
+            "stable" -> Cond(s, CondKind.STABLE, area = area())
+            "app", "activity" -> { if (v.isEmpty()) throw ActionError("INVALID_STEP", tr("app: 后面写包名或界面名（$s）", "write a package or screen name after app: ($s)")); Cond(s, CondKind.APP, text = v) }
             "color", "colour" -> {
                 val m = Regex("^(\\d+)\\s*[,，]\\s*(\\d+)\\s*=\\s*(#?[0-9a-fA-F]{6})\\s*(?:~\\s*(\\d+))?$").find(v)
                     ?: throw ActionError("INVALID_STEP", tr("颜色条件写成 color:x,y=#RRGGBB[~容差]（收到 $s）", "write a color condition as color:x,y=#RRGGBB[~tolerance] (got $s)"))
                 val c = com.kilon.agentvscreen.core.VPixels.parseColor(m.groupValues[3]) ?: throw ActionError("INVALID_STEP", tr("颜色写成 #RRGGBB（收到 $s）", "write a color as #RRGGBB (got $s)"))
-                Cond(s, "color", x = m.groupValues[1].toInt(), y = m.groupValues[2].toInt(), color = c, tol = m.groupValues[4].toIntOrNull()?.coerceIn(0, 255) ?: 40)
+                Cond(s, CondKind.COLOR, x = m.groupValues[1].toInt(), y = m.groupValues[2].toInt(), color = c, tol = m.groupValues[4].toIntOrNull()?.coerceIn(0, 255) ?: 40)
             }
             else -> throw ActionError("INVALID_STEP", tr("不认识的条件“$s”。条件只有：", "unknown condition \"$s\". The conditions are: ") + CONDS_HELP)
         }

@@ -103,7 +103,7 @@ object VScreenPerception {
             synchronized(w.lock) {
                 if (sm.isRecycled || sm.width != cur.width || sm.height != cur.height) null
                 // 1.3: a playing area differs in every frame; outside it the picture is the same, and so are its words.
-                else if (VPixels.regionDiff(sm, cur, android.graphics.Rect(0, 0, cur.width, cur.height), mask(displayId)?.rectsIn(cur.width, cur.height).orEmpty()) in 0.0..0.0005) r else null
+                else if (Change.same(sm, cur, Change.Level.TINY, skip = mask(displayId)?.rectsIn(cur.width, cur.height).orEmpty())) r else null
             }
         } finally { cur.recycle() }
     }
@@ -241,7 +241,7 @@ object VScreenPerception {
                 val r = runCatching { VScreenOcr.recognize(d.displayId, fv.first, fv.second, accurate = VScreenOcr.accurateEnabled()) }.getOrNull()
                 if (r != null) { w.ocrMs = r.ms; w.ocrEngine = r.engine }
                 if (r != null && r.error == null) {
-                    val a11y = runCatching { BackgroundOperation.a11yTexts(d.displayId, 200) }.getOrNull().orEmpty()
+                    val a11y = runCatching { A11yTree.snapshot(d.displayId).texts(200) }.getOrNull().orEmpty()
                     val words = if (uniform) emptyList() else wordsOf(still(r.items, mask(d.displayId)), a11y)
                     val sm = small(fv.first)
                     synchronized(w.lock) {

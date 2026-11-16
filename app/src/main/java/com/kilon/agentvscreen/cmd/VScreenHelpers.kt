@@ -1,5 +1,6 @@
 package com.kilon.agentvscreen.cmd
 
+import com.kilon.agentvscreen.core.Change
 import com.kilon.agentvscreen.tr
 
 import android.graphics.Bitmap
@@ -219,16 +220,16 @@ internal fun VScreenOffloadHandler.collectCmd(sid: String?, args: OffloadArgs): 
                 val x = d.width / 2
                 val o = VScreenShell.swipe(d.displayId, x, (d.height * 0.25).toInt(), x, (d.height * 0.85).toInt(), 250)
                 if (!o.ok) throw ActionError(o.code, o.message)
-                val still = Probe(this, d, listOf(Cond("stable", "still")))
+                val still = Probe(this, d, listOf(Cond("stable", CondKind.STILL)))
                 try { waitOn(d, still, 1_500L, null) } finally { still.close() }
                 val after = d.latestFrame()?.let { VScreenPerception.small(it) }
                 val skip = VScreenPerception.mask(d.displayId)?.let { m -> after?.let { m.rectsIn(it.width, it.height) } }.orEmpty()
-                val moved = if (before != null && after != null && before.width == after.width && before.height == after.height) VPixels.regionDiff(before, after, Rect(0, 0, after.width, after.height), skip) else 1.0
+                val moved = Change.ratio(before, after, null, skip).let { if (it < 0) 1.0 else it }
                 before?.recycle(); after?.recycle(); ups++
-                if (moved in 0.0..0.003 || runCatching { BackgroundOperation.canScrollBack(d.displayId) }.getOrNull() == false) break
+                if (moved <= Change.Level.SCROLL.max || runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).canScroll(forward = false) }.getOrNull() == false) break
             }
             startNote = tr("先往上滚了 $ups 次回到顶部", "scrolled up $ups times to the top first")
-        } else if (runCatching { BackgroundOperation.canScrollBack(d.displayId) }.getOrNull() == true)
+        } else if (runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).canScroll(forward = false) }.getOrNull() == true)
             startNote = tr("是从当前位置往下收集的，这一页上面还有内容没有收（要从头收：collect --from-top）", "collected from the current position down; there is more above that was not collected (from the top: collect --from-top)")
         try {
             for (p in 0 until pages) {
@@ -264,13 +265,12 @@ internal fun VScreenOffloadHandler.collectCmd(sid: String?, args: OffloadArgs): 
                     val x = (d.width * xFrac).toInt()
                     val o = VScreenShell.swipe(d.displayId, x, (d.height * 0.78).toInt(), x, (d.height * 0.28).toInt(), ms)
                     if (!o.ok) { before?.recycle(); throw ActionError(o.code, o.message) }
-                    val still = Probe(this, d, listOf(Cond("stable", "still")))
+                    val still = Probe(this, d, listOf(Cond("stable", CondKind.STILL)))
                     try { waitOn(d, still, settleMs, null) } finally { still.close() }
                     val after = d.latestFrame()?.let { VScreenPerception.small(it) }
                     val rects = VScreenPerception.mask(d.displayId)?.let { m -> after?.let { m.rectsIn(it.width, it.height) } }.orEmpty()
                     val skip = if (after != null && rects.sumOf { it.width().toLong() * it.height() } * 2 > after.width.toLong() * after.height) emptyList() else rects
-                    val moved = if (before != null && after != null && before.width == after.width && before.height == after.height)
-                        VPixels.regionDiff(before, after, Rect(0, 0, before.width, before.height), skip) else 1.0
+                    val moved = Change.ratio(before, after, null, skip).let { if (it < 0) 1.0 else it }
                     before?.recycle(); after?.recycle()
                     return moved
                 }
@@ -278,8 +278,8 @@ internal fun VScreenOffloadHandler.collectCmd(sid: String?, args: OffloadArgs): 
                 // on a carousel or was taken as a tap, stood still once and collect said "the end" (1, 3, 6 screens on
                 // the same feed; a scroll right after moved 47%). A second, different swipe confirms it, and only the
                 // list itself saying it cannot go further makes it "the end".
-                if (scrolled(0.5, 450, 2_500L) in 0.0..0.003 && scrolled(0.3, 650, 3_500L) in 0.0..0.003) {
-                    why = when (runCatching { BackgroundOperation.canScrollForward(d.displayId) }.getOrNull()) {
+                if (scrolled(0.5, 450, 2_500L) <= Change.Level.SCROLL.max && scrolled(0.3, 650, 3_500L) <= Change.Level.SCROLL.max) {
+                    why = when (runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).canScroll(forward = true) }.getOrNull()) {
                         false -> tr("到底了（再滑两次画面都没动，列表也说不能再往下）", "reached the end (two more swipes moved nothing, and the list says it cannot go further)")
                         true -> tr("再滑两次画面都没动，但列表说还能往下（可能在加载，或滑动落在了不能滚的地方）；稍后可以再 collect", "two more swipes moved nothing, though the list says it can go further (loading, or the swipe landed on something that does not scroll); collect again later")
                         null -> tr("再滑两次画面都没动（可能到底了，或这块不能滚）", "two more swipes moved nothing (probably the end, or this area does not scroll)")

@@ -107,12 +107,7 @@ internal class ScreenSig private constructor(
                 sa.getPixels(pa, 0, w, 0, 0, w, h); sb.getPixels(pb, 0, w, 0, 0, w, h)
                 if (sa !== a) sa.recycle(); if (sb !== b) sb.recycle()
                 var n = 0
-                for (i in pa.indices) {
-                    val ca = pa[i]; val cb = pb[i]
-                    val la = (((ca shr 16) and 0xff) * 3 + ((ca shr 8) and 0xff) * 6 + (ca and 0xff)) / 10
-                    val lb = (((cb shr 16) and 0xff) * 3 + ((cb shr 8) and 0xff) * 6 + (cb and 0xff)) / 10
-                    if (abs(la - lb) > 28) n++
-                }
+                for (i in pa.indices) if (com.kilon.agentvscreen.core.Change.differs(pa[i], pb[i])) n++
                 n.toDouble() / pa.size
             }.getOrDefault(-1.0)
         }

@@ -27,10 +27,10 @@ class V130Beta18ScriptTest {
 
     @Test fun ifElseTryRepeatParse() {
         val s = Steps.parseAll("if text:关闭 2s { tap 关闭 } else { back; wait 1s }; try tap 跳过; repeat 3 { scroll down }; repeat { scroll down } until text:到底了 3s")
-        assertEquals(listOf("if", "try", "repeat", "repeat"), s.map { it.kind })
-        assertEquals("text", s[0].until!![0].kind); assertEquals(2_000L, s[0].untilMs)
-        assertEquals(listOf("tap"), s[0].body.map { it.kind }); assertEquals(listOf("key", "sleep"), s[0].alt.map { it.kind })
-        assertEquals("tap", s[1].body.single().kind)
+        assertEquals(listOf("if", "try", "repeat", "repeat"), s.map { it.kind.key })
+        assertEquals("text", s[0].until!![0].kind.key); assertEquals(2_000L, s[0].untilMs)
+        assertEquals(listOf("tap"), s[0].body.map { it.kind.key }); assertEquals(listOf("key", "sleep"), s[0].alt.map { it.kind.key })
+        assertEquals("tap", s[1].body.single().kind.key)
         assertEquals(3, s[2].times); assertEquals(null, s[2].until)
         assertEquals(Steps.REPEAT_DEFAULT, s[3].times); assertEquals("到底了", s[3].until!![0].text); assertEquals(3_000L, s[3].untilMs)
         assertFalse(s.any { it.isAction })
@@ -39,9 +39,9 @@ class V130Beta18ScriptTest {
     @Test fun nestedBlocksElseIfAndNewLines() {
         val s = Steps.parseAll("repeat 2 {\n  try { tap 下一个; wait text:完成 }\n  if gone:加载中 { tap 刷新 } else if text:重试 { tap 重试 }\n}")
         val r = s.single()
-        assertEquals(listOf("try", "if"), r.body.map { it.kind })
-        assertEquals(listOf("tap", "wait"), r.body[0].body.map { it.kind })
-        assertEquals("if", r.body[1].alt.single().kind)
+        assertEquals(listOf("try", "if"), r.body.map { it.kind.key })
+        assertEquals(listOf("tap", "wait"), r.body[0].body.map { it.kind.key })
+        assertEquals("if", r.body[1].alt.single().kind.key)
         assertEquals(8, Steps.count(s))
     }
 

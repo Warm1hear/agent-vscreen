@@ -1,5 +1,7 @@
 package com.kilon.agentvscreen.ui
 
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.Switch
 import android.content.Intent
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
@@ -96,12 +98,12 @@ fun OverviewTab(bottom: Dp) {
             if (s.userStopped) add {
                 BasicComponent(title = tr("你停止了 AI", "You stopped the AI"), summary = tr("它的操作都会被拒绝，直到你允许", "Its actions are refused until you allow it"),
                     startAction = { Dot(Palette.stopped, 10.dp); Spacer(Modifier.width(12.dp)) },
-                    endActions = { TextButton(onClick = { BackgroundOperation.userResume() }) { Text(tr("允许继续", "Allow again")) } })
+                    endActions = { LinkButton(onClick = { BackgroundOperation.userResume() }) { Text(tr("允许继续", "Allow again")) } })
             }
             if (s.windowHidden && s.displayId != null && !s.userStopped) add {
                 BasicComponent(title = tr("小窗已收起", "Floating window hidden"), summary = tr("AI 还在后台工作", "The AI is still working in the background"),
                     startAction = { Dot(Palette.standby, 10.dp); Spacer(Modifier.width(12.dp)) },
-                    endActions = { TextButton(onClick = { BackgroundOperation.showWindow() }) { Text(tr("显示", "Show")) } })
+                    endActions = { LinkButton(onClick = { BackgroundOperation.showWindow() }) { Text(tr("显示", "Show")) } })
             }
             app.liveProblem?.let { p ->
                 add {
@@ -129,7 +131,7 @@ fun OverviewTab(bottom: Dp) {
             watches.forEach { l ->
                 val left = l.json().opt("ends_in_min")
                 BasicComponent(title = l.spec.name, summary = l.spec.describe() + " · " + l.status + tr(" · 还剩 $left 分钟", " · $left min left"),
-                    endActions = { TextButton(onClick = { VScreenRules.stop(l.spec.name); app.bump() }) { Text(tr("停止", "Stop")) } })
+                    endActions = { LinkButton(onClick = { VScreenRules.stop(l.spec.name); app.bump() }) { Text(tr("停止", "Stop")) } })
             }
             next?.let { at ->
                 ArrowPreference(title = tr("下次预约", "Next booking"), endActions = { Value(ServiceControl.hhmm(at)) }, onClick = { nav.go(Route.Schedules) })
@@ -139,11 +141,11 @@ fun OverviewTab(bottom: Dp) {
         // Quick actions.
         val st = remember(beat, app.tick, app.serviceOn) { ServiceControl.now(ctx) }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (s.displayId != null && !s.userStopped) Button(onClick = { BackgroundOperation.userStop() }, color = Palette.stopped, modifier = Modifier.weight(1f)) {
+            if (s.displayId != null && !s.userStopped) PrimaryButton(onClick = { BackgroundOperation.userStop() }, color = Palette.stopped, modifier = Modifier.weight(1f)) {
                 Text(tr("停止 AI", "Stop the AI"), color = Color.White)
             }
             val blocked = st == ServiceControl.State.BLOCKED
-            OutlinedButton(onClick = {
+            SoftButton(onClick = {
                 if (blocked) ServiceControl.allow(ctx, "home") else ServiceControl.block(ctx, "home")
                 app.serviceOn = com.kilon.agentvscreen.host.Prefs.serviceOn(ctx); app.bump()
             }, modifier = Modifier.weight(1f)) { Text(if (blocked) tr("允许 agent 唤起", "Allow waking") else tr("禁止 agent 访问", "Block agents"), maxLines = 1) }
@@ -190,11 +192,11 @@ private fun StatusCard(s: BackgroundOperation.State, serviceOn: Boolean, setOn: 
             Switch(checked = serviceOn, onCheckedChange = setOn)
         }
         if (error != null) Row(Modifier.padding(top = 8.dp)) {
-            if (HostService.server?.portBusy == true) TextButton(onClick = {
+            if (HostService.server?.portBusy == true) LinkButton(onClick = {
                 val np = if (ApiConfig.port >= 65535) ApiConfig.DEFAULT_PORT + 1 else ApiConfig.port + 1
                 ApiConfig.setPort(np); HostService.server?.start(np)
             }) { Text(tr("换个端口", "Use another port")) }
-            else TextButton(onClick = { HostService.server?.start(ApiConfig.port) }) { Text(tr("立即重试", "Retry now")) }
+            else LinkButton(onClick = { HostService.server?.start(ApiConfig.port) }) { Text(tr("立即重试", "Retry now")) }
         }
         // The screen: a live thumbnail while there is one (tap to open it full screen).
         if (s.displayId != null) {

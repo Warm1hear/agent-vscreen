@@ -12,7 +12,6 @@ import kotlin.math.roundToInt
  */
 object VScreenActivity {
     const val COLS = 24
-    private const val LUM_DIFF = 28
     private const val CELL_SHARE = 0.04
 
     fun rowsFor(w: Int, h: Int): Int = (COLS.toDouble() * h / maxOf(1, w)).roundToInt().coerceIn(6, 60)
@@ -37,7 +36,7 @@ object VScreenActivity {
                 val i = y * w + x
                 val c = cy * cols + (x.toLong() * cols / w).toInt().coerceIn(0, cols - 1)
                 all[c]++
-                if (abs(lum(pa[i]) - lum(pb[i])) > LUM_DIFF) hit[c]++
+                if (Change.differs(pa[i], pb[i])) hit[c]++
                 x += 2
             }
             y += 2
