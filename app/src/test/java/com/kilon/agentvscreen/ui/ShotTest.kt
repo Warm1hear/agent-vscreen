@@ -31,12 +31,19 @@ class ShotTest {
         com.kilon.agentvscreen.host.AppLogger.init(app)
         com.kilon.agentvscreen.api.ApiConfig.init(app)
         runCatching { com.kilon.agentvscreen.core.BackgroundOperation.init(app) }.onFailure { println("BO init: $it") }
+        // 1.4.0-beta3: two finished tasks, so 首页 shows 刚才 and 记录 shows the timeline.
+        com.kilon.agentvscreen.core.TaskLog.init(app)
+        val now = System.currentTimeMillis()
+        File(app.filesDir, "tasks/log.jsonl").writeText(listOf(
+            com.kilon.agentvscreen.core.TaskLog.Task(1, "s1", "claude", now - 3_600_000, now - 3_400_000, "查明天上海的天气", "com.android.settings", 9),
+            com.kilon.agentvscreen.core.TaskLog.Task(2, "s2", "claude", now - 900_000, now - 600_000, null, "com.android.settings", 14, "STEP_MISSED", 1),
+        ).joinToString("\n") { it.json().toString() } + "\n")
         // 1.3 beta3: the home page with a question waiting, and each second-level page.
         com.kilon.agentvscreen.host.UserAsk.create(app, com.kilon.agentvscreen.host.UserAsk.Kind.CHOOSE, "shot", "这周末你想先动哪块？", "",
             options = listOf("考研单词", "大创器件", "先歇着"))
         for (page in listOf("RECORDS", "SETTINGS", "CONNECT", "REMOTE", "TOKENS", "RULES", "SCHEDULES", "LESSONS", "LOG", "SETUP", "DIAG", "HELP")) {
             val a = Robolectric.buildActivity(MainActivity::class.java, android.content.Intent().putExtra(MainActivity.EXTRA_PAGE, page)).setup().get()
-            repeat(20) { ShadowLooper.idleMainLooper(); Thread.sleep(50) }
+            repeat(60) { ShadowLooper.idleMainLooper(); Thread.sleep(50) }
             val v = a.window.decorView
             val b = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
             v.draw(Canvas(b))
@@ -45,7 +52,7 @@ class ShotTest {
         run {
             val ask = com.kilon.agentvscreen.host.UserAsk.open.value.first { it.kind == com.kilon.agentvscreen.host.UserAsk.Kind.CHOOSE }
             val a = Robolectric.buildActivity(AskActivity::class.java, android.content.Intent().putExtra("id", ask.id)).setup().get()
-            repeat(20) { ShadowLooper.idleMainLooper(); Thread.sleep(50) }
+            repeat(60) { ShadowLooper.idleMainLooper(); Thread.sleep(50) }
             val v = a.window.decorView
             val b = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
             v.draw(Canvas(b))
@@ -56,7 +63,7 @@ class ShotTest {
             com.kilon.agentvscreen.host.Prefs.setServiceOn(app, false)
             com.kilon.agentvscreen.host.Prefs.setBlocked(app, blocked)
             val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
-            repeat(20) { ShadowLooper.idleMainLooper(); Thread.sleep(50) }
+            repeat(60) { ShadowLooper.idleMainLooper(); Thread.sleep(50) }
             val v = a.window.decorView
             val b = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
             v.draw(Canvas(b))
@@ -67,7 +74,7 @@ class ShotTest {
         for (night in listOf(false, true)) {
             if (night) org.robolectric.RuntimeEnvironment.setQualifiers("+night")
             val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
-            repeat(20) { ShadowLooper.idleMainLooper(); Thread.sleep(50) }
+            repeat(60) { ShadowLooper.idleMainLooper(); Thread.sleep(50) }
             val v = a.window.decorView
             val b = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
             v.draw(Canvas(b))

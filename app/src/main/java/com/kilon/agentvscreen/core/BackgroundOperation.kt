@@ -478,6 +478,7 @@ object BackgroundOperation {
     fun onTaskFinished(sessionId: String) {
         if (sessionId.isEmpty()) return
         synchronized(lock) { tasks.remove(sessionId); turns.remove(sessionId) }
+        TaskLog.onTurnEnd(sessionId, _state.value.userStopped)
         // A finger the agent left down (run … --keep without a release) never outlives the turn.
         if (_state.value.ownerSessionId == sessionId) display?.let { d ->
             Thread { runCatching { VScreenShell.finger(d.displayId, "cancel", 0, -1, -1) } }.apply { isDaemon = true }.start()
@@ -510,6 +511,7 @@ object BackgroundOperation {
     /** 1.1: the user's Stop: refuse the agent (USER_STOPPED) until [userResume]; a finger the agent holds is lifted. */
     fun userStop() {
         val d = display
+        _state.value.ownerSessionId?.let { TaskLog.stoppedByUser(it) }
         _state.update { it.copy(userStopped = true, stoppedAt = System.currentTimeMillis(), takeoverSessionId = null, operating = false) }
         d?.let { Thread { runCatching { VScreenShell.finger(it.displayId, "cancel", 0, -1, -1) } }.apply { isDaemon = true }.start() }
         AppLogger.info(TAG, "user stop")

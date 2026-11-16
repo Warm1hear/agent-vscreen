@@ -17,6 +17,7 @@ class VScreenApp : Application() {
         ApiConfig.init(this)
         com.kilon.agentvscreen.api.Tokens.init(this)
         Audit.init(this)
+        com.kilon.agentvscreen.core.TaskLog.init(this)
         com.kilon.agentvscreen.api.EventHub.init(this)
         com.kilon.agentvscreen.api.AgentLedger.init(this)
         ShizukuManager.init(this)

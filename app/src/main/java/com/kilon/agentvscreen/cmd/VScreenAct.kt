@@ -856,11 +856,16 @@ private fun VScreenOffloadHandler.doAction(sid: String, d: VScreenDisplay, step:
                 }
                 val where = f.bounds?.let { b -> " [${b.left},${b.top},${b.right},${b.bottom}]" + (f.fieldId?.let { tr("（$it）", " ($it)") } ?: "") } ?: ""
                 when {
-                    f.field == null -> {
+                    // 1.4.0-beta3: only a reading that saw no focused box is a failure. When the box could not be read at
+                    // all (a web page, a self-drawn box) the text often did go in (beta2 test: the words reached the
+                    // suggestions while the reply said TYPE_FAILED); that is "unconfirmed", said in the step, not a miss.
+                    f.field == null && f.checked -> {
                         missCode = "TYPE_FAILED"
-                        miss = if (f.checked) tr("没有获得焦点的输入框，字很可能没进去。先点输入框（【现在】里标“可输入”的），等它标“有焦点”再 type", "No input box has focus, so the text most likely did not go in. Tap the input box first (marked \"input\" in [Now]) and type once it is marked \"focused\"")
-                            else tr("无障碍没开，确认不了字落在哪。看截图核对，字进去了再发后面的步骤", "Accessibility is off, so where the text landed can't be confirmed. Check the screenshot, and send the next steps once the text is in")
-                        tr("按 ${f.method} 发了 ${step.text.length} 个字；", "sent ${step.text.length} characters by ${f.method}; ") + if (f.checked) tr("没有获得焦点的输入框", "no focused input box") else tr("读不到输入框", "input box unreadable")
+                        miss = tr("没有获得焦点的输入框，字很可能没进去。先点输入框（【现在】里标“可输入”的），等它标“有焦点”再 type", "No input box has focus, so the text most likely did not go in. Tap the input box first (marked \"input\" in [Now]) and type once it is marked \"focused\"")
+                        tr("按 ${f.method} 发了 ${step.text.length} 个字；没有获得焦点的输入框", "sent ${step.text.length} characters by ${f.method}; no focused input box")
+                    }
+                    f.field == null -> {
+                        tr("按 ${f.method} 发了 ${step.text.length} 个字；读不到输入框（网页或自绘的界面），确认不了字落在哪，看截图核对", "sent ${step.text.length} characters by ${f.method}; no input box could be read (a web page or self-drawn screen), so where the text landed is unconfirmed: check the screenshot")
                     }
                     f.unreadable -> tr("按 ${f.method} 发了 ${step.text.length} 个字；输入框$where 的内容读不出来（网页或自绘的框，读到的还是原来的“${f.field.take(40)}”），看截图核对",
                         "sent ${step.text.length} characters by ${f.method}; the input box$where cannot be read back (a web page or self-drawn box still reads \"${f.field.take(40)}\"); check the screenshot")

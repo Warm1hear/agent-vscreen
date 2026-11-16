@@ -82,7 +82,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 /*
  * 1.4: the app is organised the way miuix apps are, not as the 1.3 home page with new widgets on it.
  *
- *  - Three tabs at the bottom, by what the user came for: 概览 (how it is now, does anything need me), 记录 (what the
+ *  - Three tabs at the bottom, by what the user came for: 现在 (how it is now, does anything need me), 记录 (what the
  *    agent did, booked, watches and learned), 设置 (how agents connect, what they may do, how the screen behaves).
  *  - Every second-level page is a real page on a stack (miuix-nav): its own large title that folds into the bar, swipe
  *    and predictive back. Nothing swaps content inside one page any more.
@@ -106,6 +106,7 @@ sealed interface Route : NavKey {
     @Serializable data object Log : Route
     @Serializable data object Diag : Route
     @Serializable data object Help : Route
+    @Serializable data class Task(val id: Long) : Route
 }
 
 /** What a page may ask of the activity. */
@@ -176,6 +177,7 @@ fun AppRoot(host: AppHost, firstPage: Route?, snack: SnackbarHostState, firstTab
                 entry<Route.Log>(swipeDismiss = swipe) { LogPage() }
                 entry<Route.Diag>(swipeDismiss = swipe) { DiagPage() }
                 entry<Route.Help>(swipeDismiss = swipe) { HelpPage() }
+                entry<Route.Task>(swipeDismiss = swipe) { r -> TaskPage(r.id) }
             }
             SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 84.dp))
         }
@@ -190,7 +192,7 @@ private fun MainTabs(pager: androidx.compose.foundation.pager.PagerState) {
     val backdrop = if (Glass.blurOk) rememberLayerBackdrop { drawRect(surface); drawContent() } else null
     val app = LocalApp.current
     val tabs = listOf(
-        Triple(tr("概览", "Overview"), MiuixIcons.Home, 0),
+        Triple(tr("现在", "Now"), MiuixIcons.Home, 0),
         Triple(tr("记录", "Records"), MiuixIcons.Recent, 1),
         Triple(tr("设置", "Settings"), MiuixIcons.Settings, 2),
     )
@@ -209,7 +211,7 @@ private fun MainTabs(pager: androidx.compose.foundation.pager.PagerState) {
                     FloatingNavigationBarItem(
                         selected = pager.currentPage == i, onClick = { scope.launch { pager.animateScrollToPage(i) } },
                         icon = icon, label = label,
-                        // A dot on 概览 while something there needs the user.
+                        // A dot on 现在 while something there needs the user.
                         badge = badge,
                     )
                 }

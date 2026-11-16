@@ -158,8 +158,8 @@ fun SwitchRow(title: String, sub: String? = null, checked: Boolean, help: String
 
 /** A short grey line. One line where it can be. */
 @Composable
-fun Note(t: String, color: Color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurfaceVariantSummary) =
-    Text(t, fontSize = 12.sp, lineHeight = 17.sp, color = color, modifier = Modifier.fillMaxWidth())
+fun Note(t: String, color: Color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier: Modifier = Modifier) =
+    Text(t, fontSize = 12.sp, lineHeight = 17.sp, color = color, modifier = modifier.fillMaxWidth())
 
 /** A pill button for dark glass: the main one in the accent gradient, the rest as quiet glass chips. */
 @Composable

@@ -1,6 +1,24 @@
 package com.kilon.agentvscreen.ui
 
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import com.kilon.agentvscreen.core.TaskLog
+import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Icon
 import androidx.compose.foundation.layout.Arrangement
@@ -42,81 +60,127 @@ import java.util.Date
 import java.util.Locale
 
 /*
- * 1.4 记录: what agents booked, watch, learned and did. Each group shows the latest few rows and leads to its own page
- * with all of them.
+ * 1.4.0-beta3 记录 = a timeline (rainbow approved the prototype). beta2 listed four boxes of settings-like rows. Now it
+ * reads like a diary: day by day, each task an agent did as a card with its frames, the questions the user answered
+ * between them. Chips on top narrow it to tasks, questions, plans (bookings and watches) or lessons. The raw command
+ * log moved to Settings › 关于与诊断.
  */
+
+private enum class Filter { ALL, TASKS, ASKS, PLANS, LESSONS }
+
+private sealed class Line(val at: Long) {
+    class T(val t: TaskLog.Task) : Line(t.start)
+    class A(val o: JSONObject) : Line(o.optLong("at"))
+}
+
+private val dayFmt = SimpleDateFormat("M月d日", Locale.ROOT)
+
+private fun dayOf(at: Long): String {
+    val c = java.util.Calendar.getInstance()
+    fun key(t: Long) = c.apply { timeInMillis = t }.let { it.get(java.util.Calendar.YEAR) * 400 + it.get(java.util.Calendar.DAY_OF_YEAR) }
+    val now = System.currentTimeMillis()
+    return when (key(at)) {
+        key(now) -> tr("今天", "Today")
+        key(now - 86_400_000L) -> tr("昨天", "Yesterday")
+        else -> if (!com.kilon.agentvscreen.I18n.en) dayFmt.format(Date(at)) else SimpleDateFormat("MMM d", Locale.ENGLISH).format(Date(at))
+    }
+}
 
 @Composable
 fun RecordsTab(bottom: Dp) {
-    val ctx = LocalContext.current
     val app = LocalApp.current
     val nav = LocalNav.current
     var beat by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { delay(4_000); beat++ } }
-    MiuixPage(tr("记录", "Records"), back = false, bottom = bottom) {
-        // Bookings, alarm-like: the time big, the switch on the right.
-        var books by remember { mutableStateOf(emptyList<Wake.Entry>()) }
-        LaunchedEffect(beat, app.tick) { books = withContext(Dispatchers.IO) { Wake.list(ctx) } }
-        Group(tr("定时预约", "Schedules")) {
-            if (books.isEmpty()) BasicComponent(title = tr("还没有预约", "Nothing booked"), summary = tr("agent 用 vscreen schedule 预约要用手机的时间", "Agents book the times they need the phone with vscreen schedule"))
-            books.take(3).forEach { e -> BookingRow(e) { app.bump() } }
-            if (books.isNotEmpty()) ArrowPreference(title = tr("全部预约", "All schedules"), endActions = { Value("${books.size}") }, onClick = { nav.go(Route.Schedules) })
+    var filter by remember { mutableStateOf(Filter.ALL) }
+    var lines by remember { mutableStateOf(emptyList<Line>()) }
+    LaunchedEffect(beat, app.tick) {
+        lines = withContext(Dispatchers.IO) {
+            val tasks = TaskLog.recent(60).map { Line.T(it) }
+            val asks = runCatching { Audit.tail(400).filter { it.optString("kind") == "consent" && answerWord(it.optString("answer")) != null }.map { Line.A(it) } }.getOrDefault(emptyList())
+            (tasks + asks).sortedByDescending { it.at }
         }
-
-        // Watches: running first, then the ones that ended.
-        val watches = remember(beat, app.tick) { VScreenRules.list() }
-        Group(tr("盯守", "Watches")) {
-            if (watches.isEmpty()) BasicComponent(title = tr("没有盯守", "No watches"), summary = tr("agent 用 act --stop … --keep 让手机盯着一件事", "Agents start one with act --stop … --keep"))
-            watches.forEach { l ->
-                val running = !l.stopped
-                BasicComponent(
-                    title = l.spec.name,
-                    summary = l.spec.describe() + " · " + (if (running) l.status + tr(" · 还剩 ${l.json().opt("ends_in_min")} 分钟", " · ${l.json().opt("ends_in_min")} min left") else (l.endReason ?: tr("已结束", "ended"))),
-                    endActions = {
-                        LinkButton(onClick = { if (running) VScreenRules.stop(l.spec.name) else VScreenRules.clearEnded(l.spec.name); app.bump() }) {
-                            Text(if (running) tr("停止", "Stop") else tr("清掉", "Clear"))
-                        }
-                    },
-                )
+    }
+    MiuixPage(tr("记录", "Records"), back = false, bottom = bottom) {
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(Filter.ALL to tr("全部", "All"), Filter.TASKS to tr("任务", "Tasks"), Filter.ASKS to tr("提问", "Questions"),
+                Filter.PLANS to tr("预约与盯守", "Plans"), Filter.LESSONS to tr("示教", "Lessons")).forEach { (f, label) ->
+                FilterChip(label, filter == f) { filter = f }
             }
         }
-
-        // Lessons: how many, for how many apps.
-        var lessons by remember { mutableStateOf(0 to 0) }
-        LaunchedEffect(app.tick) {
-            lessons = withContext(Dispatchers.IO) { runCatching { com.kilon.agentvscreen.core.VScreenMap.allSegments().let { it.size to it.map { p -> p.first }.distinct().size } }.getOrDefault(0 to 0) }
-        }
-        Group(tr("示教", "Lessons")) {
-            ArrowPreference(
-                title = tr("已保存的示教", "Saved lessons"),
-                summary = if (lessons.first == 0) tr("agent 用 teach 请你演示一遍，或在全屏页点录制", "An agent asks with teach, or tap record on the full screen page") else null,
-                endActions = { Value(if (lessons.first == 0) tr("无", "None") else tr("${lessons.first} 段 · ${lessons.second} 个应用", "${lessons.first} · ${lessons.second} apps")) },
-                onClick = { nav.go(Route.Lessons) },
-            )
-        }
-
-        // The log: the last few commands.
-        val rows = remember(beat, app.tick) { runCatching { Audit.tail(3).reversed() }.getOrDefault(emptyList()) }
-        Group(tr("操作日志", "Activity log")) {
-            if (rows.isEmpty()) BasicComponent(title = tr("还没有记录", "Nothing yet"), summary = tr("agent 的每条命令都会记在这里", "Every command an agent sends is recorded here"))
-            rows.forEach { o -> LogRow(o) }
-            ArrowPreference(title = tr("全部日志", "Full log"), onClick = { nav.go(Route.Log) })
+        AnimatedContent(filter, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) }, label = "filter") { f ->
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                when (f) {
+                    Filter.PLANS -> Plans(beat)
+                    Filter.LESSONS -> LessonsList(app.tick)
+                    else -> {
+                        val shown = lines.filter { f == Filter.ALL || (f == Filter.TASKS && it is Line.T) || (f == Filter.ASKS && it is Line.A) }
+                        if (shown.isEmpty()) Empty(when (f) {
+                            Filter.ASKS -> tr("agent 还没问过你什么", "No agent has asked you anything yet")
+                            else -> tr("agent 用过副屏之后，每次做了什么会按时间排在这里", "Once an agent has used the screen, what it did each time appears here")
+                        })
+                        var day = ""
+                        shown.forEach { l ->
+                            val d = dayOf(l.at)
+                            if (d != day) { day = d; Text(d, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(start = 6.dp, top = 8.dp)) }
+                            when (l) {
+                                is Line.T -> TaskCard(l.t) { nav.go(Route.Task(l.t.id)) }
+                                is Line.A -> {
+                                    val a = l.o.optString("answer")
+                                    TimelineNote(hhmm(l.at) + " · " + l.o.optString("what").substringBefore(" — ").take(40) + " → " + answerWord(a),
+                                        if (a == "allowed" || a.startsWith("answered")) Palette.takeover else Palette.stopped)
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
         }
     }
 }
 
-/** A booking as an alarm row: the time(s) as the title, what it means and when next below, its switch. */
+/** What the user did with a question, in their words; null for answers the app gave itself (pre-authorized, automatic). */
+private fun answerWord(a: String): String? = when {
+    a == "allowed" -> tr("你允许了", "you allowed")
+    a == "denied" -> tr("你拒绝了", "you refused")
+    a.startsWith("answered") -> tr("你回答了", "you answered")
+    a == "declined" -> tr("你没有回答", "you declined")
+    a.startsWith("ended") -> tr("没等到回答", "not answered in time")
+    else -> null
+}
+
 @Composable
-private fun BookingRow(e: Wake.Entry, changed: () -> Unit) {
-    val ctx = LocalContext.current
-    val big = if (e.spec.everyMin > 0) tr("每 ${e.spec.everyMin} 分钟", "Every ${e.spec.everyMin} min") else e.spec.times.joinToString("  ") { "%02d:%02d".format(it / 60, it % 60) }
-    val next = e.json().optString("next_local", "")
-    SwitchPreference(
-        checked = e.on,
-        onCheckedChange = { v -> runCatching { Wake.edit(ctx, e.name, e.text, e.forMin, v) }; changed() },
-        title = big,
-        summary = e.spec.describe() + " · " + (if (e.on && next.isNotEmpty() && next != "null") tr("下次 $next", "next $next") else tr("已关闭", "off")) + " · " + e.name,
-    )
+private fun FilterChip(label: String, on: Boolean, onClick: () -> Unit) {
+    val c = MiuixTheme.colorScheme
+    Text(label, fontSize = 14.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, color = if (on) c.onPrimary else c.onSurface,
+        modifier = Modifier.clip(RoundedCornerShape(50)).background(if (on) c.primary else c.surfaceContainer).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp))
+}
+
+@Composable
+private fun Empty(text: String) =
+    Text(text, fontSize = 14.sp, lineHeight = 21.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp, horizontal = 24.dp))
+
+/** Bookings (alarm-like cards) and watches (running first). */
+@Composable
+private fun Plans(beat: Int) {
+    val app = LocalApp.current
+    val watches = remember(beat, app.tick) { VScreenRules.list() }
+    SchedulesCards(app.tick)
+    if (watches.isNotEmpty()) Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
+        watches.forEach { l ->
+            val running = !l.stopped
+            BasicComponent(
+                title = tr("盯守 · ", "Watch · ") + l.spec.name,
+                summary = l.spec.describe() + " · " + (if (running) l.status + tr(" · 还剩 ${l.json().opt("ends_in_min")} 分钟", " · ${l.json().opt("ends_in_min")} min left") else (l.endReason ?: tr("已结束", "ended"))),
+                endActions = {
+                    LinkButton(onClick = { if (running) VScreenRules.stop(l.spec.name) else VScreenRules.clearEnded(l.spec.name); app.bump() }) {
+                        Text(if (running) tr("停止", "Stop") else tr("清掉", "Clear"))
+                    }
+                },
+            )
+        }
+    }
 }
 
 private val logTime = SimpleDateFormat("MM-dd HH:mm:ss", Locale.ROOT)

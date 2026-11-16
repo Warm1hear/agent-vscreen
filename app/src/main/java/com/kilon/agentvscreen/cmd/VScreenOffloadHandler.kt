@@ -89,6 +89,8 @@ class VScreenOffloadHandler(internal val context: Context) : NativeOffloadHandle
         val argv = request.argv.drop(1)
         if (argv.firstOrNull() !in setOf(null, "help", "--help", "-h"))
             com.kilon.agentvscreen.host.quiet("audit") { Audit.command(call?.tokenName ?: "main", call?.peer, request.sessionId ?: DEFAULT_SESSION, argv, r.codeOrDefault, r.exitCode, android.os.SystemClock.elapsedRealtime() - t0, call?.requestId) }
+        if (argv.firstOrNull() !in setOf(null, "help", "--help", "-h"))
+            com.kilon.agentvscreen.host.quiet("tasklog") { com.kilon.agentvscreen.core.TaskLog.onCommand(request.sessionId ?: DEFAULT_SESSION, call?.tokenName ?: "main", argv, r.codeOrDefault, r.exitCode) }
         return r
     }
 

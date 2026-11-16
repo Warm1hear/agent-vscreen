@@ -4,7 +4,25 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Icon
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import top.yukonga.miuix.kmp.basic.Card
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -58,8 +76,10 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /*
- * 1.4 设置: grouped rows, each with its current value. Choices are dropdowns or a bottom sheet, not segmented bars;
- * nothing here carries a "?": every explanation is on the Help page.
+ * 1.4.0-beta3 设置 (rainbow approved the prototype). beta2 was five groups of equal rows, so the two things people
+ * come here for (who can reach the phone, how much an agent may do on its own) looked like any toggle. Now those two
+ * are big cards at the top, drawn rather than listed; the screen's own switches follow as one group, and everything
+ * rare (recognition, language, updates, the raw log, diagnostics) is gathered at the bottom under 关于与诊断.
  */
 
 @Composable
@@ -74,46 +94,69 @@ fun SettingsTab(bottom: Dp) {
     val tokens by Tokens.list.collectAsState()
     val rules by com.kilon.agentvscreen.core.VScreenStore.rules.collectAsState()
     var autonomy by remember { mutableStateOf(ApiConfig.autonomy) }
-    var sheet by remember { mutableStateOf(false) }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     var eventDialog by remember { mutableStateOf(false) }
     var update by remember { mutableStateOf<Updates.Outcome?>(null) }
 
     MiuixPage(tr("设置", "Settings"), back = false, bottom = bottom) {
-        Group(tr("接入", "Access")) {
-            ArrowPreference(title = tr("接入 agent", "Connect an agent"), summary = remember(ts, app.serviceOn, app.tick) { com.kilon.agentvscreen.host.Access.tile(ctx) },
-                onClick = { nav.go(Route.Connect) })
-            ArrowPreference(title = tr("远程连接", "Remote access"), summary = tr("其它设备经 Tailscale 连进来", "Other devices through Tailscale"),
-                endActions = { Value(remember(ts, app.tick) { com.kilon.agentvscreen.host.Tailnet.line(ctx) }) }, onClick = { nav.go(Route.Remote) })
-            ArrowPreference(title = tr("令牌", "Tokens"), endActions = { Value(tr("${tokens.size} 个", "${tokens.size}")) }, onClick = { nav.go(Route.Tokens) })
+        // Who can reach the phone: the phone in the middle, each way in as a line, lit when it works.
+        SmallTitle(tr("谁能连进来", "Who can connect"))
+        Card(Modifier.padding(horizontal = 12.dp).fillMaxWidth(), insideMargin = PaddingValues(18.dp)) {
+            val ways = remember(ts, app.serviceOn, app.tick) { com.kilon.agentvscreen.host.Access.ways(ctx) }
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ways.forEachIndexed { i, w ->
+                    WayLine(w, onClick = { if (i == 0) nav.go(Route.Connect) else nav.go(Route.Remote) })
+                }
+                if (ways.size == 1) WayLine(null, onClick = { nav.go(Route.Remote) })
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PrimaryButton(onClick = { nav.go(Route.Connect) }, modifier = Modifier.weight(1f)) { Text(tr("接入新的 agent", "Connect an agent")) }
+                    SoftButton(onClick = { nav.go(Route.Tokens) }) { Text(tr("令牌 ${tokens.size}", "Tokens ${tokens.size}")) }
+                }
+            }
         }
-        Group(tr("权限与安全", "Permissions")) {
-            ArrowPreference(title = tr("自主程度", "How freely agents work"),
-                endActions = { Value(if (autonomy == "careful") tr("谨慎", "Careful") else tr("放手跑", "Hands-off")) }, onClick = { sheet = true })
+
+        // How much an agent may do alone: the two levels side by side, the chosen one lit; app rules under them.
+        SmallTitle(tr("agent 能做多少", "How much an agent may do"))
+        Card(Modifier.padding(horizontal = 12.dp).fillMaxWidth(), insideMargin = PaddingValues(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                listOf(
+                    Triple("auto", tr("放手跑", "Hands-off"), tr("只有付钱那一步问你", "Only paying asks you")),
+                    Triple("careful", tr("谨慎", "Careful"), tr("购买、删除、卸载也先问", "Buying, deleting, uninstalling ask too")),
+                ).forEach { (key, title, sub) ->
+                    LevelCard(title, sub, autonomy == key, Modifier.weight(1f)) {
+                        if (autonomy != key) { autonomy = key; ApiConfig.autonomy = key; Audit.security("autonomy", key); haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove) }
+                    }
+                }
+            }
             ArrowPreference(title = tr("应用规则", "App rules"), summary = tr("禁止、只读或每次询问", "Blocked, read-only or ask every time"),
                 endActions = { Value(if (rules.isEmpty()) tr("无", "None") else tr("${rules.size} 条", "${rules.size}")) }, onClick = { nav.go(Route.Rules) })
         }
+
         Group(tr("副屏", "Background screen")) {
             SwitchPreference(checked = s.showPreview, onCheckedChange = { BackgroundOperation.setShowPreview(it); if (it) Overlay.refresh() },
                 title = tr("显示悬浮窗", "Floating window"), summary = tr("有副屏时显示在最上层", "On top while there is a screen"))
-            val idleSave by com.kilon.agentvscreen.core.VScreenStore.idlePowerSave.collectAsState()
-            SwitchPreference(checked = idleSave, onCheckedChange = { BackgroundOperation.setIdlePowerSave(it) },
-                title = tr("空闲省电", "Idle power saving"), summary = tr("一轮结束后暂停渲染", "Pause rendering between turns"))
             var mute by remember { mutableStateOf(com.kilon.agentvscreen.core.VScreenMute.enabled) }
             SwitchPreference(checked = mute, onCheckedChange = { mute = it; com.kilon.agentvscreen.core.VScreenMute.enabled = it },
                 title = tr("副屏静音", "Mute the screen"), summary = tr("副屏里的应用不出声", "Its apps make no sound"))
+            val idleSave by com.kilon.agentvscreen.core.VScreenStore.idlePowerSave.collectAsState()
+            SwitchPreference(checked = idleSave, onCheckedChange = { BackgroundOperation.setIdlePowerSave(it) },
+                title = tr("空闲省电", "Idle power saving"), summary = tr("一轮结束后暂停渲染", "Pause rendering between turns"))
             val opts = listOf(1, 3, 5, 10, 30)
             var quiet by remember { mutableIntStateOf(ApiConfig.quietMinutes) }
             OverlayDropdownPreference(items = opts.map { tr("$it 分钟", "$it min") }, selectedIndex = opts.indexOf(quiet).coerceAtLeast(0),
                 title = tr("一轮的长度", "Turn length"), summary = tr("agent 安静多久算这一轮结束", "How long the agent stays quiet before its turn ends"),
                 onSelectedIndexChange = { i -> ApiConfig.quietMinutes = opts[i]; quiet = opts[i] })
         }
-        Group(tr("识别和记录", "Reading and recording")) {
+
+        Group(tr("关于与诊断", "About and diagnostics")) {
+            ArrowPreference(title = tr("首次配置", "Setup"), endActions = {
+                Value(if (app.items.isEmpty()) "…" else if (app.allOk) tr("已就绪", "Ready") else tr("还差 ${app.left} 项", "${app.left} left"),
+                    if (app.items.isNotEmpty() && !app.allOk) Palette.stopped else MiuixTheme.colorScheme.onSurfaceVariantActions)
+            }, onClick = { nav.go(Route.Setup) })
             SwitchPreference(checked = s.accurateOcr, onCheckedChange = { BackgroundOperation.setAccurateOcr(it) },
                 title = tr("精确文字识别", "Accurate text recognition"), summary = tr("PP-OCRv6，在本机运行", "PP-OCRv6, on this phone"))
             SwitchPreference(checked = s.recording, onCheckedChange = { BackgroundOperation.setRecording(it) },
                 title = tr("后台录制", "Background recording"), summary = tr("回看刚才发生了什么时用", "Used to replay what just happened"))
-        }
-        Group(tr("通用", "General")) {
             val names = listOf(tr("跟随系统", "System"), "中文", "English")
             OverlayDropdownPreference(items = names, selectedIndex = I18n.Lang.entries.indexOf(I18n.choice), title = "语言 / Language",
                 onSelectedIndexChange = { i ->
@@ -131,10 +174,7 @@ fun SettingsTab(bottom: Dp) {
                     if (newer != null) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantActions)
             }, onClick = { if (!checking) scope.launch { update = withContext(Dispatchers.IO) { Updates.check(ctx) } } })
             ArrowPreference(title = tr("事件广播", "Event broadcast"), endActions = { Value(ApiConfig.eventTarget ?: tr("不广播", "Off")) }, onClick = { eventDialog = true })
-            ArrowPreference(title = tr("首次配置", "Setup"), endActions = {
-                Value(if (app.items.isEmpty()) "…" else if (app.allOk) tr("已就绪", "Ready") else tr("还差 ${app.left} 项", "${app.left} left"),
-                    if (app.items.isNotEmpty() && !app.allOk) Palette.stopped else MiuixTheme.colorScheme.onSurfaceVariantActions)
-            }, onClick = { nav.go(Route.Setup) })
+            ArrowPreference(title = tr("操作日志", "Activity log"), summary = tr("agent 发来的每条命令", "Every command agents sent"), onClick = { nav.go(Route.Log) })
             ArrowPreference(title = tr("诊断", "Diagnostics"), onClick = { nav.go(Route.Diag) })
             ArrowPreference(title = tr("帮助", "Help"), summary = tr("每个设置是什么意思", "What each setting means"), onClick = { nav.go(Route.Help) })
         }
@@ -142,18 +182,6 @@ fun SettingsTab(bottom: Dp) {
             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 16.dp))
     }
 
-    OverlayBottomSheet(show = sheet, title = tr("agent 能自己做多少", "How freely agents work"), onDismissRequest = { sheet = false }) {
-        Column(Modifier.padding(bottom = 24.dp)) {
-            listOf(
-                Triple("auto", tr("放手跑（推荐）", "Hands-off (recommended)"), tr("只有付钱的那一步问你", "Only the paying step asks you")),
-                Triple("careful", tr("谨慎", "Careful"), tr("购买、删除、卸载等也先问你", "Buying, deleting, uninstalling also ask first")),
-            ).forEach { (key, title, sub) ->
-                RadioButtonPreference(title = title, summary = sub, selected = autonomy == key, onClick = {
-                    autonomy = key; ApiConfig.autonomy = key; Audit.security("autonomy", key); sheet = false
-                })
-            }
-        }
-    }
     if (eventDialog) {
         var target by remember { mutableStateOf(ApiConfig.eventTarget.orEmpty()) }
         GlassDialog(
@@ -174,6 +202,38 @@ fun SettingsTab(bottom: Dp) {
 }
 
 /** What a check found: the new version with its notes and a download, already the newest, or why it failed. */
+/** One way in: a dot (green when it works), its name and state; tap opens where it is set up. */
+@Composable
+private fun WayLine(w: com.kilon.agentvscreen.host.Access.Way?, onClick: () -> Unit) {
+    val c = MiuixTheme.colorScheme
+    val tint = when { w == null -> c.onSurfaceVariantSummary; w.ok -> Palette.takeover; else -> Palette.stopped }
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(tint.copy(alpha = 0.13f)), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(10.dp).clip(CircleShape).background(tint))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(w?.name ?: tr("其它设备", "Other devices"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(w?.let { it.state + if (it.inUse) tr(" · 刚用过", " · used lately") else "" } ?: tr("没开 · 经 Tailscale 从电脑或服务器连进来", "Off · from a computer or server through Tailscale"),
+                fontSize = 12.5.sp, color = c.onSurfaceVariantSummary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = c.onSurfaceVariantSummary, modifier = Modifier.size(20.dp))
+    }
+}
+
+/** A level to choose: lit and ringed when chosen. */
+@Composable
+private fun LevelCard(title: String, sub: String, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val c = MiuixTheme.colorScheme
+    val bg by androidx.compose.animation.animateColorAsState(if (on) c.primary.copy(alpha = 0.14f) else c.surfaceContainerHigh, androidx.compose.animation.core.tween(240), label = "lvl")
+    Column(modifier.clip(RoundedCornerShape(16.dp)).background(bg)
+        .border(1.5.dp, if (on) c.primary else Color.Transparent, RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = if (on) c.primary else c.onSurface)
+        Text(sub, fontSize = 12.5.sp, lineHeight = 17.sp, color = c.onSurfaceVariantSummary)
+    }
+}
+
 @Composable
 private fun UpdateDialog(u: Updates.Outcome, close: () -> Unit) {
     val ctx = LocalContext.current

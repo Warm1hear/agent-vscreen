@@ -21,6 +21,8 @@ object Pictures {
         ASK(1600, 85),
         /** A lesson's contact sheet, kept with the lesson. */
         LESSON(0, 75),
+        /** A task's small frame in the app's 记录 (TaskLog). */
+        THUMB(240, 70),
         /** A frame of the recording track (many, kept minutes). */
         RECORDING(0, 60),
     }
