@@ -166,9 +166,10 @@ class HostService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (stopWhenUp) { stopWhenUp = false; AppLogger.info("HostService", "stopped as asked while it was starting"); stopSelf(); return START_NOT_STICKY }
         if (intent?.action == ACTION_STOP || intent?.action == ACTION_PAUSE) {
-            // 1.3 beta4: the notification's button hides the service (the same as the switch): out of the shade and
-            // the background, still woken when an agent needs it. Blocking agents is a choice made in the app.
-            ServiceControl.hide(this, "notification")
+            // 1.4.0-beta4: the notification's button turns it off (the same as "Off" behind the power button): out of
+            // the shade at once and not woken again. "Hide" was woken right back by the next agent command, so the
+            // notification could not be got rid of.
+            ServiceControl.block(this, "notification")
             stopSelf(); return START_NOT_STICKY
         }
         if (intent?.action == ACTION_ON) ServiceControl.turnOn(this, "notification")
@@ -236,7 +237,7 @@ class HostService : Service() {
         else b.addAction(0, tr("查看副屏", "View screen"), PendingIntent.getActivity(this, 2, Intent(this, com.kilon.agentvscreen.ui.FullscreenActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE))
         // 1.3.0: the button says what it does to remote access: with the built-in Tailscale on, hiding stops it.
         val remote = Tailnet.Mode.BUILTIN == com.kilon.agentvscreen.api.ApiConfig.tailnetMode
-        return b.addAction(0, if (remote) tr("收起（远程断开）", "Hide (remote goes offline)") else tr("收起", "Hide"), stop).build()
+        return b.addAction(0, if (remote) tr("关闭（远程断开）", "Off (remote goes offline)") else tr("关闭", "Off"), stop).build()
     }
 }
 

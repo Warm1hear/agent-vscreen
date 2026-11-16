@@ -1,5 +1,17 @@
 package com.kilon.agentvscreen.ui
 
+import androidx.compose.ui.Alignment
+
+import androidx.compose.foundation.layout.Box
+
+import androidx.compose.foundation.layout.size
+
+import androidx.compose.foundation.shape.CircleShape
+
+import androidx.compose.material.icons.outlined.History
+
+import androidx.compose.material.icons.outlined.QuestionAnswer
+
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -115,10 +127,12 @@ fun RecordsTab(bottom: Dp) {
                     Filter.LESSONS -> LessonsList(app.tick)
                     else -> {
                         val shown = lines.filter { f == Filter.ALL || (f == Filter.TASKS && it is Line.T) || (f == Filter.ASKS && it is Line.A) }
-                        if (shown.isEmpty()) Empty(when (f) {
-                            Filter.ASKS -> tr("agent 还没问过你什么", "No agent has asked you anything yet")
-                            else -> tr("agent 用过副屏之后，每次做了什么会按时间排在这里", "Once an agent has used the screen, what it did each time appears here")
-                        })
+                        if (shown.isEmpty()) {
+                            if (f == Filter.ASKS) EmptyState(androidx.compose.material.icons.Icons.Outlined.QuestionAnswer, tr("还没有提问", "No questions yet"),
+                                tr("agent 拿不准时会在手机上问你，你的回答会记在这里", "When an agent is unsure it asks you on the phone; your answers are kept here"))
+                            else EmptyState(androidx.compose.material.icons.Icons.Outlined.History, tr("还没有任务", "No tasks yet"),
+                                tr("agent 每次用副屏做了什么，会按时间排在这里", "What an agent did on the screen each time appears here, newest first"))
+                        }
                         var day = ""
                         shown.forEach { l ->
                             val d = dayOf(l.at)
@@ -146,6 +160,7 @@ private fun answerWord(a: String): String? = when {
     a == "denied" -> tr("你拒绝了", "you refused")
     a.startsWith("answered") -> tr("你回答了", "you answered")
     a == "declined" -> tr("你没有回答", "you declined")
+    a == "feedback" -> tr("你说了一句", "you said something")
     a.startsWith("ended") -> tr("没等到回答", "not answered in time")
     else -> null
 }
@@ -157,16 +172,30 @@ private fun FilterChip(label: String, on: Boolean, onClick: () -> Unit) {
         modifier = Modifier.clip(RoundedCornerShape(50)).background(if (on) c.primary else c.surfaceContainer).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp))
 }
 
+/**
+ * 1.4.0-beta4: an empty list is a small centred card (an icon in a soft circle, what will be here, how it gets here)
+ * instead of a bare line printed under the filter chips; it never names a command.
+ */
 @Composable
-private fun Empty(text: String) =
-    Text(text, fontSize = 14.sp, lineHeight = 21.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp, horizontal = 24.dp))
+internal fun EmptyState(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, sub: String) {
+    val c = MiuixTheme.colorScheme
+    Card(Modifier.fillMaxWidth().padding(top = 8.dp), insideMargin = PaddingValues(horizontal = 24.dp, vertical = 36.dp)) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.size(64.dp).clip(CircleShape).background(c.primary.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+                Icon(icon, null, tint = c.primary, modifier = Modifier.size(28.dp))
+            }
+            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.onSurface, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(sub, fontSize = 13.sp, lineHeight = 19.sp, color = c.onSurfaceVariantSummary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        }
+    }
+}
 
 /** Bookings (alarm-like cards) and watches (running first). */
 @Composable
 private fun Plans(beat: Int) {
     val app = LocalApp.current
     val watches = remember(beat, app.tick) { VScreenRules.list() }
-    SchedulesCards(app.tick)
+    SchedulesCards(app.tick, showEmpty = watches.isEmpty())
     if (watches.isNotEmpty()) Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
         watches.forEach { l ->
             val running = !l.stopped

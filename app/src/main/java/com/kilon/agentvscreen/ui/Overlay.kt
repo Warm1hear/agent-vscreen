@@ -776,7 +776,9 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
     LaunchedEffect(landscape) { Overlay.orientationChanged(landscape) }
     val w = with(density) { Overlay.widthPx.floatValue.toDp() }
     val h = w / Overlay.aspect()
-    val k = (w.value / 200f).coerceIn(0.75f, 1.15f)
+    // 1.4.0-beta4: the controls scale with the window's short side. Scaled by the width, a landscape window (wide,
+    // short) got the largest controls over the smallest picture height; now both orientations get the same size.
+    val k = (minOf(w.value, h.value) / 200f).coerceIn(0.75f, 1.15f)
     val corner = (14 + 6 * k).dp
 
     var left by remember { mutableLongStateOf(-1L) }

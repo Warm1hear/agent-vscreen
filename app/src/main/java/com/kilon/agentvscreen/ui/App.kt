@@ -248,6 +248,8 @@ fun MiuixPage(
     back: Boolean = true,
     bottom: Dp = 0.dp,
     subtitle: String = "",
+    /** Top-left of the bar when there is no back arrow (the home page's state pill). */
+    lead: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -265,7 +267,7 @@ fun MiuixPage(
                     navigationIcon = {
                         if (back) IconButton(onClick = { nav.back() }, modifier = Modifier.padding(start = 16.dp)) {
                             Icon(MiuixIcons.Back, tr("返回", "Back"))
-                        }
+                        } else lead?.invoke()
                     },
                     actions = actions,
                 )

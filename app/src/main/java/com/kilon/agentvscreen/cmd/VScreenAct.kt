@@ -120,14 +120,16 @@ internal class Probe(private val h: VScreenOffloadHandler, private val d: VScree
     private fun readFrom(): Long = if (afterAction && changedAt > 0) maxOf(calmAt, changedAt) else since
 
     /** The words of [q] seen now (accessibility first, then an OCR reading taken late enough), as [counts] allows. */
-    private fun seen(q: String): String? {
+    private fun seen(q: String, area: Rect? = null): String? {
         val pat = TextPat(q)
         val before = prior[pat.key].orEmpty()
-        fun ok(r: Rect): Boolean = counts(r, before, exclude, pageAt > 0)
-        if (!afterAction || actionAt == 0L) runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).shows(pat::hit) }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
+        fun inArea(r: Rect) = area == null || area.contains(r.centerX(), r.centerY())
+        fun ok(r: Rect): Boolean = inArea(r) && counts(r, before, exclude, pageAt > 0)
+        if ((!afterAction || actionAt == 0L) && area == null) runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).shows(pat::hit) }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
+        else if (!afterAction || actionAt == 0L) runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).find(pat::hit) }.getOrNull()?.firstOrNull { inArea(it.second) }?.let { return it.first }
         else runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).find(pat::hit) }.getOrNull()?.firstOrNull { ok(it.second) }?.let { return it.first }
         val r = VScreenPerception.reading(d.displayId, readFrom(), 0) ?: return null
-        return VScreenPerception.still(r.items, mask).firstOrNull { pat.hit(it.text) && (!afterAction || actionAt == 0L || ok(it.box)) }?.text?.take(40)
+        return VScreenPerception.still(r.items, mask).firstOrNull { pat.hit(it.text) && inArea(Rect(it.box)) && (!afterAction || actionAt == 0L || ok(Rect(it.box))) }?.text?.take(40)
     }
 
     /** True only when a reading taken late enough does not hold [q] (and the accessibility tree does not either). */
@@ -189,7 +191,7 @@ internal class Probe(private val h: VScreenOffloadHandler, private val d: VScree
             val wordsOk = wordsReady(now)
             for ((i, c) in conds.withIndex()) {
                 val hit: String? = when (c.kind) {
-                    CondKind.TEXT -> if (!wordsOk) null else seen(c.text!!)?.let { tr("看到“$it”", "saw \"$it\"") }
+                    CondKind.TEXT -> if (!wordsOk) null else seen(c.text!!, c.area)?.let { tr("看到“$it”", "saw \"$it\"") }
                     CondKind.GONE -> if (!wordsOk) null else if (gone(c.text!!)) tr("画面上没有“${c.text}”了", "\"${c.text}\" is gone from the screen") else null
                     CondKind.CHANGE -> { val b = base; if (b != null && cur != null) diff(b, cur, c).takeIf { it >= Change.CHANGED }?.let { tr("${where(c)}变了（${(it * 100).roundToInt()}% 的取样点不同）", "${where(c)} changed (${(it * 100).roundToInt()}% of sample points differ)") } else null }
                     CondKind.STILL -> {
@@ -372,6 +374,14 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
             if (seg0 == null && toks.size > 1) app?.let { VScreenMap.segment(it, toks[0]) }?.let { seg0 = it; name = toks[0]; params = toks.drop(1) }
             val seg = seg0 ?: throw StepRefused("NOT_FOUND", tr("没有叫“$name”的段（${app ?: "当前应用"}）：note 能看到保存过的段", "No segment named \"$name\" (${app ?: "current app"}): note lists the saved segments"))
             if (depth >= 3) throw StepRefused("INVALID_STEP", tr("段里 use 套用太深（最多 3 层）", "use is nested too deep in segments (at most 3 levels)"))
+            // 1.4.0-beta4: a lesson starts from the page it was shown on. Not there: do nothing and say what it looks like.
+            seg.start?.let { st ->
+                val shot = runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId) }.getOrNull()
+                val read = VScreenPerception.reading(d.displayId, 0L, 0)?.items.orEmpty()
+                val top = runCatching { VScreenShell.topActivity(d.displayId) }.getOrNull()
+                Teach.atStart(st, top?.substringBefore('/'), top, { w -> val pat = TextPat(w); shot?.shows(pat::hit)?.isNotEmpty() == true || read.any { pat.hit(it.text) } })
+                    ?.let { why -> throw StepRefused("NOT_AT_START", tr("“$name”要从它的起点开始，副屏现在不在那里，一步都没做。$why", "\"$name\" starts from its own page and the screen is not there, so nothing was done. $why")) }
+            } ?: app?.let { a -> if (VScreenMap.oldLesson(a, seg)) notes += tr("“$name”是旧格式的示教（没记起点，滑动按距离重放），可能不准：请用户按新流程重新示教一次（teach），新的会记下起点、按结果重放", "\"$name\" is an old-format lesson (no starting page, swipes replayed by distance) and may be off: ask the user to teach it again (teach); the new kind keeps its starting page and replays by result") }
             val filled = Steps.split(seg.steps).map { Teach.fill(it, params) }
             val missing = filled.flatMap { it.second }.distinct().sorted()
             if (missing.isNotEmpty()) throw StepRefused("INVALID_STEP", tr("段“$name”要填 ${missing.max()} 个参数（缺 ${missing.joinToString(" ") { "{$it}" }}）：use $name ${(1..missing.max()).joinToString(" ") { "<$it>" }}，有空格的用引号",
@@ -762,7 +772,7 @@ internal fun connectionLost(d: VScreenDisplay): String? {
     val st = BackgroundOperation.state.value
     if (!d.released && st.connection == BackgroundOperation.Connection.READY) return null
     return tr("后台连接断了（${st.connectionError ?: st.connection.name}），副屏和上面的应用已经没了，不是你的操作造成的。", "The background connection broke (${st.connectionError ?: st.connection.name}); the screen and the app on it are gone, and your actions did not cause it. ") +
-        tr("告诉用户；连接恢复（Shizuku 在运行，vscreen fix not_connected）后重新 launch", "Tell the user; once the connection is back (Shizuku running, vscreen fix not_connected), launch again")
+        tr("告诉用户；Shizuku 恢复运行后重新 launch", "Tell the user; once Shizuku runs again, launch again")
 }
 
 /** What one action did ([text]), and [miss] when its own effect could not be confirmed (it ends the stretch; [code] says which kind). */
@@ -963,6 +973,12 @@ internal fun VScreenOffloadHandler.act(sid: String?, args: OffloadArgs): NativeO
     val watch = args.getLong("watch")?.let { bounded("watch", it, 0L, 120_000L) }
     val d = BackgroundOperation.acquire(s, create = false)
     VScreenPerception.ensure(d)
+    // 1.4.0-beta4: a lesson with a starting page checks that page itself before its first step, so the user having had
+    // the screen (REREAD_REQUIRED) does not stop it: it either finds its start or refuses with NOT_AT_START.
+    steps.singleOrNull()?.takeIf { it.kind == StepKind.USE }?.let { st ->
+        val nm = Steps.tokens(st.raw).getOrNull(1)
+        if (nm != null && workApp(s, d)?.let { VScreenMap.segment(it, nm) }?.start != null) BackgroundOperation.acknowledgeReread(s)
+    }
     val out = runSegment(s, d, steps, SegmentOpts(stop, watch, bare = args.hasFlag("bare", "paused"), fast = args.hasFlag("fast"), human = args.hasFlag("human")))
     val lines = ArrayList(out.lines)
     if (args.hasFlag("confirmed")) out.notes += tr("--confirmed 已不起作用：付费和不可撤销的步骤由用户在手机上确认", "--confirmed no longer has any effect: payment and irreversible steps are confirmed by the user on the phone")

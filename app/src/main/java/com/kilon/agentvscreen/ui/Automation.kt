@@ -1,5 +1,9 @@
 package com.kilon.agentvscreen.ui
 
+import androidx.compose.material.icons.outlined.School
+
+import androidx.compose.material.icons.outlined.Alarm
+
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Icon
@@ -101,13 +105,17 @@ private fun pickTime(ctx: Context, at: Int, done: (Int) -> Unit) =
 
 /** The schedules, one alarm-like card each. */
 @Composable
-internal fun SchedulesCards(tick: Int) {
+internal fun SchedulesCards(tick: Int, showEmpty: Boolean = true) {
     val ctx = LocalContext.current
     var list by remember { mutableStateOf(Wake.list(ctx)) }
     var again by remember { mutableIntStateOf(0) }
     var editing by remember { mutableStateOf<Wake.Entry?>(null) }
     LaunchedEffect(tick, again) { list = withContext(Dispatchers.IO) { Wake.arm(ctx); Wake.list(ctx) } }
-    if (list.isEmpty()) { Note(tr("还没有预约。agent 用 vscreen schedule 预约", "Nothing booked. Agents book with vscreen schedule")); return }
+    if (list.isEmpty()) {
+        if (showEmpty) EmptyState(androidx.compose.material.icons.Icons.Outlined.Alarm, tr("还没有预约或盯守", "Nothing booked or watched"),
+            tr("agent 要定时用手机，或要等一件事发生时，会出现在这里", "When an agent books a time on the phone, or waits for something to happen, it shows up here"))
+        return
+    }
     list.forEach { e ->
         val j = e.json()
         val big = when {
@@ -305,7 +313,8 @@ internal fun LessonsList(tick: Int) {
     var query by remember { mutableStateOf("") }
     var picking by remember { mutableStateOf(false) }
     var picked by remember { mutableStateOf(setOf<String>()) }
-    if (all.isEmpty()) { Note(tr("还没有保存的示教。agent 发 teach 请你演示，或在全屏页点录制", "No saved lessons yet. An agent asks with teach, or tap record on the full screen page")); return }
+    if (all.isEmpty()) { EmptyState(androidx.compose.material.icons.Icons.Outlined.School, tr("还没有示教", "No lessons yet"),
+        tr("agent 请你演示一段操作，或你在全屏页点录制，存下来的会在这里", "When an agent asks you to show it something, or you record on the full screen page, the saved lessons are here")); return }
     val labels = remember(all) { all.map { it.first }.distinct().associateWith { pkg -> runCatching { ctx.packageManager.getApplicationLabel(ctx.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg) } }
     val q = query.trim()
     val shown = if (q.isEmpty()) all else all.filter { (p, s) -> lessonMatches(q, s.name, labels[p] ?: p, p, s.steps) }

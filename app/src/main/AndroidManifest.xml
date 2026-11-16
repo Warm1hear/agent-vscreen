@@ -56,6 +56,7 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:taskAffinity="com.kilon.agentvscreen.fullscreen"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
             android:theme="@android:style/Theme.Material.NoActionBar.TranslucentDecor"
             android:windowSoftInputMode="adjustResize" />
 

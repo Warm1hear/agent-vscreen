@@ -120,13 +120,15 @@ class TeachActivity : PageActivity() {
 
     /** The blank number this typing line gets, or 0. */
     private fun paramOf(lines: List<TeachLine>, keep: Set<Int>, literal: Set<Int>, i: Int): Int {
-        if (lines[i].kind != "type" || i !in keep || (i in literal && !lines[i].secret)) return 0
-        return lines.indices.count { j -> j <= i && j in keep && lines[j].kind == "type" && !(j in literal && !lines[j].secret) }
+        fun blank(j: Int) = (lines[j].kind == "type" || (lines[j].kind == "value" && lines[j].typed != null)) && j in keep && !(j in literal && !lines[j].secret)
+        if (!blank(i)) return 0
+        return (0..i).count { blank(it) }
     }
 
     @Composable
     private fun StepRow(i: Int, l: TeachLine, kept: Boolean, lit: Boolean, params: Int, onKeep: () -> Unit, onLiteral: () -> Unit) {
         val shown = when {
+            l.kind == "value" && l.typed != null && !lit -> l.head + " until " + l.until.orEmpty().replaceFirst("text:${l.typed} in ", "text:{$params} in ")
             l.kind != "type" -> l.head + (l.until?.let { " until $it" } ?: "")
             lit && !l.secret -> "type ${l.typed}"
             else -> "type {$params}"
@@ -144,6 +146,9 @@ class TeachActivity : PageActivity() {
                 }
                 Text(l.why, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 l.warn?.let { Text(it, fontSize = 12.sp, color = Palette.stopped) }
+                if (l.kind == "value" && l.typed != null && kept) Text(if (lit) tr("每次都拨到「${l.typed}」 · 点这里改成由 agent 填", "Always set to \"${l.typed}\" · tap to let the agent fill it")
+                    else tr("由 agent 每次填（{$params}），这次是「${l.typed}」 · 点这里改成固定拨到这个值", "Filled by the agent each time ({$params}), \"${l.typed}\" this time · tap to always set this value"),
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onLiteral).padding(vertical = 2.dp))
                 if (l.kind == "type" && kept) {
                     if (l.secret) Text(tr("密码不会被保存，agent 用时要自己填", "The password is not kept; the agent fills it in"), fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                     else Text(if (lit) tr("固定输入这段字 · 点这里改成由 agent 填", "Always types these words · tap to let the agent fill it")
@@ -156,7 +161,7 @@ class TeachActivity : PageActivity() {
 
     private fun save(r: Teach.Result, name: String, steps: String, params: Int, keep: Set<Int>) {
         val app = r.app ?: return
-        VScreenMap.saveSegment(app, name, steps)
+        VScreenMap.saveSegment(app, name, steps, r.start)
         // 1.3.0: the lesson's contact sheet, kept with the segment (before the answer: the agent's reply attaches it).
         Teach.sheet(r, keep)?.let { VScreenMap.savePicture(app, name, it); it.recycle() } ?: VScreenMap.pictureFile(app, name)?.delete()
         r.askId?.let { id ->

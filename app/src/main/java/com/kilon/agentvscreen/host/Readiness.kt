@@ -64,11 +64,14 @@ object Readiness {
     )
 
     fun evaluate(i: Inputs): List<Item> = buildList {
-        if (!i.serviceOn) add(Item("service_off", true, tr("用户在 Agent-VScreen 里禁止了 agent 访问", "The user blocked agent access in Agent-VScreen")))
+        if (!i.serviceOn) add(Item("service_off", true, tr("用户关闭了 Agent-VScreen（用户的选择，不是故障）：请用户在 App 右上角的电源键里打开", "The user turned Agent-VScreen off (their choice, not a fault): ask them to turn it on with the power button at the top of the app")))
         when (i.privilege) {
             // 1.3: with Shizuku there, the next command reconnects by itself: a warning, not a block.
-            "READY" -> if (i.connection == "ERROR" || i.needsReconnect)
-                add(Item("not_connected", false, tr("后台连接现在断着，下一条命令会自动重连（fix not_connected 立即重连）", "The background connection is down now; the next command reconnects by itself (fix not_connected reconnects now)")))
+            // 1.4.0-beta4: only a channel that failed is reported. A connection that is merely not open (the service
+            // was hidden or stopped, nothing has run yet) is the normal resting state: the next command opens it. It
+            // was reported as "down … fix not_connected", and agents asked users to repair a service that was only off.
+            "READY" -> if (i.connection == "ERROR")
+                add(Item("not_connected", false, tr("副屏服务刚才没有响应，下一条命令会自动重连，不用用户做什么", "The screen service did not answer just now; the next command reconnects by itself, nothing for the user to do")))
             "NOT_RUNNING" -> add(Item("no_privilege", true, tr("Shizuku 没在运行（手机重启后要用户重新启动 Shizuku）", "Shizuku is not running (after a phone restart the user must start Shizuku again)")))
             "NOT_INSTALLED" -> add(Item("no_privilege", true, tr("没装 Shizuku", "Shizuku is not installed")))
             else -> add(Item("no_privilege", true, tr("Agent-VScreen 没有 Shizuku 授权", "Agent-VScreen has no Shizuku permission")))

@@ -35,7 +35,7 @@ internal sealed class StepTarget {
 /** One fact to wait for or stop at. [area] null = the whole screen. */
 /** 1.4.0-beta2: the kinds of condition and step are types; the parser is the only place that reads them from words. */
 internal enum class CondKind(val key: String, private val zh: String, private val en: String) {
-    TEXT("text", "text:字", "text:word"), GONE("gone", "gone:字", "gone:word"),
+    TEXT("text", "text:字[ in x1,y1,x2,y2]", "text:word[ in x1,y1,x2,y2]"), GONE("gone", "gone:字", "gone:word"),
     CHANGE("change", "change[:x1,y1,x2,y2]", "change[:x1,y1,x2,y2]"), STILL("still", "still[:x1,y1,x2,y2]", "still[:x1,y1,x2,y2]"),
     STABLE("stable", "stable", "stable"), COLOR("color", "color:x,y=#RRGGBB[~容差]", "color:x,y=#RRGGBB[~tolerance]"), APP("app", "app:名字", "app:name");
     /** How it is written (help, error messages): generated, so the help cannot miss a kind. */
@@ -400,6 +400,8 @@ internal object Steps {
     val CONDS_HELP: String get() = CondKind.entries.joinToString(" | ") { it.form } + tr("，多个用 or 连", ", join several with or")
     val STEPS_HELP: String get() = StepKind.entries.joinToString(" | ") { it.form }
 
+    private val IN_AREA = Regex("^(.+?)\\s+in\\s+(-?\\d+\\s*,\\s*-?\\d+\\s*,\\s*-?\\d+\\s*,\\s*-?\\d+)$")
+
     /** One condition. */
     fun cond(s0: String): Cond {
         val s = s0.trim()
@@ -407,7 +409,15 @@ internal object Steps {
         val v = if (':' in s) s.substringAfter(':').trim() else ""
         fun area(): Rect? = if (v.isEmpty()) null else parseRect(v, tr("区域", "region"))
         return when (kind) {
-            "text", "gone" -> { if (v.isEmpty()) throw ActionError("INVALID_STEP", tr("$kind: 后面写字（$s）", "write text after $kind: ($s)")); Cond(s, if (kind == "text") CondKind.TEXT else CondKind.GONE, text = v) }
+            "text", "gone" -> {
+                if (v.isEmpty()) throw ActionError("INVALID_STEP", tr("$kind: 后面写字（$s）", "write text after $kind: ($s)"))
+                // 1.4.0-beta4: `text:07 in x1,y1,x2,y2` only counts the words inside that area (a wheel's middle row, a
+                // slider's label), so a lesson can wait for a value to be selected, not just to be somewhere on screen.
+                val m = IN_AREA.find(v)
+                val w = m?.groupValues?.get(1)?.trim() ?: v
+                val a = m?.groupValues?.get(2)?.let { parseRect(it.replace(" ", ""), tr("区域", "region")) }
+                Cond(s, if (kind == "text") CondKind.TEXT else CondKind.GONE, text = w, area = a)
+            }
             "change", "changed" -> Cond(s, CondKind.CHANGE, area = area())
             "still" -> Cond(s, CondKind.STILL, area = area())
             "stable" -> Cond(s, CondKind.STABLE, area = area())

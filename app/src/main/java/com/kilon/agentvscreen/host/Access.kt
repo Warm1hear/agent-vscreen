@@ -55,7 +55,7 @@ object Access {
     }
 
     /** The Connect tile: one line per way. */
-    fun tile(ctx: Context): String = if (ServiceControl.now(ctx) == ServiceControl.State.BLOCKED) tr("已禁止 agent 访问", "Agent access blocked")
+    fun tile(ctx: Context): String = if (ServiceControl.now(ctx) == ServiceControl.State.BLOCKED) tr("服务已关闭", "Service off")
         else ways(ctx).joinToString("\n") { it.line() }
 
     /** Which way the Connect page opens on: the one the last call came by (0 = this phone, 1 = another device). */

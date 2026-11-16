@@ -1,5 +1,17 @@
 package com.kilon.agentvscreen.ui
 
+import androidx.compose.foundation.border
+
+import androidx.compose.material.icons.filled.Check
+
+import androidx.compose.material.icons.filled.Block
+
+import androidx.compose.material.icons.filled.Bolt
+
+import androidx.compose.material.icons.filled.Fullscreen
+
+import androidx.compose.material.icons.filled.PowerSettingsNew
+
 import android.content.Intent
 import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedContent
@@ -37,7 +49,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -109,14 +120,17 @@ fun OverviewTab(bottom: Dp) {
     var used by remember { mutableStateOf(true) }
     LaunchedEffect(beat, app.tick) {
         withContext(Dispatchers.IO) {
-            tasks = TaskLog.recent(3); used = TaskLog.everUsed()
+            tasks = TaskLog.recent(3); used = everConnected()
             health = runCatching { Readiness.now(ctx) }.getOrDefault(emptyList())
         }
     }
     var shield by remember { mutableStateOf(false) }
     val mode = modeOf(s)
     // What only the user can fix. A stop the user pressed is not "broken": the stage says it and offers to resume.
-    val problems = health.filter { it.code != "user_stopped" && (it.blocking || it.code in setOf("no_accessibility", "accessibility_cannot_see_display", "frozen_in_background")) }
+    // 1.4.0-beta4: a service the user turned off is their choice, not a fault: the stage says so (no fix card).
+    val svc by ServiceControl.state.collectAsState()
+    val off = svc == ServiceControl.State.BLOCKED
+    val problems = health.filter { it.code != "user_stopped" && it.code != "service_off" && (it.blocking || it.code in setOf("no_accessibility", "accessibility_cannot_see_display", "frozen_in_background")) }
     val setupLeft = app.items.isNotEmpty() && !app.allOk
     val home = when {
         problems.isNotEmpty() || setupLeft || app.liveProblem != null -> if (!used && setupLeft) Home.FIRST else Home.BROKEN
@@ -126,8 +140,8 @@ fun OverviewTab(bottom: Dp) {
     }
     val lastApp = appOf(tasks.firstOrNull()?.pkg).first
     val title = when (home) {
-        Home.ACTING -> s.agentTitle ?: (lastApp?.let { tr("正在$it 里操作", "Working in $it") } ?: Palette.word(mode))
-        Home.IDLE -> if (s.userStopped) tr("你停止了 AI", "You stopped the AI") else tr("待命中", "Standing by")
+        Home.ACTING -> s.agentTitle ?: (lastApp?.let { tr("正在${it}里操作", "Working in $it") } ?: Palette.word(mode))
+        Home.IDLE -> if (off) tr("服务已关闭", "Service off") else if (s.userStopped) tr("你停止了 AI", "You stopped the AI") else tr("待命中", "Standing by")
         Home.BROKEN -> tr("需要你处理", "Needs you")
         Home.FIRST -> tr("接上你的 agent", "Connect your agent")
     }
@@ -138,8 +152,8 @@ fun OverviewTab(bottom: Dp) {
         Home.FIRST -> tr("还没有 agent 用过", "No agent has used it yet")
     }
 
-    MiuixPage(title, back = false, bottom = bottom, subtitle = eyebrow, actions = {
-        IconButton(onClick = { shield = true }, modifier = Modifier.padding(end = 12.dp)) { Icon(Icons.Outlined.Shield, tr("暂停与关闭", "Pause and turn off")) }
+    MiuixPage(title, back = false, bottom = bottom, lead = { StatusPill(eyebrow, mode, home) }, actions = {
+        IconButton(onClick = { shield = true }, modifier = Modifier.padding(end = 12.dp)) { Icon(Icons.Filled.PowerSettingsNew, tr("服务", "Service")) }
     }) {
         // Questions waiting: they slide in from the top and leave to the right when answered.
         val waiting = pendingAsks()
@@ -148,96 +162,156 @@ fun OverviewTab(bottom: Dp) {
             waiting.firstOrNull()?.let { a -> Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) { HomeAskCard(a, waiting.size) } }
         }
 
-        AnimatedContent(home, transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(200)) }, label = "stage") { h ->
-            Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                when (h) {
-                    Home.ACTING, Home.IDLE -> Stage(s, mode, tasks.firstOrNull())
-                    Home.BROKEN -> FixCard(problems, setupLeft)
-                    Home.FIRST -> FirstUse(setupLeft)
-                }
-            }
-        }
-
-        if (home != Home.FIRST) {
-            NextUp(beat, app.tick)
-            if (tasks.isNotEmpty()) {
-                Row(Modifier.fillMaxWidth().padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    SmallTitle(tr("刚才", "Just now"), modifier = Modifier.weight(1f))
-                    LinkButton(onClick = { nav.tab(1) }) { Text(tr("全部记录", "All records")) }
-                }
-                Card(Modifier.padding(horizontal = 12.dp).fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
-                    tasks.forEach { t -> TaskRow(t) { nav.go(Route.Task(t.id)) } }
-                }
-            }
-        }
-    }
-    ShieldSheet(shield) { shield = false }
-}
-
-/** The stage: the screen with its breathing frame, what is happening, and the two things the user may do. */
-@Composable
-private fun Stage(s: BackgroundOperation.State, mode: Mode, last: TaskLog.Task?) {
-    val ctx = LocalContext.current
-    val c = MiuixTheme.colorScheme
-    val live = s.displayId != null && !s.idle
-    val ratio = if (s.screenHeight > 0) s.screenWidth.toFloat() / s.screenHeight else 0.45f
-    val (app, icon) = appOf(last?.pkg)
-    Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(16.dp)) {
-        Row {
-            val open = { ctx.startActivity(Intent(ctx, FullscreenActivity::class.java)) }
-            Box(Modifier.width(112.dp).aspectRatio(ratio).glowBorder(if (live) mode else Mode.IDLE, 16.dp, pad = 5.dp).clickable(enabled = s.displayId != null) { open() }) {
-                if (s.displayId != null) ScreenThumb(s.ownerSessionId ?: "default", Modifier.fillMaxSize(), 16.dp)
-                else TaskFrame(last?.frames?.lastOrNull(), Modifier.fillMaxSize(), 16.dp)
-                if (!live) Box(Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.35f)))
-            }
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f).height(112.dp / ratio), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (icon != null) { AppBadge(icon, 22.dp); Spacer(Modifier.width(8.dp)) }
-                    Text(if (live) (app ?: tr("副屏", "Screen")) + " · ${s.screenWidth}×${s.screenHeight}" else tr("副屏在休息", "Screen resting"),
-                        fontSize = 13.sp, color = c.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                AnimatedContent(if (live) (s.action ?: Palette.word(mode)) else tr("agent 下次用时自动亮起", "Lights up when an agent next uses it"),
-                    transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) }, label = "step") { t ->
-                    Text(t, fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                }
-                Text(when {
-                    live && last?.running == true -> tr("第 ${last.commands} 步 · 已用 ${took(last)}", "Step ${last.commands} · ${took(last)}")
-                    last != null -> tr("上次：", "Last: ") + taskTitle(last, app) + " · " + taskOutcome(last).first
-                    else -> ""
-                }, fontSize = 12.sp, color = c.onSurfaceVariantSummary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.weight(1f))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    when {
-                        s.userStopped -> RoundAction(Icons.Filled.PlayArrow, tr("允许继续", "Resume"), c.primary) { BackgroundOperation.userResume() }
-                        live -> {
-                            RoundAction(Icons.Filled.PanTool, tr("接管", "Take over"), c.primary) {
-                                s.ownerSessionId?.let { BackgroundOperation.beginTakeover(it) }; open()
-                            }
-                            RoundAction(Icons.Filled.Stop, tr("停止", "Stop"), Palette.stopped) { BackgroundOperation.userStop() }
-                        }
-                        s.displayId != null -> RoundAction(Icons.Filled.PlayArrow, tr("看一眼", "Look"), c.primary) { open() }
+        val stage = @Composable { m: Modifier ->
+            AnimatedContent(home, modifier = m, transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(200)) }, label = "stage") { h ->
+                Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    when (h) {
+                        Home.ACTING, Home.IDLE -> Stage(s, mode, tasks.firstOrNull(), off) { shield = true }
+                        Home.BROKEN -> FixCard(problems, setupLeft)
+                        Home.FIRST -> FirstUse(setupLeft)
                     }
                 }
             }
         }
+        val rest = @Composable {
+            if (home != Home.FIRST) {
+                NextUp(beat, app.tick)
+                if (tasks.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        SmallTitle(tr("刚才", "Just now"), modifier = Modifier.weight(1f))
+                        LinkButton(onClick = { nav.tab(1) }) { Text(tr("全部记录", "All records")) }
+                    }
+                    Card(Modifier.padding(horizontal = 12.dp).fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
+                        tasks.forEach { t -> TaskRow(t) { nav.go(Route.Task(t.id)) } }
+                    }
+                }
+            }
+        }
+        // 1.4.0-beta4: a wide window (the phone turned, a tablet, a foldable) puts the stage and the rest side by
+        // side instead of stretching one column across the screen.
+        if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 600) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                stage(Modifier.weight(1.1f))
+                Column(Modifier.weight(1f)) { rest() }
+            }
+        } else { stage(Modifier); rest() }
+    }
+    ShieldSheet(shield) { shield = false }
+}
+
+/**
+ * The stage: the screen with its breathing frame, what is happening, and the things the user may do.
+ * 1.4.0-beta4: take over and stop are always there (greyed while nothing runs), so the card keeps its shape; a
+ * landscape screen gets the card's full width with the words under it instead of a sliver beside them.
+ */
+@Composable
+private fun Stage(s: BackgroundOperation.State, mode: Mode, last: TaskLog.Task?, off: Boolean = false, power: () -> Unit = {}) {
+    val ctx = LocalContext.current
+    val live = s.displayId != null && !s.idle
+    val ratio = if (s.screenHeight > 0) s.screenWidth.toFloat() / s.screenHeight else 0.45f
+    val (app, icon) = appOf(last?.takeIf { it.running }?.pkg)
+    val open = { ctx.startActivity(Intent(ctx, FullscreenActivity::class.java)) }
+    val picture = @Composable { m: Modifier ->
+        Box(m.aspectRatio(ratio).glowBorder(if (live) mode else Mode.IDLE, 16.dp, pad = 5.dp).clickable(enabled = s.displayId != null) { open() }) {
+            if (s.displayId != null) ScreenThumb(s.ownerSessionId ?: "default", Modifier.fillMaxSize(), 16.dp)
+            else TaskFrame(last?.frames?.lastOrNull(), Modifier.fillMaxSize(), 16.dp)
+            if (!live) Box(Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.35f)))
+        }
+    }
+    Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(16.dp)) {
+        if (ratio >= 1f) {
+            picture(Modifier.fillMaxWidth())
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) { StageWords(s, mode, last, live, app, icon, off) }
+                Spacer(Modifier.width(8.dp))
+                StageActions(s, live, open, off, power)
+            }
+        } else Row {
+            picture(Modifier.width(112.dp))
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f).height(112.dp / ratio), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                StageWords(s, mode, last, live, app, icon, off)
+                Spacer(Modifier.weight(1f))
+                StageActions(s, live, open, off, power)
+            }
+        }
     }
 }
 
+@Composable
+private fun StageWords(s: BackgroundOperation.State, mode: Mode, last: TaskLog.Task?, live: Boolean, app: String?, icon: androidx.compose.ui.graphics.ImageBitmap?, off: Boolean) {
+    val c = MiuixTheme.colorScheme
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (live && icon != null) { AppBadge(icon, 22.dp); Spacer(Modifier.width(8.dp)) }
+        Text(if (live) (app ?: tr("副屏", "Screen")) + " · ${s.screenWidth}×${s.screenHeight}" else tr("副屏在休息", "Screen resting"),
+            fontSize = 13.sp, color = c.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+    AnimatedContent(if (live) humanAction(LocalContext.current, s.action ?: Palette.word(mode)) else if (off) tr("服务关着，agent 连不上", "The service is off; agents cannot connect") else tr("agent 下次用时自动亮起", "Lights up when an agent next uses it"),
+        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) }, label = "step") { t ->
+        Text(t, fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
+    }
+    val line = when {
+        live && last?.running == true -> tr("第 ${last.commands} 步 · 已用 ${took(last)}", "Step ${last.commands} · ${took(last)}")
+        last != null -> tr("上次：", "Last: ") + taskTitle(last, appOf(last.pkg).first) + " · " + taskOutcome(last).first
+        else -> ""
+    }
+    if (line.isNotEmpty()) Text(line, fontSize = 12.sp, color = c.onSurfaceVariantSummary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+}
+
+@Composable
+private fun StageActions(s: BackgroundOperation.State, live: Boolean, open: () -> Unit, off: Boolean, power: () -> Unit) {
+    val c = MiuixTheme.colorScheme
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (off) { RoundAction(Icons.Filled.PowerSettingsNew, tr("打开服务", "Turn on"), c.primary) { power() }; return@Row }
+        RoundAction(Icons.Filled.PanTool, tr("接管", "Take over"), c.primary, enabled = live && !s.userStopped) {
+            s.ownerSessionId?.let { BackgroundOperation.beginTakeover(it) }; open()
+        }
+        if (s.userStopped) RoundAction(Icons.Filled.PlayArrow, tr("允许继续", "Resume"), c.primary) { BackgroundOperation.userResume() }
+        else RoundAction(Icons.Filled.Stop, tr("停止", "Stop"), Palette.stopped, enabled = live) { BackgroundOperation.userStop() }
+        if (s.displayId != null && !live) RoundAction(Icons.Filled.Fullscreen, tr("看一眼", "Look"), c.primary) { open() }
+    }
+}
+
+/** "启动 com.android.settings" → "启动 设置": package names in a step read as the app's name. */
+internal fun humanAction(ctx: android.content.Context, t: String): String = PKG.replace(t) { m ->
+    runCatching { ctx.packageManager.let { pm -> pm.getApplicationLabel(pm.getApplicationInfo(m.value, 0)).toString() } }.getOrDefault(m.value)
+}
+private val PKG = Regex("\\b[a-z][a-z0-9_]*(\\.[a-z0-9_]+){2,}\\b")
+
+/** The line above the title, as a small pill with the state's colour (it used to float alone under the big title). */
+@Composable
+private fun StatusPill(text: String, mode: Mode, home: Home) {
+    val c = MiuixTheme.colorScheme
+    val dot = when (home) { Home.ACTING -> Palette.of(mode); Home.BROKEN -> Palette.stopped; else -> c.onSurfaceVariantSummary.copy(alpha = 0.6f) }
+    Row(Modifier.padding(start = 20.dp).clip(RoundedCornerShape(50)).background(c.surfaceContainer).padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
+        Spacer(Modifier.width(8.dp))
+        Text(text, fontSize = 13.sp, color = c.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** Any agent ever reached this app: tasks, a call, a token used, a note remembered (survives updates; beta3 only looked at tasks). */
+private fun everConnected(): Boolean = TaskLog.everUsed() ||
+    com.kilon.agentvscreen.api.AgentLedger.snap.value.let { it.rememberedAt > 0 || it.lastLocalAt > 0 || it.lastRemoteAt > 0 } ||
+    com.kilon.agentvscreen.api.Tokens.list.value.any { it.lastUsedAt > 0 }
+
 /** A round button with its word under it; it shrinks a little under the finger. */
 @Composable
-private fun RoundAction(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit) {
+private fun RoundAction(icon: ImageVector, label: String, tint0: Color, enabled: Boolean = true, onClick: () -> Unit) {
+    val tint = if (enabled) tint0 else MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.45f)
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val down by press.collectIsPressedAsState()
     val k by androidx.compose.animation.core.animateFloatAsState(if (down) 0.88f else 1f, label = "press")
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(press, null) { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); onClick() }.padding(4.dp)) {
+        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(press, null, enabled = enabled) { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); onClick() }.padding(4.dp)) {
         Box(Modifier.size(44.dp).graphicsLayer { scaleX = k; scaleY = k }
             .clip(CircleShape).background(tint.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
             Icon(icon, label, tint = tint, modifier = Modifier.size(20.dp))
         }
-        Text(label, fontSize = 11.5.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Text(label, fontSize = 11.5.sp, color = if (enabled) MiuixTheme.colorScheme.onSurfaceVariantSummary else tint)
     }
 }
 
@@ -350,31 +424,67 @@ private fun NextCard(kind: String, big: String, what: String, onClick: () -> Uni
     }
 }
 
-/** Behind the shield: pause every agent, or turn the service off. Rare, but found at once when needed. */
+/**
+ * 1.4.0-beta4: the power button's sheet is the one place to choose how the service runs, as three plain choices with
+ * the current one lit: always on / on demand / off. Before, it offered "block agents" and "turn the service on/off",
+ * and while an agent had woken a hidden service it only offered "turn on": the notification could not be removed.
+ * Choosing applies at once: on demand stops a woken service now, off stops it and nothing wakes it.
+ */
 @Composable
 private fun ShieldSheet(show: Boolean, close: () -> Unit) {
     val ctx = LocalContext.current
     val app = LocalApp.current
     val host = LocalHost.current
     val st = remember(show, app.tick) { ServiceControl.now(ctx) }
-    OverlayBottomSheet(show = show, title = tr("暂停与关闭", "Pause and turn off"), onDismissRequest = close) {
-        Column(Modifier.padding(bottom = 24.dp)) {
-            val blocked = st == ServiceControl.State.BLOCKED
-            ArrowPreference(title = if (blocked) tr("允许 agent 访问", "Allow agents") else tr("禁止 agent 访问", "Block agents"),
-                summary = if (blocked) tr("恢复后 agent 可以再连进来", "Agents can connect again") else tr("正在做的停下，新的请求先拒绝，直到你恢复", "What runs stops; new requests are refused until you allow them again"),
-                onClick = { if (blocked) ServiceControl.allow(ctx, "shield") else ServiceControl.block(ctx, "shield"); app.serviceOn = com.kilon.agentvscreen.host.Prefs.serviceOn(ctx); app.bump(); close() })
-            ArrowPreference(title = if (app.serviceOn) tr("关闭服务", "Turn the service off") else tr("打开服务", "Turn the service on"),
-                summary = if (app.serviceOn) tr("副屏释放，agent 连不上", "The screen is released; agents cannot connect") else tr("agent 随时连得上 · 本机 127.0.0.1:${ApiConfig.port}", "Agents can connect · 127.0.0.1:${ApiConfig.port}"),
-                onClick = {
-                    // 1.3.0: a flip back within 1.5 s is ignored (each flip restarts the Tailscale node).
-                    val now = android.os.SystemClock.elapsedRealtime()
-                    if (now - lastFlip < 1_500L) { host.say(tr("稍等一下再切换", "Wait a moment before switching again")); return@ArrowPreference }
-                    lastFlip = now
-                    if (app.serviceOn) ServiceControl.hide(ctx, "shield") else ServiceControl.turnOn(ctx, "shield")
-                    app.serviceOn = !app.serviceOn; app.bump(); close()
-                })
+    val awake = remember(show, app.tick) { HostService.isAlive }
+    OverlayBottomSheet(show = show, title = tr("服务", "Service"), onDismissRequest = close) {
+        Column(Modifier.padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(ServiceControl.title(ctx) + (ServiceControl.sub(ctx)?.let { " · $it" } ?: ""), fontSize = 13.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(horizontal = 12.dp))
+            fun pick(to: ServiceControl.State) {
+                // 1.3.0: a flip back within 1.5 s is ignored (each flip restarts the Tailscale node).
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastFlip < 1_500L) { host.say(tr("稍等一下再切换", "Wait a moment before switching again")); return }
+                lastFlip = now
+                when (to) {
+                    ServiceControl.State.ON -> ServiceControl.turnOn(ctx, "sheet")
+                    ServiceControl.State.HIDDEN -> ServiceControl.hide(ctx, "sheet")
+                    ServiceControl.State.BLOCKED -> ServiceControl.block(ctx, "sheet")
+                }
+                app.serviceOn = com.kilon.agentvscreen.host.Prefs.serviceOn(ctx); app.bump(); close()
+            }
+            ServiceChoice(Icons.Filled.PowerSettingsNew, tr("常驻", "Always on"),
+                tr("通知栏里一直有它，本机和其它设备的 agent 随时连得上", "Stays in the notification shade; agents here and on other devices reach it any time"),
+                st == ServiceControl.State.ON) { pick(ServiceControl.State.ON) }
+            ServiceChoice(Icons.Filled.Bolt, tr("按需", "On demand"),
+                if (st == ServiceControl.State.HIDDEN && awake) tr("现在被 agent 叫醒了，点这里马上收起", "An agent woke it; tap to put it away now")
+                else tr("平时不在后台；本机 agent 或预约时间到了才叫醒，用完自己收起", "Not in the background; woken by an agent here or a booked time, then put away again"),
+                st == ServiceControl.State.HIDDEN) { pick(ServiceControl.State.HIDDEN) }
+            ServiceChoice(Icons.Filled.Block, tr("关闭", "Off"),
+                tr("马上停下并退出通知栏，什么都叫不醒它，直到你回来选别的", "Stops now and leaves the shade; nothing wakes it until you choose again here"),
+                st == ServiceControl.State.BLOCKED, danger = true) { pick(ServiceControl.State.BLOCKED) }
             HostService.server?.lastError?.let { e -> Note(e, Palette.stopped, Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) }
         }
+    }
+}
+
+@Composable
+private fun ServiceChoice(icon: ImageVector, title: String, sub: String, on: Boolean, danger: Boolean = false, onClick: () -> Unit) {
+    val c = MiuixTheme.colorScheme
+    val tint = if (danger) Palette.stopped else c.primary
+    Row(Modifier.padding(horizontal = 12.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp))
+        .background(if (on) tint.copy(alpha = 0.12f) else c.surfaceContainer)
+        .border(1.5.dp, if (on) tint else Color.Transparent, RoundedCornerShape(16.dp))
+        .clickable(onClick = onClick).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(40.dp).clip(CircleShape).background(tint.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = if (on) tint else c.onSurface)
+            Text(sub, fontSize = 12.5.sp, lineHeight = 17.sp, color = c.onSurfaceVariantSummary)
+        }
+        if (on) { Spacer(Modifier.width(8.dp)); Icon(Icons.Filled.Check, null, tint = tint, modifier = Modifier.size(20.dp)) }
     }
 }
 

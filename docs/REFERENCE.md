@@ -129,7 +129,7 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 - `--area` 在画面上框一块，返回框和框里的元素
 - `--choose <甲|乙|丙>` 从 2–8 个选项里选一个
 - `--text` 写一句话回答
-- `--wait <时长>` 最多等多久（默认 60s，最长 5m；没答复是 ASK_PENDING，之后重发同一条 ask 取答案）
+- `--wait <时长>` 最多等多久（默认 50s，最长 5m；没答复是 ASK_PENDING，之后重发同一条 ask 取答案）
 - `--async` 不等它做完：马上返回任务号，之后 task <号> 取结果（长操作、怕连接超时时用）
 
 权限范围: `operate`
@@ -140,7 +140,7 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 适合说不清、反复失败、或用户自己更清楚怎么做的流程。先 launch 到要演示的应用。
 
 - `--name <名字>` 建议的段名（用户可以改）
-- `--wait <时长>` 最多等多久（默认 120s，最长 5m；没做完是 ASK_PENDING，之后重发同一条 teach 取结果）
+- `--wait <时长>` 最多等多久（默认 50s，最长 5m；没做完是 ASK_PENDING，之后重发同一条 teach 取结果）
 - `--async` 不等它做完：马上返回任务号，之后 task <号> 取结果（长操作、怕连接超时时用）
 
 权限范围: `operate`
@@ -282,7 +282,7 @@ look x1,y1,x2,y2 的旧写法：放大看一块区域（图边上标着副屏坐
 | `QUEUE_TIMEOUT` | `retry_later` | 前面的命令还没做完，这条排队超过 60 秒，没有执行。 |
 | `CANCELLED` | `none` | 调用方断开了或取消了任务，命令在下一步之前停下。 |
 | `CONNECTION_LOST` | `ask_user` | 后台特权连接断了（Shizuku 停了），副屏和上面的应用已经没了，不是你的操作造成的。告诉用户；恢复后重新 launch。 |
-| `NOT_CONNECTED` | `ask_user` | 后台连接没有就绪。vscreen fix not_connected，或请用户打开 Agent-VScreen。 |
+| `NOT_CONNECTED` | `ask_user` | 副屏服务用不了：Shizuku 停了或没授权，返回里写了是哪一种。把那句转告用户；只是服务关着或收起时不会报这条。 |
 | `DISABLED` | `ask_user` | 用户关掉了 Agent-VScreen 的服务。 |
 | `CREATE_FAILED` | `ask_user` | 副屏没建出来。status 里有原因。 |
 | `STALE_SCREEN` | `look` | 这个操作是针对已经重建过的旧副屏的。 |
@@ -301,6 +301,8 @@ look x1,y1,x2,y2 的旧写法：放大看一块区域（图边上标着副屏坐
 | `NOT_READY` | `ask_user` | Agent-VScreen 没有响应或还没准备好（被系统冻结、服务没开、Shizuku 没运行）。命令行已经试过唤醒一次。把原因告诉用户；定时任务请先用 schedule 预约时间。 |
 | `ASK_PENDING` | `ask_user` | 问题已经显示在手机上，用户还没回答。告诉用户去手机上回答；之后把同一个 ask 原样再发一次就能拿到答案（10 分钟内有效）。 |
 | `ASK_DECLINED` | `ask_user` | 用户选择不回答这个问题。不要再问同一个问题，换个方式或告诉用户你停在了哪里。 |
+| `USER_FEEDBACK` | `ask_user` | 用户没有照你问的方式回答，而是说了一句话（在 feedback 里，原话）。多半是你问错了、页面不对或理解偏了：按这句话调整，不要原样再问。 |
+| `NOT_AT_START` | `look` | 示教段是从某个页面开始录的，副屏现在不在那里，所以一步都没做。回执写了起点的样子：先自己走到那个页面，再 use。 |
 | `KEEP_LIMIT` | `fix_command` | 同时盯守的条件到上限了：先 keep off 一个。 |
 | `TASK_NOT_FOUND` | `fix_command` | 没有这个任务号（任务结果保留 30 分钟）。task 列出本会话的任务。 |
 | `TASK_RUNNING` | `retry_later` | 任务还在执行。 |
@@ -454,7 +456,7 @@ An answer is information, not permission: payments still need the phone's confir
 - `--area` drag a box on the picture; returns the box and the elements in it
 - `--choose <A|B|C>` choose one of 2–8 options
 - `--text` answer with a line of text
-- `--wait <duration>` how long to wait (default 60s, at most 5m; no answer is ASK_PENDING, send the same ask again later for the answer)
+- `--wait <duration>` how long to wait (default 50s, at most 5m; no answer is ASK_PENDING, send the same ask again later for the answer)
 - `--async` do not wait for it: returns a task id at once, fetch the result later with task <id> (for long operations or short connection timeouts)
 
 scope: `operate`
@@ -465,7 +467,7 @@ ask the user to do it once on the background screen (a lesson): a request appear
 For flows that are hard to describe, keep failing, or the user knows better. launch the app to show first.
 
 - `--name <name>` suggested segment name (the user may change it)
-- `--wait <duration>` how long to wait (default 120s, at most 5m; not done yet is ASK_PENDING, send the same teach again later for the result)
+- `--wait <duration>` how long to wait (default 50s, at most 5m; not done yet is ASK_PENDING, send the same teach again later for the result)
 - `--async` do not wait for it: returns a task id at once, fetch the result later with task <id> (for long operations or short connection timeouts)
 
 scope: `operate`
@@ -607,7 +609,7 @@ scope: `look`
 | `QUEUE_TIMEOUT` | `retry_later` | Earlier commands are still running; this one waited in the queue for over 60 s and did not run. |
 | `CANCELLED` | `none` | The caller disconnected or cancelled the task; the command stopped before its next step. |
 | `CONNECTION_LOST` | `ask_user` | The privileged background connection broke (Shizuku stopped); the screen and its app are gone, not because of your actions. Tell the user; launch again once it is back. |
-| `NOT_CONNECTED` | `ask_user` | The background connection is not ready. Run vscreen fix not_connected, or ask the user to open Agent-VScreen. |
+| `NOT_CONNECTED` | `ask_user` | The screen service cannot be used: Shizuku stopped or is not granted; the reply says which. Pass that line on to the user. A service that is merely off or hidden never reports this. |
 | `DISABLED` | `ask_user` | The user turned the Agent-VScreen service off. |
 | `CREATE_FAILED` | `ask_user` | The screen could not be created. status says why. |
 | `STALE_SCREEN` | `look` | This action was meant for an older screen that has been rebuilt. |
@@ -626,6 +628,8 @@ scope: `look`
 | `NOT_READY` | `ask_user` | Agent-VScreen did not answer or is not ready (frozen by the system, service off, Shizuku not running). The CLI already tried to wake it once. Tell the user why; for timed tasks, book the time with schedule first. |
 | `ASK_PENDING` | `ask_user` | The question is on the phone and the user has not answered yet. Tell the user to answer on the phone; then send the same ask again to get the answer (valid for 10 minutes). |
 | `ASK_DECLINED` | `ask_user` | The user chose not to answer. Don't ask the same again; go another way or tell the user where you stopped. |
+| `USER_FEEDBACK` | `ask_user` | The user did not answer the way you asked but said something instead (in feedback, verbatim). Most likely the question, the page or your reading was off: adjust to it; don't ask the same again. |
+| `NOT_AT_START` | `look` | The lesson was recorded from a certain page and the screen is not there now, so nothing was done. The reply describes the starting page: get there first, then use it. |
 | `KEEP_LIMIT` | `fix_command` | Too many watches at once: turn one off with keep off. |
 | `TASK_NOT_FOUND` | `fix_command` | No such task id (results are kept 30 minutes). task lists this session's tasks. |
 | `TASK_RUNNING` | `retry_later` | The task is still running. |

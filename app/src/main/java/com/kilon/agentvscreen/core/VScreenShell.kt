@@ -323,7 +323,7 @@ internal object VScreenShell {
 
     private fun injectedOutcome(what: String, displayId: Int, r: Result<Boolean>): Outcome = when {
         r.getOrNull() == true -> ok(tr("副屏 $displayId：$what 已注入", "screen $displayId: $what injected"))
-        r.isFailure -> fail("NOT_CONNECTED", tr("副屏服务（Shizuku）不可用，$what 没有做：${r.exceptionOrNull()?.message}。status 看原因，fix not_connected 重连", "The screen service (Shizuku) is unavailable, $what was not done: ${r.exceptionOrNull()?.message}. See status for the cause; fix not_connected reconnects"))
+        r.isFailure -> fail("NOT_CONNECTED", tr("副屏服务（Shizuku）不可用，$what 没有做：${r.exceptionOrNull()?.message}。多半是 Shizuku 停了：请用户打开 Shizuku 启动它", "The screen service (Shizuku) is unavailable, $what was not done: ${r.exceptionOrNull()?.message}. Most likely Shizuku stopped: ask the user to start it in Shizuku"))
         else -> fail("INPUT_FAILED", tr("系统拒绝了副屏 $displayId 上的 $what 注入", "The system refused injecting $what on screen $displayId"))
     }
 

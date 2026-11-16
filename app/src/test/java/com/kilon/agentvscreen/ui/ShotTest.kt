@@ -13,6 +13,7 @@ import java.io.File
 import java.io.FileOutputStream
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -80,6 +81,16 @@ class ShotTest {
             v.draw(Canvas(b))
             FileOutputStream(File(out, if (night) "home-dark.png" else "home.png")).use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
+        // 1.4.0-beta4: the phone turned: stage and the rest side by side.
+        org.robolectric.RuntimeEnvironment.setQualifiers("w840dp-h400dp-notnight")
+        run {
+            val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+            repeat(60) { ShadowLooper.idleMainLooper(); Thread.sleep(50) }
+            val v = a.window.decorView
+            val b = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+            v.draw(Canvas(b))
+            FileOutputStream(File(out, "home-wide.png")).use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
     }
 }
 
@@ -130,5 +141,41 @@ class OverlayShotTest {
         val b = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
         v.draw(Canvas(b))
         FileOutputStream(File(out, "overlay.png")).use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+}
+
+/** 1.4.0-beta4: the request card of the one screen page, in each moment (only when AVS_SHOTS is set). */
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(application = android.app.Application::class, qualifiers = "w1200dp-h900dp-mdpi")
+class RequestCardShotTest {
+    @Test fun moments() {
+        val out = System.getenv("AVS_SHOTS") ?: return
+        animateLook = false; Glass.blurOk = false
+        val app = org.robolectric.RuntimeEnvironment.getApplication()
+        com.kilon.agentvscreen.host.AppLogger.init(app)
+        com.kilon.agentvscreen.api.ApiConfig.init(app)
+        val teach = com.kilon.agentvscreen.host.UserAsk.create(app, com.kilon.agentvscreen.host.UserAsk.Kind.TEACH, "t", "新建一个 07:30 的闹钟", "")
+        val point = com.kilon.agentvscreen.host.UserAsk.create(app, com.kilon.agentvscreen.host.UserAsk.Kind.POINT, "p", "你说的是哪一条闹钟？", "")
+        val choose = com.kilon.agentvscreen.host.UserAsk.create(app, com.kilon.agentvscreen.host.UserAsk.Kind.CHOOSE, "c", "这周末你想先动哪块？", "", options = listOf("考研单词", "大创器件", "先歇着"))
+        val a = Robolectric.buildActivity(androidx.activity.ComponentActivity::class.java).setup().get()
+        a.setContent {
+            AvsTheme {
+                androidx.compose.foundation.layout.Row(androidx.compose.ui.Modifier.background(androidx.compose.ui.graphics.Color(0xFF07080D)).padding(12.dp),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+                    val w = androidx.compose.ui.Modifier.width(280.dp)
+                    RequestCard(teach, "s", recording = false, prep = false, steps = 0, paused = false, takenOver = false, mark = MarkState(), send = { null }, modifier = w)
+                    RequestCard(teach, "s", recording = false, prep = true, steps = 0, paused = false, takenOver = true, mark = MarkState(), send = { null }, modifier = w)
+                    RequestCard(teach, "s", recording = true, prep = false, steps = 5, paused = false, takenOver = true, mark = MarkState(), send = { null }, modifier = w)
+                    RequestCard(point, "s", recording = false, prep = false, steps = 0, paused = false, takenOver = false, mark = MarkState(), send = { null }, modifier = w)
+                }
+            }
+        }
+        repeat(20) { ShadowLooper.idleMainLooper(); Thread.sleep(30) }
+        val v = a.window.decorView
+        val b = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+        v.draw(Canvas(b))
+        FileOutputStream(File(out, "request-cards.png")).use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        @Suppress("UNUSED_VARIABLE") val unused = choose
     }
 }

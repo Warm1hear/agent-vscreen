@@ -187,14 +187,14 @@ remote_why() {
   if [ "$1" = en ]; then
     case $_rv in
       up) echo "The phone is online in Tailscale, but Agent-VScreen does not answer: the app may be frozen or restarting. Ask the user to open Agent-VScreen." ;;
-      down) echo "The phone's Tailscale node is offline. Usually: the service is hidden (then devices elsewhere cannot wake it; it is online during a booked window or after an agent on the phone woke it), agent access is blocked, the phone is offline, or the built-in Tailscale needs logging in again. Ask the user to open Agent-VScreen: the status under the switch and the Connect tile say which; for access at any time it must be always on." ;;
-      *) echo "The phone did not answer. The service may be hidden (devices elsewhere cannot wake it; it is online during a booked window), agent access blocked, the phone offline, or its built-in Tailscale logged out. Ask the user to open Agent-VScreen: the status under the switch and the Connect tile say which; for access at any time it must be always on. Less often: the system froze the app." ;;
+      down) echo "The phone's Tailscale node is offline. Usually the user's choice, not a fault: the service is On demand (devices elsewhere cannot wake it; it is online during a booked window or after an agent on the phone woke it) or Off. Next: the phone is offline or the built-in Tailscale needs logging in again. Ask the user to open Agent-VScreen and read the state at the top of its home page; for access at any time, choose Always on with the power button." ;;
+      *) echo "The phone did not answer. Most likely the user's choice, not a fault: the service is On demand (devices elsewhere cannot wake it; it is online during a booked window) or Off. Next: the phone is offline, its built-in Tailscale logged out, or less often the system froze the app. Ask the user to open Agent-VScreen and read the state at the top of its home page; for access at any time, choose Always on with the power button." ;;
     esac
   else
     case $_rv in
       up) echo "手机在 Tailscale 上在线，但 Agent-VScreen 没有回应：可能被系统冻结或正在重启。请用户打开一次 Agent-VScreen。" ;;
-      down) echo "手机的 Tailscale 节点不在线。通常是：服务收起了（收起时其它设备叫不醒它，只在预约时间里或手机上的 agent 叫醒后在线）、禁止了 agent 访问、手机没网，或内置 Tailscale 要重新登录。请用户打开 Agent-VScreen，开关下面的状态和“接入 agent”卡片会写是哪一种；要随时连得上，得打开常驻。" ;;
-      *) echo "手机没有回应。可能是：服务收起了（其它设备叫不醒它，只在预约时间里在线）、禁止了 agent 访问、手机没网，或内置 Tailscale 掉了登录。请用户打开 Agent-VScreen，开关下面的状态和“接入 agent”卡片会写是哪一种；要随时连得上，得打开常驻。少数情况是系统把 App 冻结了。" ;;
+      down) echo "手机的 Tailscale 节点不在线。通常是用户的选择而不是故障：服务是“按需”（其它设备叫不醒它，只在预约时间里或手机上的 agent 叫醒后在线）或“关闭”。其次是手机没网，或内置 Tailscale 要重新登录。请用户打开 Agent-VScreen 看首页顶上的状态；要随时连得上，在右上角电源键里选“常驻”。" ;;
+      *) echo "手机没有回应。多半是用户的选择而不是故障：服务是“按需”（其它设备叫不醒它，只在预约时间里在线）或“关闭”。其次是手机没网、内置 Tailscale 掉了登录，少数情况是系统把 App 冻结了。请用户打开 Agent-VScreen 看首页顶上的状态；要随时连得上，在右上角电源键里选“常驻”。" ;;
     esac
   fi
 }
@@ -204,6 +204,10 @@ post() { req POST "$target" "$tmp/body" "$tmp/${1:-h}" "$tmp/${2:-b}" --connect-
 # again with the same request id (it runs once).
 post & ppid=$!
 alive; pr=$?
+# 1.4.0-beta4: on this phone a refused connection (curl 7) means the app is not running at all (never opened since a
+# restart, or cleared by the system). That is woken the same way as a frozen one; before, it went straight to
+# "cannot reach", and agents told the user to repair something that was only switched off.
+case "$URL" in http://127.0.0.1:*|http://localhost:*) [ $pr -eq 7 ] && { refused=1; pr=28; } ;; esac
 if [ $pr -ne 28 ]; then watch_post $ppid </dev/null >/dev/null 2>&1 & wpid=$!; wait $ppid; rc=$?; kill $wpid 2>/dev/null; wait $wpid 2>/dev/null; sent=1
   if [ -s "$tmp/lost" ]; then
     case "$(cat "$tmp/lost")" in
@@ -219,7 +223,7 @@ if [ $pr -eq 28 ]; then
       if command -v am >/dev/null 2>&1; then
         _wb=$(am broadcast -n com.kilon.agentvscreen/.host.WakeReceiver -a com.kilon.agentvscreen.WAKE 2>&1)
         case "$_wb" in *'data="blocked"'*)
-          echo "vscreen: NOT_READY «用户在 Agent-VScreen 里禁止了 agent 访问，叫不醒它。请用户在 App 里打开开关，或改成“收起”（agent 用到时自动唤起）。|The user blocked agent access in Agent-VScreen, so it cannot be woken. Ask the user to turn the switch on, or change it to \"hidden\" (woken when an agent needs it).»" >&2
+          echo "vscreen: NOT_READY «用户关闭了 Agent-VScreen，叫不醒它。这是用户的选择，不是故障，不用修：请用户在 App 右上角的电源键里选“常驻”或“按需”。|The user turned Agent-VScreen off, so it cannot be woken. That is their choice, not a fault, and needs no repair: ask them to choose Always on or On demand with the power button at the top of the app.»" >&2
           exit 3 ;;
         esac
         for i in 1 2 3; do sleep 2; alive && { pr=0; break; }; done
@@ -237,6 +241,10 @@ if [ $pr -eq 28 ]; then
        exit 3 ;;
   esac
 fi
+if [ $pr -eq 28 ] && [ -n "$refused" ]; then
+  echo "vscreen: NOT_READY «Agent-VScreen 没在运行（用户还没打开它，或系统把它清掉了），叫也没叫起来。这不是故障，不用修：请用户打开一次 Agent-VScreen；手机重启过的话先启动 Shizuku。|Agent-VScreen is not running (the user has not opened it, or the system cleared it) and could not be started. This is not a fault and needs no repair: ask the user to open Agent-VScreen once; after a phone restart, start Shizuku first.»" >&2
+  exit 3
+fi
 if [ $pr -eq 28 ]; then
   echo "vscreen: NOT_READY «Agent-VScreen 5 秒没有响应，唤醒也没成功，多半是系统把它冻结在后台了。请用户打开一次 Agent-VScreen，按首页“后台运行受限”的提示允许它后台活动（荣耀/华为：应用启动管理 › 手动管理）。定时任务请先 vscreen schedule 预约时间。|Agent-VScreen did not answer for 5 s and could not be woken; the system most likely froze it in the background. Ask the user to open Agent-VScreen once and allow background activity as \"Background running restricted\" on its home page says (Honor/Huawei: App launch › Manage manually). For timed tasks, book the time with vscreen schedule first.»" >&2
   exit 3
@@ -253,7 +261,7 @@ if [ $rc -eq 90 ]; then
 fi
 if [ $rc -ne 0 ]; then
   case "$URL" in
-    http://127.0.0.1:*|http://localhost:*) echo "vscreen: «连不上 Agent-VScreen（$URL，curl $rc）：打开 Agent-VScreen，确认“服务”已启动；手机重启后要先启动 Shizuku 再打开它。|cannot reach Agent-VScreen ($URL, curl $rc): open Agent-VScreen and check the service is on; after a phone restart, start Shizuku first, then open it.»" >&2 ;;
+    http://127.0.0.1:*|http://localhost:*) echo "vscreen: NOT_READY «Agent-VScreen 没在运行（$URL，curl $rc）。这不是故障，不用修：请用户打开一次 Agent-VScreen；手机重启过的话先启动 Shizuku。|Agent-VScreen is not running ($URL, curl $rc). This is not a fault and needs no repair: ask the user to open Agent-VScreen once; after a phone restart, start Shizuku first.»" >&2 ;;
     *) if [ -n "$PROXY" ]; then case $rc in 5|7|97)
          echo "vscreen: «连不上本机的代理 $PROXY（curl $rc），请求没有发出去：检查代理是否在运行（例如 userspace tailscaled 的 SOCKS5 端口）。|cannot reach the local proxy $PROXY (curl $rc); the request never left this machine: check the proxy is running (e.g. the SOCKS5 port of a userspace tailscaled).»" >&2; exit 3 ;; esac; fi
        remote_probe; echo "vscreen: «连不上手机上的 Agent-VScreen（$URL，curl $rc）。$(remote_why)|cannot reach Agent-VScreen on the phone ($URL, curl $rc). $(remote_why en)»" >&2 ;;

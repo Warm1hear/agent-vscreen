@@ -447,6 +447,8 @@ object BackgroundOperation {
         restoreDownscale()
         // The page the flags were about is gone with the screen: the next screen starts with nothing to re-read.
         synchronized(lock) { tasks.values.forEach { it.rereadRequired = false; it.rereadReason = null } }
+        // 1.4.0-beta4: the task on a screen ends with the screen, even when its agent never said done.
+        _state.value.ownerSessionId?.let { TaskLog.onTurnEnd(it, _state.value.userStopped) }
         _state.update { it.copy(displayId = null, ownerSessionId = null, takeoverSessionId = null, operating = false, note = reason) }
         AppLogger.info(TAG, "released display ${d.displayId} gen=${d.generation}: $reason")
         // A lesson being recorded and the questions answered on this screen end with it (1.3.0-beta14).

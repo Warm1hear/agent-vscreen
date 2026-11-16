@@ -61,7 +61,7 @@ This list and the notes agents receive come from the same ability table (`Abilit
 - **the same app comes up again and again: a fixed way in, a popup every visit, a picture to pause first, or it is sensitive to machine-like timing**: `vscreen note` keeps what I learned about the app, saved steps (`note save`), before/after steps and human pacing; the next launch lists them
 - **a step only the user can do (password, code, face, scanning), or the app I need is the one the user is using**: `vscreen handoff out` puts the app on the user's screen with what to do; `vscreen handoff in` takes the app from the user's screen
 - **the text is too small or an icon, or there is no text at all (games, canvas, charts), or I need to see what just happened**: `vscreen look` asks for pictures: the screen now, a region up close, or the recording; `vscreen spots` finds tappable color patches
-- **the phone cannot be reached, commands keep failing, or something odd happens**: `vscreen status` shows the state, `vscreen fix` repairs, `vscreen diag` exports diagnostics
+- **the phone cannot be reached, commands keep failing, or something odd happens**: First tell off from broken: not running, service off or hidden is the user's choice; tell the user to open it, nothing to repair. Only `vscreen status` with ready false is a fault, and `vscreen fix` repairs just what it lists
 <!-- abilities:end -->
 
 ## More than a background screen: the scaffold around it

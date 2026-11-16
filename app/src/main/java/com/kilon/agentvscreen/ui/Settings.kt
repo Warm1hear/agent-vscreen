@@ -1,5 +1,7 @@
 package com.kilon.agentvscreen.ui
 
+import androidx.compose.foundation.layout.fillMaxHeight
+
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Icon
 import android.content.Intent
@@ -118,12 +120,13 @@ fun SettingsTab(bottom: Dp) {
         // How much an agent may do alone: the two levels side by side, the chosen one lit; app rules under them.
         SmallTitle(tr("agent 能做多少", "How much an agent may do"))
         Card(Modifier.padding(horizontal = 12.dp).fillMaxWidth(), insideMargin = PaddingValues(12.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // 1.4.0-beta4: both cards as tall as the taller one (a two-line summary made them uneven).
+            Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 listOf(
                     Triple("auto", tr("放手跑", "Hands-off"), tr("只有付钱那一步问你", "Only paying asks you")),
                     Triple("careful", tr("谨慎", "Careful"), tr("购买、删除、卸载也先问", "Buying, deleting, uninstalling ask too")),
                 ).forEach { (key, title, sub) ->
-                    LevelCard(title, sub, autonomy == key, Modifier.weight(1f)) {
+                    LevelCard(title, sub, autonomy == key, Modifier.weight(1f).fillMaxHeight()) {
                         if (autonomy != key) { autonomy = key; ApiConfig.autonomy = key; Audit.security("autonomy", key); haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove) }
                     }
                 }
@@ -314,7 +317,7 @@ fun TokensPage() {
 fun HelpPage() {
     MiuixPage(tr("帮助", "Help")) {
         listOf(
-            tr("常驻、收起和禁止", "Always on, hidden and blocked") to ServiceControl.help(),
+            tr("常驻、按需和关闭", "Always on, on demand and off") to ServiceControl.help(),
             tr("agent 在哪", "Where the agent runs") to H.where,
             tr("接入方式", "How it connects") to H.how,
             tr("令牌", "Tokens") to (H.token + "\n\n" + H.tokens),

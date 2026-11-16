@@ -376,9 +376,9 @@ object Wake {
                 val on = android.app.PendingIntent.getForegroundService(ctx, 7704, Intent(ctx, HostService::class.java).setAction(HostService.ACTION_ON), android.app.PendingIntent.FLAG_IMMUTABLE)
                 if (items.any { it.blocking && it.code == "service_off" })
                     com.kilon.agentvscreen.core.VScreenHandoff.alert(ctx, 7702,
-                        tr("agent 预约的 $whenText 到了，但你禁止了 agent 访问", "The agent's booking $whenText is due, but you blocked agent access"),
-                        tr("这次 agent 用不了手机。要让它来，现在打开服务；只想让服务不占通知栏的话，关开关就是“收起”，预约照样能叫醒它。",
-                            "The agent cannot use the phone this time. To let it in, turn the service on now. If you only want the service out of the notification shade, the switch's off is \"hidden\", and bookings still wake it."),
+                        tr("agent 预约的 $whenText 到了，但服务是关闭的", "The agent's booking $whenText is due, but the service is off"),
+                        tr("这次 agent 用不了手机。要让它来，现在打开服务；只想让服务不占通知栏的话，在电源键里选“按需”，预约照样能叫醒它。",
+                            "The agent cannot use the phone this time. To let it in, turn the service on now. If you only want it out of the notification shade, choose On demand with the power button; bookings still wake it."),
                         tap, listOf(tr("现在打开服务", "Turn on now") to on))
                 else com.kilon.agentvscreen.core.VScreenHandoff.alert(ctx, 7702,
                     tr("agent 预约的 $whenText 快到了，但还有问题要你处理", "The agent's booking $whenText is due, but something needs you"),

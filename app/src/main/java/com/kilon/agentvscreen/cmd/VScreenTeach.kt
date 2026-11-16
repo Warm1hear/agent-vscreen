@@ -87,12 +87,19 @@ internal object Teach {
     class Rec(val session: String, val displayId: Int, val purpose: String?, val askId: Int?, val name: String?) {
         val events = ArrayList<TeachEv>()
         val at = System.currentTimeMillis()
+        /** 1.4.0-beta4: the page the lesson starts from (read when 开始示范 is tapped); `use` checks it first. */
+        @Volatile var start: TeachSnap? = null
+        @Volatile var startRead: Future<*>? = null
+        /** 1.4.0-beta4: 暂停记录: the user's touches still reach the screen but are not written down. */
+        @Volatile var paused = false
     }
 
     /** What the review page shows: the steps and where they came from. */
     class Result(val session: String, val purpose: String?, val askId: Int?, val name: String?, val app: String?, val lines: List<TeachLine>,
                  /** 1.3.0-beta19: the screen when recording stopped (last cell of the contact sheet). */
-                 val endPic: TeachPic? = null)
+                 val endPic: TeachPic? = null,
+                 /** 1.4.0-beta4: the starting page, as stored with the segment ([startJson]). */
+                 val start: org.json.JSONObject? = null)
 
     @Volatile private var rec: Rec? = null
     private val _count = MutableStateFlow<Int?>(null)
@@ -106,14 +113,50 @@ internal object Teach {
     internal var snapSource: ((Int) -> TeachSnap?)? = null
 
     val recording: Boolean get() = rec != null
+    /** The request the lesson being recorded answers (null: none, or a lesson of the user's own). */
+    fun recAskId(): Int? = rec?.askId
     fun recordingFor(session: String) = rec?.session == session
 
     fun start(session: String, purpose: String?, askId: Int?, name: String? = null): Boolean {
         val id = BackgroundOperation.state.value.displayId ?: return false
-        synchronized(this) { rec = Rec(session, id, purpose, askId, name); current = null; result = null }
+        val r = Rec(session, id, purpose, askId, name)
+        r.startRead = reader.submit { r.start = read(id) }
+        synchronized(this) { rec = r; current = null; result = null }
+        _prep.value = null; _paused.value = false
         _count.value = 0
         UserAsk.hold(askId)
         return true
+    }
+
+    // 1.4.0-beta4 (rainbow): a lesson has two parts. 准备: the user has the screen and goes to where the lesson starts;
+    // nothing is written down. 示范: from 开始示范 on, what the user does is recorded, from that page.
+    private val _prep = MutableStateFlow<Int?>(null)
+    /** The teach request being prepared for (the user is getting to the start); null when none. */
+    val prep: StateFlow<Int?> = _prep.asStateFlow()
+    private val _paused = MutableStateFlow(false)
+    val paused: StateFlow<Boolean> = _paused.asStateFlow()
+
+    /** Begin 示范 for the request being prepared (or a lesson of the user's own when none). */
+    fun startPrepared(session: String): Boolean {
+        val a = _prep.value?.let { UserAsk.byId(it) }?.takeIf { it.live }
+        return start(session, a?.title, a?.id, a?.options?.firstOrNull())
+    }
+
+    fun cancelPrep() { _prep.value = null; UserAsk.hold(null) }
+
+    /** 撤掉上一步: the last thing recorded (or the typing not yet written) is dropped. */
+    fun undo() = synchronized(this) {
+        val r = rec ?: return
+        if (typing != null || typingStart != null) { typing = null; typingStart = null; return }
+        if (r.events.isNotEmpty()) r.events.removeAt(r.events.lastIndex)
+        current = null
+        _count.value = r.events.size
+    }
+
+    fun setPaused(p: Boolean) = synchronized(this) {
+        val r = rec ?: return
+        if (p) flushTyping(r)
+        r.paused = p; current = null; _paused.value = p
     }
 
     /**
@@ -122,12 +165,15 @@ internal object Teach {
      */
     fun beginFor(a: UserAsk.Ask): Boolean {
         if (!a.live || a.kind != UserAsk.Kind.TEACH) return false
-        if (rec?.askId == a.id) return true
+        if (rec?.askId == a.id || _prep.value == a.id) return true
         val st = BackgroundOperation.state.value
         val session = st.ownerSessionId ?: return false
         if (st.userStopped) BackgroundOperation.userResume()
         if (!BackgroundOperation.beginTakeover(session) && BackgroundOperation.state.value.takeoverSessionId != session) return false
-        return start(session, a.title, a.id, a.options.firstOrNull())
+        // 1.4.0-beta4: not recording yet: the user first gets to where the lesson starts.
+        _prep.value = a.id
+        UserAsk.hold(a.id)
+        return true
     }
 
     /**
@@ -168,10 +214,11 @@ internal object Teach {
         else -> (0 until n).map { xs[(it * (xs.size - 1).toDouble() / (n - 1)).roundToInt()] }.distinct()
     }
 
-    fun cancel() { synchronized(this) { rec = null; current = null; typing = null; typingStart = null; _count.value = null }; UserAsk.hold(null) }
+    fun cancel() { synchronized(this) { rec = null; current = null; typing = null; typingStart = null; _count.value = null; _prep.value = null; _paused.value = false }; UserAsk.hold(null) }
 
     /** While recording an agent's request: who asked and what (the full screen page shows it in full). */
     fun brief(): Pair<String?, String>? = rec?.let { r -> r.purpose?.takeIf { it.isNotBlank() }?.let { p -> (r.askId?.let { UserAsk.byId(it)?.tokenName }) to p } }
+        ?: _prep.value?.let { UserAsk.byId(it) }?.let { a -> a.tokenName to a.title }
 
     private fun read(id: Int): TeachSnap? {
         snapSource?.let { return it(id) }
@@ -204,7 +251,7 @@ internal object Teach {
     // ── what the user does (UserTouch, the typing field, the keys) ──
 
     fun touchDown(displayId: Int, x: Int, y: Int) = synchronized(this) {
-        val r = rec?.takeIf { it.displayId == displayId } ?: return
+        val r = rec?.takeIf { it.displayId == displayId && !it.paused } ?: return
         flushTyping(r)
         current = TeachEv.Touch(System.currentTimeMillis(), x, y).also { add(r, it) }
     }
@@ -238,7 +285,7 @@ internal object Teach {
      */
     @Volatile private var typingStart: TeachEv.Typed? = null
     fun typingNow(value: String?) = synchronized(this) {
-        val r = rec ?: return
+        val r = rec?.takeIf { !it.paused } ?: return
         val v = value?.takeIf { it.isNotEmpty() }
         if (v != null && typing == null && typingStart == null) startTyping(r)
         if (v == null) typingStart = null
@@ -271,21 +318,22 @@ internal object Teach {
     }
 
     private fun record(e: TeachEv) {
-        synchronized(this) { val r = rec ?: return; flushTyping(r); add(r, e) }
+        synchronized(this) { val r = rec?.takeIf { !it.paused } ?: return; flushTyping(r); add(r, e) }
         runCatching { e.pending?.get(800, TimeUnit.MILLISECONDS) }
     }
 
     /** Stop recording and write the steps (reads the screen once more). Opens the review page. */
     fun stop(ctx: Context?) {
         val r = synchronized(this) { rec?.let { flushTyping(it) }; rec.also { rec = null; current = null; typing = null; typingStart = null } } ?: return
-        _count.value = null
+        _count.value = null; _paused.value = false
         Thread({
             val end = runCatching { reader.submit<TeachSnap?> { read(r.displayId) }.get(4, TimeUnit.SECONDS) }.getOrNull()
             val endPic = runCatching { reader.submit<TeachPic?> { grab() }.get(2, TimeUnit.SECONDS) }.getOrNull()
             r.events.forEach { e -> runCatching { e.pending?.get(4, TimeUnit.SECONDS) } }
             val evs = r.events.filter { it !is TeachEv.Touch || (!it.cancelled && it.end > 0) }
             val app = evs.firstNotNullOfOrNull { it.before?.pkg } ?: end?.pkg
-            result = Result(r.session, r.purpose, r.askId, r.name, app, translate(evs, end), endPic)
+            runCatching { r.startRead?.get(4, TimeUnit.SECONDS) }
+            result = Result(r.session, r.purpose, r.askId, r.name, app, translate(evs, end), endPic, startJson(r.start))
             ctx?.let { c -> runCatching { c.startActivity(Intent(c, com.kilon.agentvscreen.ui.TeachActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
         }, "vscreen-teach-stop").apply { isDaemon = true }.start()
     }
@@ -298,6 +346,31 @@ internal object Teach {
 
     /** The review page is done with the steps (saved, discarded or left): an unanswered question shows again. */
     fun clearResult() { result = null; if (rec == null) UserAsk.hold(null) }
+
+    // ── the starting page (1.4.0-beta4) ──
+
+    /** The start as kept with the segment: the app, the screen (activity) and up to 5 words seen once there. */
+    internal fun startJson(sn: TeachSnap?): org.json.JSONObject? {
+        if (sn == null) return null
+        val words = texts(sn).map { it.text.trim() }.filter { sign(it) && unique(sn, it) }.distinct().take(5)
+        return org.json.JSONObject().put("app", sn.pkg ?: org.json.JSONObject.NULL).put("activity", sn.act ?: org.json.JSONObject.NULL).put("words", org.json.JSONArray(words))
+    }
+
+    /**
+     * Whether the screen now is the lesson's start: the same app, and the same screen (activity) or most of the start's
+     * words on it. Null = yes; otherwise what the start looks like, for NOT_AT_START.
+     */
+    internal fun atStart(start: org.json.JSONObject, pkg: String?, act: String?, shown: (String) -> Boolean): String? {
+        val app = start.optString("app").takeIf { it.isNotEmpty() && it != "null" }
+        val sact = start.optString("activity").takeIf { it.isNotEmpty() && it != "null" }
+        val words = start.optJSONArray("words")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty()
+        val sameApp = app == null || pkg == null || app == pkg
+        val hits = words.count(shown)
+        val ok = sameApp && (words.isEmpty() || hits * 2 >= words.size || (sact != null && act == sact && hits > 0))
+        if (ok) return null
+        return tr("起点是 ${app ?: "某个应用"}" + (sact?.let { " 的 ${it.substringAfterLast('.')}" } ?: "") + (if (words.isNotEmpty()) "，页面上有「${words.joinToString("」「")}」" else ""),
+            "The start is ${app ?: "an app"}" + (sact?.let { " at ${it.substringAfterLast('.')}" } ?: "") + (if (words.isNotEmpty()) ", a page showing \"${words.joinToString("\", \"")}\"" else ""))
+    }
 
     // ── from events to steps (pure) ──
 
@@ -381,12 +454,83 @@ internal object Teach {
                     out += TeachLine("key ${e.name}", c?.first, tr("按了 ${e.name}", "pressed ${e.name}") + (c?.let { "，" + it.second } ?: ""), "key", pic = e.pic,
                         warn = if (c == null && next != null) tr("之后画面上没读到变化", "no change was read afterwards") else null)
                 }
-                is TeachEv.Touch -> out += touchLine(e, next).copy(pic = e.pic)
+                is TeachEv.Touch -> {
+                    // 1.4.0-beta4: swipes are written down by what they were for, not by how far the finger went.
+                    var k = i
+                    while (k + 1 < evs.size && moved(evs[k + 1]) && moved(e) && sameAxis(e as TeachEv.Touch, evs[k + 1] as TeachEv.Touch)) k++
+                    val intent = if (moved(e)) intentLine(evs.subList(i, k + 1).map { it as TeachEv.Touch }, evs.getOrNull(k + 1), evs.getOrNull(k + 1)?.before ?: end) else null
+                    if (intent != null) { out += intent.copy(pic = e.pic); i = k + 1; continue }
+                    out += touchLine(e, next).copy(pic = e.pic)
+                }
                 else -> {}
             }
             i++
         }
         return out
+    }
+
+    private fun moved(e: TeachEv) = e is TeachEv.Touch && e.path.maxOf { hypot((it[0] - e.x).toDouble(), (it[1] - e.y).toDouble()) } >= SLOP
+
+    /** Mostly vertical (or mostly horizontal) both, starting near each other: the same list or the same control. */
+    private fun sameAxis(a: TeachEv.Touch, b: TeachEv.Touch): Boolean {
+        fun vert(t: TeachEv.Touch) = t.path.last().let { abs(it[1] - t.y) >= abs(it[0] - t.x) }
+        return vert(a) == vert(b) && (if (vert(a)) abs(a.x - b.x) < 160 else abs(a.y - b.y) < 160)
+    }
+
+    /**
+     * 1.4.0-beta4 (rainbow: "坐标记录不能简单机械播放"). A run of swipes on one list or control becomes one step that
+     * replays toward the result the user reached, however far that is this time:
+     *  - the swipes brought words into view that the next tap then hit: `repeat 20 { swipe … } until text:<them>`;
+     *  - only the words around the finger changed (a wheel, a slider, a stepper) while the rest of the page stayed:
+     *    the value left in the middle of that area is the target, `repeat 40 { swipe one row } until text:<v> in <row>`,
+     *    and the value becomes a blank like typed words (another time, 08:15 instead of 07:30).
+     * Anything else (a canvas, a game, a page that changed as a whole) stays a plain swipe, marked on the review page.
+     */
+    internal fun intentLine(run: List<TeachEv.Touch>, after: TeachEv?, end: TeachSnap?): TeachLine? {
+        val first = run.first(); val before = first.before ?: return null
+        val vertical = first.path.last().let { abs(it[1] - first.y) >= abs(it[0] - first.x) }
+        // The swipe to repeat: the user's own direction, at most 40% of the screen, slow enough not to fling.
+        val dir = run.sumOf { (if (vertical) it.path.last()[1] - it.y else it.path.last()[0] - it.x).toLong() }.let { if (it >= 0) 1 else -1 }
+        val xs = run.flatMap { t -> t.path.map { it[0] } }; val ys = run.flatMap { t -> t.path.map { it[1] } }
+        val cx = xs.average().toInt(); val cy = ys.average().toInt()
+        // 1) Scrolled to find something, then tapped it.
+        if (after is TeachEv.Touch && !moved(after) && end != null) {
+            val w = wordsAt(end, after.x, after.y)
+            if (w != null && texts(before).none { VScreenOcr.norm(it.text) == VScreenOcr.norm(w) }) {
+                val len = 0.4 * (if (vertical) (end.els.maxOfOrNull { it.box.bottom } ?: 1600) else (end.els.maxOfOrNull { it.box.right } ?: 1000))
+                val sw = swipe(cx, cy, vertical, dir, len.toInt())
+                return TeachLine("repeat 20 { $sw }", "text:${quote(w)}", tr("往${dirWord(vertical, dir)}滑，直到出现「$w」（这次滑了 ${run.size} 下）", "swiped ${dirWord(vertical, dir)} until \"$w\" showed (${run.size} swipes this time)"), "seek")
+            }
+        }
+        // 2) Set a value: only the words near the finger changed.
+        if (end == null) return null
+        // The control: a strip along the finger's path, a little wider than the path and not far beyond its ends.
+        val band = if (vertical) android.graphics.Rect(xs.min() - 90, ys.min() - 300, xs.max() + 90, ys.max() + 300) else android.graphics.Rect(xs.min() - 300, ys.min() - 90, xs.max() + 300, ys.max() + 90)
+        fun inside(e: El) = band.contains(e.box.centerX(), e.box.centerY())
+        fun outside(sn: TeachSnap) = texts(sn).filter { !inside(it) }.map { Triple(VScreenOcr.norm(it.text), it.box.centerX() / 24, it.box.centerY() / 24) }.toSet()
+        if (before.pkg != end.pkg || before.act != end.act || outside(before) != outside(end)) return null
+        val col = texts(end).filter { inside(it) && it.text.trim().length in 1..12 }
+        val was = texts(before).filter { inside(it) }.map { VScreenOcr.norm(it.text) to (it.box.centerY() / 24) }.toSet()
+        if (col.size < 2 || col.all { (VScreenOcr.norm(it.text) to (it.box.centerY() / 24)) in was }) return null
+        // The value is the item nearest the middle of the column (where a wheel or a picker shows the chosen one).
+        val mid = if (vertical) (col.minOf { it.box.top } + col.maxOf { it.box.bottom }) / 2 else (col.minOf { it.box.left } + col.maxOf { it.box.right }) / 2
+        val v = col.minByOrNull { abs((if (vertical) it.box.centerY() else it.box.centerX()) - mid) } ?: return null
+        val step = (if (vertical) v.box.height() else v.box.width()).coerceAtLeast(24)
+        val row = if (vertical) android.graphics.Rect(band.left.coerceAtLeast(0), v.box.top - step / 3, band.right.coerceAtMost(v.box.right + 400), v.box.bottom + step / 3)
+            else android.graphics.Rect(v.box.left - step / 3, band.top.coerceAtLeast(0), v.box.right + step / 3, band.bottom.coerceAtMost(v.box.bottom + 400))
+        val value = v.text.trim()
+        val sw = swipe(v.box.centerX(), v.box.centerY(), vertical, dir, (step * 1.2).toInt())
+        return TeachLine("repeat 40 { $sw }", "text:$value in ${row.left},${row.top},${row.right},${row.bottom}",
+            tr("把这一列拨到「$value」（重放时拨到结果为止，不按距离）", "set this column to \"$value\" (replayed until it reads so, not by distance)"), "value", typed = value)
+    }
+
+    private fun dirWord(vertical: Boolean, dir: Int) = if (vertical) (if (dir > 0) tr("下", "down") else tr("上", "up")) else (if (dir > 0) tr("右", "right") else tr("左", "left"))
+
+    /** A slow swipe of [len] px from (x, y) along the user's direction (no fling). */
+    private fun swipe(x: Int, y: Int, vertical: Boolean, dir: Int, len: Int): String {
+        val h = len / 2
+        return if (vertical) "swipe $x ${(y - dir * h).coerceAtLeast(1)} $x ${(y + dir * h).coerceAtLeast(1)} 450ms"
+            else "swipe ${(x - dir * h).coerceAtLeast(1)} $y ${(x + dir * h).coerceAtLeast(1)} $y 450ms"
     }
 
     private fun touchLine(e: TeachEv.Touch, next: TeachSnap?): TeachLine {
@@ -415,12 +559,14 @@ internal object Teach {
         val len = max(1.0, hypot(dx, dy))
         val bend = pts.maxOf { abs((it[0] - e.x) * dy - (it[1] - e.y) * dx) / len }
         if (bend < 48 || pts.size < 4) {
-            return TeachLine("swipe ${e.x} ${e.y} ${last[0]} ${last[1]} ${dur}ms", null, tr("从 (${e.x}, ${e.y}) 滑到 (${last[0]}, ${last[1]})", "swiped from (${e.x}, ${e.y}) to (${last[0]}, ${last[1]})"), "swipe")
+            return TeachLine("swipe ${e.x} ${e.y} ${last[0]} ${last[1]} ${dur}ms", null, tr("从 (${e.x}, ${e.y}) 滑到 (${last[0]}, ${last[1]})", "swiped from (${e.x}, ${e.y}) to (${last[0]}, ${last[1]})"), "swipe",
+                warn = tr("机械重放：读不出这一下滑动的结果，重放时按原样滑", "replayed as is: what this swipe did could not be read, so it is repeated by distance"))
         }
         val n = 6
         val picked = (0 until n).map { k -> pts[(k * (pts.size - 1)) / (n - 1)] }.distinctBy { it[0] to it[1] }
         return TeachLine("drag " + picked.joinToString(" ") { "${it[0]} ${it[1]}" } + " ${dur}ms", null,
-            tr("拖动，经过 ${picked.size} 个点", "dragged through ${picked.size} points"), "drag")
+            tr("拖动，经过 ${picked.size} 个点", "dragged through ${picked.size} points"), "drag",
+            warn = tr("机械重放：读不出这次拖动的结果，重放时按原样拖", "replayed as is: what this drag did could not be read, so it is repeated by distance"))
     }
 
     /**
@@ -444,6 +590,12 @@ internal object Teach {
             var until = l.until
             val named = if (l.kind != "type" && l.until != null) values.firstOrNull { (_, v) -> VScreenOcr.norm(l.until).contains(v) } else null
             if (named != null) until = if (named.first > i) null else "change"
+            if (l.kind == "value" && l.typed != null && until != null) {
+                // 1.4.0-beta4: the value a control was set to is a blank like typed words, unless kept as it was.
+                param = null
+                if (i !in literal) { paramN = ++p; until = until.replaceFirst("text:${l.typed} in ", "text:{$p} in ") }
+                return@map "${l.head} until $until"
+            }
             val head = if (l.kind == "type") {
                 if (i in literal && !l.secret && l.typed != null && l.typed.none { it == ';' || it == '；' || it == '\n' }) { param = null; "type ${l.typed}" }
                 else { param = l.typed?.takeIf { !l.secret }?.let { VScreenOcr.norm(it) }?.takeIf { it.isNotEmpty() }; paramN = ++p; "type {$p}" }
@@ -495,7 +647,7 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
     val call = Call.current()
     val inTask = call?.taskId != null
     val valid = 15 * 60_000L
-    val wait = if (inTask && args.get("wait") == null) valid else bounded("wait", parseDuration(args.get("wait"), 120_000L), 0L, if (inTask) valid else ASK_MAX_WAIT_MS)
+    val wait = if (inTask && args.get("wait") == null) valid else bounded("wait", parseDuration(args.get("wait"), ASK_DEFAULT_WAIT_MS), 0L, if (inTask) valid else ASK_MAX_WAIT_MS)
     val key = "teach:$session:$what:${name.orEmpty()}"
     val old = UserAsk.find(key, call?.tokenId ?: "main")?.takeIf { it.kind == UserAsk.Kind.TEACH }
     val ask = if (old != null && (old.answer != null || old.live)) old else {
@@ -516,6 +668,7 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
         true -> UserAsk.markUsed(ask)
     }
     val r = ask.reply ?: org.json.JSONObject()
+    feedbackOf(r)?.let { throw it }
     val seg = r.optString("name"); val n = r.optInt("params")
     val use = "use $seg" + (1..n).joinToString("") { " <$it>" }
     val data = org.json.JSONObject().put("what", what).put("name", seg).put("app", r.optString("app")).put("steps", r.optString("steps"))

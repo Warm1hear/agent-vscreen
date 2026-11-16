@@ -72,7 +72,7 @@ private fun iconBitmap(d: android.graphics.drawable.Drawable): android.graphics.
 
 /** What the user reads as the task's name: the agent's own title, else what happened where. */
 fun taskTitle(t: TaskLog.Task, app: String?): String = t.title
-    ?: if (app != null) tr("在$app 里操作了 ${t.commands} 步", "${t.commands} steps in $app") else tr("操作了 ${t.commands} 步", "${t.commands} steps")
+    ?: if (app != null) tr("在${app}里操作了 ${t.commands} 步", "${t.commands} steps in $app") else tr("操作了 ${t.commands} 步", "${t.commands} steps")
 
 /** How it ended, and whether that is good news. */
 fun taskOutcome(t: TaskLog.Task): Pair<String, Boolean> = when {

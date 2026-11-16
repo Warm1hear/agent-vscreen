@@ -115,8 +115,9 @@ object UserAsk {
             a.reply = reply; a.answer = allow; a.answeredAt = System.currentTimeMillis()
             publish(); lock.notifyAll(); a
         }
-        val what = when (a.kind) {
-            Kind.CONFIRM -> if (allow) "allowed" else "denied"
+        val what = when {
+            reply?.optString("kind") == "feedback" -> "feedback"
+            a.kind == Kind.CONFIRM -> if (allow) "allowed" else "denied"
             else -> if (allow) "answered ${a.kind.key}" else "declined"
         }
         Audit.consent(a.tokenName, a.session, "${a.title} — ${a.detail}", what)
@@ -202,11 +203,18 @@ object UserAsk {
         }
     }
 
-    fun answerIntent(ctx: Context, id: Int): Intent =
-        if (byId(id)?.kind == Kind.TEACH) Intent(ctx, com.kilon.agentvscreen.ui.FullscreenActivity::class.java)
-            .putExtra("teach_ask", id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    /**
+     * 1.4.0-beta4: every question is answered on the one screen page, on the live screen, while there is a screen.
+     * Only a question with no screen behind it (choose / text / confirm before any launch) opens the plain answer page.
+     */
+    fun answerIntent(ctx: Context, id: Int): Intent {
+        val st = com.kilon.agentvscreen.core.BackgroundOperation.state.value
+        return if (st.displayId != null && st.ownerSessionId != null) Intent(ctx, com.kilon.agentvscreen.ui.FullscreenActivity::class.java)
+            .putExtra("ask", id).apply { if (byId(id)?.kind == Kind.TEACH) putExtra("teach_ask", id) }
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         else Intent(ctx, com.kilon.agentvscreen.ui.AskActivity::class.java)
             .putExtra("id", id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    }
 
     /** For tests. */
     internal fun reset() = synchronized(lock) { asks.clear(); publish() }

@@ -272,7 +272,7 @@ private fun BuiltinState(ts: Tailnet.Status, host: AppHost, open: (String) -> Un
     }
     when (phase) {
         TsPhase.SERVICE_OFF -> {
-            InfoCard(Palette.idle, if (ServiceControl.now(ctx) == ServiceControl.State.BLOCKED) tr("已禁止 agent 访问，内置 Tailscale 没在运行", "Agent access is blocked; the built-in Tailscale is not running")
+            InfoCard(Palette.idle, if (ServiceControl.now(ctx) == ServiceControl.State.BLOCKED) tr("服务已关闭，内置 Tailscale 没在运行", "The service is off; the built-in Tailscale is not running")
                 else tr("服务收起了，内置 Tailscale 只在服务醒着时在线", "The service is hidden; the built-in Tailscale is online only while it is awake"),
                 (known?.let { tr("登录还在（${it.dnsName ?: it.ip}），醒来后自动连上。", "The login is kept (${it.dnsName ?: it.ip}); it reconnects when awake.") } ?: tr("打开服务后再登录。", "Turn the service on, then log in.")))
             CardAction(tr("打开常驻", "Keep it always on")) { ServiceControl.turnOn(ctx, "tailnet card") }

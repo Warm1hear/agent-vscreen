@@ -63,6 +63,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.CloseFullscreen
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -124,13 +125,18 @@ class FullscreenActivity : PageActivity() {
     override val closeWhenHidden = true
     // The floating window shows the same picture: it steps aside while this page is in front.
 
-    /** 1.3 示教: opened from an agent's "show me how" (UserAsk TEACH): take over and record at once. */
+    /** 1.3 示教: opened from an agent's "show me how" (UserAsk TEACH): take over (1.4.0-beta4: to get ready, not recording yet). */
     private val teachAsk = mutableStateOf(-1)
-    override fun onNewIntent(intent: android.content.Intent) { super.onNewIntent(intent); teachAsk.value = intent.getIntExtra("teach_ask", -1) }
+    /** 1.4.0-beta4: opened to answer this question (its card comes first). */
+    private val askOpen = mutableStateOf(-1)
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent); teachAsk.value = intent.getIntExtra("teach_ask", -1); askOpen.value = intent.getIntExtra("ask", askOpen.value)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         teachAsk.value = intent.getIntExtra("teach_ask", -1)
+        askOpen.value = intent.getIntExtra("ask", -1)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowInsetsControllerCompat(window, window.decorView).apply {
@@ -170,9 +176,35 @@ class FullscreenActivity : PageActivity() {
             }
         }
         LaunchedEffect(session) { while (true) { left = Turns.leftMs(session) ?: -1L; delay(1000) } }
-        LaunchedEffect(takenOver) { if (!takenOver) { typing = false; if (Teach.recordingFor(session)) Teach.stop(applicationContext) } }
+        val prepId by Teach.prep.collectAsState()
+        val paused by Teach.paused.collectAsState()
+        LaunchedEffect(takenOver) { if (!takenOver) { typing = false; if (Teach.recordingFor(session)) Teach.stop(applicationContext); if (Teach.prep.value != null) Teach.cancelPrep() } }
         val teachN by Teach.count.collectAsState()
         val recording = teachN != null
+        // 1.4.0-beta4: the one request in front: the lesson under way, else the question this page was opened for, else the newest.
+        val waiting = pendingAsks()
+        val focus by askOpen
+        val req: UserAsk.Ask? = when {
+            recording -> Teach.recAskId()?.let { UserAsk.byId(it) }
+            prepId != null -> UserAsk.byId(prepId!!)
+            else -> waiting.firstOrNull { it.id == focus } ?: waiting.firstOrNull()
+        }
+        val mark = remember { MarkState() }
+        val marking = req != null && !recording && (req.kind == UserAsk.Kind.POINT || req.kind == UserAsk.Kind.AREA) && !mark.finding && !takenOver
+        var picSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+        fun markReply(): org.json.JSONObject? {
+            val a = mark.a ?: return null
+            val w = picSize.width.toFloat(); val h = picSize.height.toFloat()
+            if (w <= 0f || h <= 0f) return null
+            fun scr(o: Offset) = pictureToScreen(o.x.coerceIn(0f, w - 1), o.y.coerceIn(0f, h - 1), android.graphics.RectF(0f, 0f, w, h))
+            return when (req?.kind) {
+                UserAsk.Kind.POINT -> scr(a)?.let { (x, y) -> org.json.JSONObject().put("kind", "point").put("x", x).put("y", y) }
+                UserAsk.Kind.AREA -> { val b = mark.b ?: return null; if (kotlin.math.hypot(a.x - b.x, a.y - b.y) < 12f) return null
+                    val p = scr(a) ?: return null; val q = scr(b) ?: return null
+                    org.json.JSONObject().put("kind", "area").put("x1", minOf(p.first, q.first)).put("y1", minOf(p.second, q.second)).put("x2", maxOf(p.first, q.first)).put("y2", maxOf(p.second, q.second)) }
+                else -> null
+            }
+        }
         val askId by teachAsk
         LaunchedEffect(askId) {
             val a = UserAsk.byId(askId) ?: return@LaunchedEffect
@@ -190,7 +222,7 @@ class FullscreenActivity : PageActivity() {
         var topEdge by remember { mutableFloatStateOf(0f) }
         var rowH by remember { mutableFloatStateOf(0f) }
         val navBottom = WindowInsets.navigationBars.getBottom(density).toFloat()
-        val brief = if (recording) Teach.brief() else null
+        val showCard = req != null || recording || prepId != null
         Box(Modifier.fillMaxSize().background(Color(0xFF07080D))) {
             // The picture, fitted, with its border.
             BoxWithConstraints(Modifier.fillMaxSize().padding(top = with(density) { topEdge.toDp() } + 6.dp,
@@ -201,12 +233,24 @@ class FullscreenActivity : PageActivity() {
                 val pw = if (aspect > boxAspect) maxWidth else maxHeight * aspect
                 val ph = pw / aspect
                 Box(Modifier.size(pw, ph).glowBorder(mode, 22.dp, width = 3.dp, pad = 10.dp)) {
-                    Box(Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp)).background(Palette.ink)
-                        .pointerInput(session, takenOver) {
+                    Box(Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp)).background(Palette.ink).onSizeChanged { picSize = it }
+                        .pointerInput(session, takenOver, marking) {
                             awaitEachGesture {
                                 val down = awaitFirstDown()
+                                // 1.4.0-beta4: answering point / area: the finger marks the live picture instead.
+                                if (marking) {
+                                    mark.a = down.position; mark.b = down.position
+                                    while (true) {
+                                        val ev = awaitPointerEvent()
+                                        val ch = ev.changes.firstOrNull() ?: break
+                                        if (req?.kind == UserAsk.Kind.AREA) mark.b = ch.position else mark.a = ch.position
+                                        ch.consume()
+                                        if (!ch.pressed) break
+                                    }
+                                    return@awaitEachGesture
+                                }
                                 // The user starts working on the screen: the request card steps into the bar.
-                                if (Teach.count.value != null && !BriefPlace.ball) BriefPlace.ball = true
+                                if ((Teach.count.value != null || Teach.prep.value != null) && !BriefPlace.ball) BriefPlace.ball = true
                                 val t0 = SystemClock.uptimeMillis()
                                 // 1.2.0-beta2: while the user controls the screen the finger is sent as it moves
                                 // (UserTouch), not replayed as one swipe after it lifts.
@@ -244,6 +288,15 @@ class FullscreenActivity : PageActivity() {
                             }
                         }) {
                         VScreenLiveFrame(session, Modifier.fillMaxSize(), interactive = false)
+                        if (marking) Canvas(Modifier.fillMaxSize()) {
+                            val pa = mark.a; val pb = mark.b
+                            if (req?.kind == UserAsk.Kind.POINT && pa != null) {
+                                drawCircle(Color(0x55000000), 34f, pa); drawCircle(Palette.asking, 26f, pa, style = Stroke(6f))
+                            } else if (pa != null && pb != null) {
+                                val tl = Offset(minOf(pa.x, pb.x), minOf(pa.y, pb.y)); val sz = Size(kotlin.math.abs(pa.x - pb.x), kotlin.math.abs(pa.y - pb.y))
+                                drawRect(Palette.asking.copy(alpha = 0.18f), tl, sz); drawRect(Palette.asking, tl, sz, style = Stroke(5f))
+                            }
+                        }
                         if (hold > 0f) Canvas(Modifier.fillMaxSize()) {
                             val r = 40.dp.toPx()
                             drawCircle(Color(0x66000000), r + 8f, holdAt)
@@ -264,12 +317,19 @@ class FullscreenActivity : PageActivity() {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(7.dp).clip(CircleShape).background(if (mode == Mode.ACTING) Brush.sweepGradient(Palette.rainbow) else SolidColor(Palette.of(mode))))
                         Spacer(Modifier.width(5.dp))
-                        val word = if (recording) tr("示教录制中 · 已记 $teachN 步", "Recording a lesson · $teachN steps") else s.agentTitle ?: (Palette.word(mode) + if (mode == Mode.STANDBY && left >= 0) (" · " + tr("${left / 60000}:${"%02d".format((left / 1000) % 60)} 后省电", "power save in ${left / 60000}:${"%02d".format((left / 1000) % 60)}")) else "")
+                        val word = if (recording) tr("示教录制中 · 已记 $teachN 步", "Recording a lesson · $teachN steps") else if (prepId != null) tr("示教准备中：先走到起点", "Getting ready to show") else s.agentTitle ?: (Palette.word(mode) + if (mode == Mode.STANDBY && left >= 0) (" · " + tr("${left / 60000}:${"%02d".format((left / 1000) % 60)} 后省电", "power save in ${left / 60000}:${"%02d".format((left / 1000) % 60)}")) else "")
                         Text(word, color = Color(0xCCFFFFFF), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
+                // 1.4.0-beta4: turn the page to landscape and back, whatever the phone's rotation lock says (a
+                // landscape app is small on an upright page). Without recreating the page: the takeover goes on.
+                val wide = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                Circle(Icons.Filled.ScreenRotation, if (wide) tr("转回竖屏", "Back to portrait") else tr("转成横屏", "Turn to landscape"), Color(0x33FFFFFF)) {
+                    requestedOrientation = if (wide) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                }
+                Spacer(Modifier.width(8.dp))
                 // The request folded into a ball: it lives here, in the bar, not over the picture.
-                if (brief != null && BriefPlace.ball) {
+                if (showCard && BriefPlace.ball) {
                     Box(Modifier.size(44.dp).clip(CircleShape).clickable { BriefPlace.ball = false; BriefPlace.open = true }, contentAlignment = Alignment.Center) { AskMark(30f) }
                     Spacer(Modifier.width(8.dp))
                 }
@@ -282,7 +342,8 @@ class FullscreenActivity : PageActivity() {
             }
 
             // 1.3.0-beta14: what the agent asked to be shown, in full, while the user shows it.
-            if (brief != null && !BriefPlace.ball && !BriefPlace.bottom) TeachBrief(brief.first, brief.second, Modifier.padding(start = 14.dp, end = 14.dp, bottom = 4.dp))
+            if (showCard && !BriefPlace.ball && !BriefPlace.bottom) RequestCard(req, session, recording, prepId != null && !recording, teachN ?: 0, paused, takenOver, mark, ::markReply,
+                Modifier.padding(start = 14.dp, end = 14.dp, bottom = 4.dp))
             }
 
             // Hint.
@@ -296,10 +357,7 @@ class FullscreenActivity : PageActivity() {
             // Bottom block: floats over the picture and rides on top of the keyboard.
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding().navigationBarsPadding().padding(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (brief != null && !BriefPlace.ball && BriefPlace.bottom) TeachBrief(brief.first, brief.second, Modifier)
-                // 1.3 beta2: an agent's question, answered without leaving the full screen.
-                val waiting = pendingAsks().filter { !(recording && it.kind == UserAsk.Kind.TEACH) }
-                waiting.firstOrNull()?.let { a -> AskQuick(a, waiting.size, 1.15f, inOverlay = false, modifier = Modifier.fillMaxWidth()) }
+                if (showCard && !BriefPlace.ball && BriefPlace.bottom) RequestCard(req, session, recording, prepId != null && !recording, teachN ?: 0, paused, takenOver, mark, ::markReply)
                 if (typing) {
                     // 1.3.0-beta14: this box mirrors the focused field on the screen: it starts with what the field
                     // reads, and every change (typing, deleting with the keyboard's own key) goes there as it happens.
@@ -349,9 +407,8 @@ class FullscreenActivity : PageActivity() {
                         Circle(Icons.Filled.Keyboard, tr("打字", "Type"), if (typing) Palette.brandA else Color(0x22FFFFFF)) { typing = !typing }
                         if (!typing) Circle(Icons.AutoMirrored.Filled.Backspace, tr("删除", "Delete"), Color(0x22FFFFFF)) { vscreenUserInput(session) { Teach.key("del"); VScreenShell.key(it, "del") } }
                         if (!typing) Circle(Icons.AutoMirrored.Filled.KeyboardReturn, tr("回车", "Enter"), Color(0x22FFFFFF)) { vscreenUserInput(session) { Teach.key("enter"); VScreenShell.key(it, "enter") } }
-                        // 示教: record what you do here as steps an agent can run again.
-                        if (recording) Pill(tr("完成", "Done") + " · $teachN", Icons.Filled.Stop, Palette.asking, Color.White) { Teach.finish(applicationContext) }
-                        else {
+                        // 示教: record what you do here as steps an agent can run again (its controls are on the card).
+                        if (!recording && prepId == null && !mark.finding) {
                             Circle(Icons.Filled.FiberManualRecord, tr("示教：录下接下来的操作", "Teach: record what you do next"), Color(0x22FFFFFF)) {
                                 if (Teach.start(session, null, null)) toast(tr("开始录制：照常操作，做完点“完成”", "Recording: do it as usual, then tap Done"))
                             }
@@ -443,51 +500,6 @@ private object BriefPlace {
     var open by mutableStateOf(true)
     var bottom by mutableStateOf(false)
     var ball by mutableStateOf(false)
-}
-
-/**
- * The agent's request, on dark glass with the orchid edge, in its own space above or below the picture.
- * Tap: open / one line. Drag up or down: move it to the top or the bottom. Swipe sideways: fold it into a ball in the bar.
- */
-@Composable
-private fun TeachBrief(who: String?, what: String, modifier: Modifier) {
-    val open = BriefPlace.open
-    val shape = RoundedCornerShape(if (open) 22.dp else 50.dp)
-    var dx by remember { mutableFloatStateOf(0f) }
-    var dy by remember { mutableFloatStateOf(0f) }
-    val density = LocalDensity.current
-    val far = with(density) { 64.dp.toPx() }
-    Column(
-        modifier.fillMaxWidth().animateContentSize()
-            .graphicsLayer { translationX = dx; translationY = dy * 0.5f; alpha = 1f - (kotlin.math.abs(dx) / (far * 3)).coerceIn(0f, 0.6f) }
-            .pointerInput(Unit) {
-                detectDragGestures(onDragEnd = {
-                    when {
-                        kotlin.math.abs(dx) > far -> BriefPlace.ball = true
-                        dy > far -> BriefPlace.bottom = true
-                        dy < -far -> BriefPlace.bottom = false
-                    }
-                    dx = 0f; dy = 0f
-                }, onDragCancel = { dx = 0f; dy = 0f }) { ch, d -> ch.consume(); dx += d.x; dy += d.y }
-            }
-            .glassDark(shape).border(1.2.dp, Brush.linearGradient(listOf(Color(0xFF8B7CFF), Palette.asking)), shape)
-            .clickable { BriefPlace.open = !open }.padding(horizontal = 14.dp, vertical = if (open) 12.dp else 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            AskMark(18f)
-            Spacer(Modifier.width(8.dp))
-            Text(if (open) (who?.let { tr("「$it」请你演示", "\"$it\" asks you to show") } ?: tr("要演示的事", "What to show")) else what,
-                color = if (open) Color(0xCCFFFFFF) else Color.White, fontSize = if (open) 12.sp else 13.sp, fontWeight = FontWeight.Medium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, if (open) tr("收起", "Fold") else tr("展开", "Unfold"),
-                tint = Color(0x99FFFFFF), modifier = Modifier.size(18.dp))
-        }
-        if (open) {
-            Text(what, color = Color.White, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
-            Text(tr("做完点“完成”。点卡片收起，上下拖换位置，左右滑收成小球", "Tap Done when finished. Tap to fold, drag up/down to move, swipe sideways for a ball"), color = Color(0x99FFFFFF), fontSize = 11.5.sp)
-        }
-    }
 }
 
 internal fun vscreenUserInput(sessionId: String, op: (Int) -> Unit) {

@@ -60,7 +60,7 @@ object ServiceControl {
     /** Out of the shade and the background; still woken by whatever needs it. */
     fun hide(ctx: Context, why: String) {
         Prefs.setServiceOn(ctx, false); Prefs.setBlocked(ctx, false)
-        BackgroundOperation.stopAndRelease(tr("用户收起了服务（agent 用到时会再唤起）", "The user hid the service (it wakes again when an agent needs it)"))
+        BackgroundOperation.stopAndRelease(tr("服务改成按需（agent 用到时会再叫醒）", "The service is on demand now (an agent wakes it when needed)"))
         HostService.stop(ctx)
         now(ctx)
         AppLogger.info("ServiceControl", "hidden: $why")
@@ -69,7 +69,9 @@ object ServiceControl {
     /** Agents may not use the phone until the user says so. */
     fun block(ctx: Context, why: String) {
         Prefs.setServiceOn(ctx, false); Prefs.setBlocked(ctx, true)
-        BackgroundOperation.stopAndRelease(tr("用户禁止了 agent 访问", "The user blocked agent access"))
+        BackgroundOperation.stopAndRelease(tr("用户关闭了 Agent-VScreen", "The user turned Agent-VScreen off"))
+        // 1.4.0-beta4: off is off: watches (their own notification) end too.
+        runCatching { com.kilon.agentvscreen.core.VScreenRules.stopAll(tr("用户关闭了服务", "the user turned the service off")) }
         HostService.stop(ctx)
         now(ctx)
         AppLogger.info("ServiceControl", "blocked: $why")
@@ -113,29 +115,29 @@ object ServiceControl {
     /** The home page's status line when the service is not always on: the state, then what it means. */
     fun title(ctx: Context): String = when (now(ctx)) {
         State.ON -> tr("常驻运行中", "Always on")
-        State.HIDDEN -> if (HostService.isAlive) tr("已收起 · 现在被叫醒了", "Hidden · awake right now")
-            else if (Tailnet.Mode.BUILTIN == com.kilon.agentvscreen.api.ApiConfig.tailnetMode) tr("已收起 · 远程已下线", "Hidden · remote offline") else tr("已收起", "Hidden")
-        State.BLOCKED -> tr("已禁止 agent 访问", "Agent access blocked")
+        State.HIDDEN -> if (HostService.isAlive) tr("按需 · 现在被叫醒了", "On demand · awake right now")
+            else if (Tailnet.Mode.BUILTIN == com.kilon.agentvscreen.api.ApiConfig.tailnetMode) tr("按需 · 远程已下线", "On demand · remote offline") else tr("按需", "On demand")
+        State.BLOCKED -> tr("已关闭", "Off")
     }
 
     fun sub(ctx: Context): String? = when (now(ctx)) {
         State.ON -> null
         State.HIDDEN -> if (HostService.isAlive) tr("用完会自己收起", "It hides again when done")
             else tr("agent 用到时自动唤起，用完再收起", "Woken when an agent needs it, hidden again after")
-        State.BLOCKED -> tr("什么都叫不醒它，打开开关恢复", "Nothing wakes it; turn the switch on to resume")
+        State.BLOCKED -> tr("什么都叫不醒它，点右上角的电源键恢复", "Nothing wakes it; the power button at the top resumes it")
     }
 
     /** The full story behind the "?" next to the status line. */
     fun help(): String = tr(
-        "开关打开：常驻运行，通知栏里一直有它，本机和其它设备上的 agent 随时连得上。\n\n" +
-            "开关关上 = 收起：通知栏和后台都没有它。本机 agent 发命令、agent 预约的时间到了，都会把它叫起来；一轮用完、安静 5 分钟后自己再收起。" +
-            "收起时其它设备上的 agent 叫不醒它（内置 Tailscale 跑在服务里），只有在它醒着时（比如预约时间里）才连得进来。\n\n" +
-            "禁止 agent 访问：真正的关闭，什么都叫不醒它，预约到点只通知你。\n\n" +
-            "从最近任务里划掉 App 不会改变这些。手机重启后如果 Shizuku 没启动，只有预约闹钟能叫醒它。",
-        "Switch on: always running, with its notification; agents on this phone and on other devices reach it at any time.\n\n" +
-            "Switch off = hidden: nothing in the notification shade or the background. A local agent's command or an agent's booked time wakes it; after a turn and 5 quiet minutes it hides again. " +
-            "While hidden, agents on other devices cannot wake it (the built-in Tailscale runs inside the service): they get in only while it is awake, e.g. during a booking.\n\n" +
-            "Block agent access: really off. Nothing wakes it; a booking only notifies you.\n\n" +
-            "Swiping the app away from recents changes none of this. After a phone restart without Shizuku running, only a booking's alarm can wake it.",
+        "右上角的电源键里选它怎么运行，三选一，选了马上生效：\n\n" +
+            "常驻：一直在运行，通知栏里一直有它，本机和其它设备上的 agent 随时连得上。\n\n" +
+            "按需：平时不在后台。本机 agent 发命令、预约的时间到了，会把它叫起来；用完、安静 5 分钟后自己收起。按需时其它设备上的 agent 叫不醒它（内置 Tailscale 跑在服务里）。被叫醒时再点一次“按需”会马上收起。\n\n" +
+            "关闭：马上停下并离开通知栏，什么都叫不醒它，预约到点只通知你。通知上的“关闭”按钮是同一个意思。\n\n" +
+            "另外两个按钮不改变服务：悬浮窗的 × 只关掉副屏；“停止”只拦住 agent 当前的操作，直到你点“允许继续”。从最近任务里划掉 App 也不改变服务。",
+        "The power button at the top chooses how it runs, one of three, applied at once:\n\n" +
+            "Always on: always running, in the notification shade; agents here and on other devices reach it any time.\n\n" +
+            "On demand: not in the background. A local agent's command or a booked time wakes it; it puts itself away after 5 quiet minutes. Agents on other devices cannot wake it (the built-in Tailscale runs in the service). While woken, choosing On demand again puts it away at once.\n\n" +
+            "Off: stops now and leaves the shade; nothing wakes it, a booking only notifies you. The notification's Off button means the same.\n\n" +
+            "Two other buttons leave the service alone: the × on the floating window only closes the screen; Stop only holds the agent's actions until you tap Resume. Swiping the app away from recents does not change the service either.",
     )
 }

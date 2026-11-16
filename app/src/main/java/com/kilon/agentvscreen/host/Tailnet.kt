@@ -133,7 +133,7 @@ object Tailnet {
         val k = known(ctx)
         return when (phase(ctx)) {
             Phase.OFF -> tr("仅本机", "This phone only")
-            Phase.SERVICE_OFF -> (if (ServiceControl.now(ctx) == ServiceControl.State.BLOCKED) tr("已禁止访问", "Access blocked") else tr("已收起", "Hidden")) +
+            Phase.SERVICE_OFF -> (if (ServiceControl.now(ctx) == ServiceControl.State.BLOCKED) tr("服务已关闭", "Service off") else tr("按需（没被叫醒）", "On demand (asleep)")) +
                 (k?.let { " · ${it.ip}" } ?: "")
             Phase.STARTING -> tr("Tailscale 连接中…", "Tailscale connecting…")
             Phase.NEEDS_LOGIN -> tr("Tailscale 要登录", "Tailscale: log in")

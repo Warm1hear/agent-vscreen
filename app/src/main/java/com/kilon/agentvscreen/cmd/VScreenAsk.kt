@@ -15,6 +15,9 @@ import java.io.FileOutputStream
 // background screen, and the agent gets the point (and the element there) instead of a description.
 
 internal const val ASK_MAX_WAIT_MS = 300_000L
+/** 1.4.0-beta4 (rainbow): a question waits 50 s by default, under the 60-120 s most agents give one tool call, so the
+ *  call returns ASK_PENDING before the agent gives up on it; sending the same ask again picks the answer up. */
+internal const val ASK_DEFAULT_WAIT_MS = 50_000L
 
 /** The element of [list] under (x, y): the smallest box that holds the point. */
 internal fun elementAt(list: List<El>, x: Int, y: Int): El? =
@@ -39,7 +42,7 @@ internal fun VScreenOffloadHandler.askCmd(sid: String?, args: OffloadArgs): Nati
     // answer then lands in the task's result). Before, it gave up after the default 60 s and the task kept ASK_PENDING.
     val inTask = Call.current()?.taskId != null
     val wait = if (inTask && args.get("wait") == null) com.kilon.agentvscreen.host.UserAsk.VALID_MS
-        else bounded("wait", parseDuration(args.get("wait"), 60_000L), 0L, if (inTask) com.kilon.agentvscreen.host.UserAsk.VALID_MS else ASK_MAX_WAIT_MS)
+        else bounded("wait", parseDuration(args.get("wait"), ASK_DEFAULT_WAIT_MS), 0L, if (inTask) com.kilon.agentvscreen.host.UserAsk.VALID_MS else ASK_MAX_WAIT_MS)
     val call = Call.current()
     val key = "ask:$session:${kind.key}:$question:${choose?.joinToString("|").orEmpty()}"
 
@@ -71,6 +74,7 @@ internal fun VScreenOffloadHandler.askCmd(sid: String?, args: OffloadArgs): Nati
         true -> UserAsk.markUsed(ask)
     }
     val reply = ask.reply ?: JSONObject()
+    feedbackOf(reply)?.let { throw it }
     val els = synchronized(VScreenOffloadHandler.lastElements) { VScreenOffloadHandler.lastElements[session] }
         ?.takeIf { d != null && it.generation == d.generation }?.list.orEmpty()
     fun el(e: El) = JSONObject().put("n", e.n).put("text", e.text).put("x", e.box.centerX()).put("y", e.box.centerY())
@@ -93,8 +97,16 @@ internal fun VScreenOffloadHandler.askCmd(sid: String?, args: OffloadArgs): Nati
         UserAsk.Kind.CHOOSE -> tr("用户选了 ${reply.optInt("index")}：${reply.optString("choice")}", "The user chose ${reply.optInt("index")}: ${reply.optString("choice")}")
         else -> tr("用户回答：${reply.optString("text")}", "The user answered: ${reply.optString("text")}")
     }
-    data.put("message", said)
+    // 1.4.0-beta4: the answer is marked on the live screen; the user may have scrolled to the target first.
+    val note = if (reply.optBoolean("moved")) tr("。用户先滑动了画面才标出来，坐标对的是现在的画面，不是你提问时那一屏", ". The user scrolled the screen before marking it: the point is on the screen now, not the one you asked about") else ""
+    data.put("message", said + note)
     return ok(args, data)
+}
+
+/** 1.4.0-beta4 (rainbow): the user answered "说一句" instead (the question, the page or the lesson was wrong). */
+internal fun feedbackOf(reply: JSONObject): ActionError? = reply.takeIf { it.optString("kind") == "feedback" }?.let { r ->
+    val t = r.optString("text").trim()
+    ActionError("USER_FEEDBACK", tr("用户没有照问的方式回答，说：「$t」", "The user did not answer as asked and said: \"$t\""), JSONObject().put("feedback", t))
 }
 
 private fun VScreenOffloadHandler.savePicture(src: Bitmap): File {
