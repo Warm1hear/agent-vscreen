@@ -10,6 +10,10 @@ import com.kilon.agentvscreen.core.BackgroundOperation
 class VScreenApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        // 1.4.0-beta5: shares of the screen in steps (`50% 80%`) become pixels of the screen the agent is using.
+        com.kilon.agentvscreen.cmd.Steps.frame = {
+            runCatching { BackgroundOperation.state.value.ownerSessionId?.let { BackgroundOperation.previewDisplayFor(it) }?.let { it.width to it.height } }.getOrNull()
+        }
         AppLogger.init(this)
         AppFront.init(this)
         ExitInfo.init(this)
@@ -23,6 +27,8 @@ class VScreenApp : Application() {
         ShizukuManager.init(this)
         BackgroundOperation.init(this)
         if (Prefs.serviceOn(this)) HostService.start(this)
+        // 1.4.0-beta5: on demand, listen from the start: an agent's request wakes the service (HostService.wakeFor).
+        else if (!Prefs.blocked(this)) quiet("server-on-demand") { HostService.ensureServer(this) }
         quiet("wake-arm") { Wake.arm(this) }
     }
 }

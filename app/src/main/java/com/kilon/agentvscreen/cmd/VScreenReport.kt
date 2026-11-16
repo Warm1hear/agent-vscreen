@@ -239,9 +239,14 @@ internal fun mergeElements(d: VScreenDisplay, a11y: List<El>, ocr: List<VScreenO
         // misnamed). beta2 let any element up to a quarter of the screen swallow every word inside its box, so a card
         // whose node says "荣耀字体" hid the "HONOR Sans" drawn under it: the word was on the picture and in no list.
         // A hidden link still covers everything inside it.
+        // 1.4.0-beta5 (test: a tab bar's 计时器 listed twice, 37 px apart): the element's box and the drawn words need not
+        // share a centre (a tab's node is its label, OCR's box takes the glyph spacing differently). The same words in
+        // boxes that overlap are one place.
         val said = out.any { a ->
-            a.fromA11y && (a.kind == ElKind.TEXT || a.kind == ElKind.LINK) && Rect(a.box).apply { inset(-6, -6) }.contains(it.box.centerX(), it.box.centerY()) &&
-                (a.kind == ElKind.LINK || nt.length <= 1 || saysWord(VScreenOcr.norm(a.text), nt))
+            a.fromA11y && (a.kind == ElKind.TEXT || a.kind == ElKind.LINK) && (
+                Rect(a.box).apply { inset(-6, -6) }.contains(it.box.centerX(), it.box.centerY()) &&
+                    (a.kind == ElKind.LINK || nt.length <= 1 || saysWord(VScreenOcr.norm(a.text), nt)) ||
+                nt.isNotEmpty() && VScreenOcr.norm(a.text) == nt && Rect.intersects(Rect(a.box).apply { inset(-12, -12) }, it.box))
         }
         if (!said) { val w = tidy(t); out += El(0, if (w.first == ElKind.TEXT) w.second else "", Rect(it.box), false, kind = w.first, hint = if (w.first == ElKind.LINK) w.second else null) }
     }

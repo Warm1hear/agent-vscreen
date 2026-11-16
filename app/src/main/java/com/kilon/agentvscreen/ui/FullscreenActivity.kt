@@ -178,7 +178,8 @@ class FullscreenActivity : PageActivity() {
         LaunchedEffect(session) { while (true) { left = Turns.leftMs(session) ?: -1L; delay(1000) } }
         val prepId by Teach.prep.collectAsState()
         val paused by Teach.paused.collectAsState()
-        LaunchedEffect(takenOver) { if (!takenOver) { typing = false; if (Teach.recordingFor(session)) Teach.stop(applicationContext); if (Teach.prep.value != null) Teach.cancelPrep() } }
+        // 1.4.0-beta5: what a hand-back does to a lesson is decided in one place (Teach.onTakeoverEnded), for every way back.
+        LaunchedEffect(takenOver) { if (!takenOver) typing = false }
         val teachN by Teach.count.collectAsState()
         val recording = teachN != null
         // 1.4.0-beta4: the one request in front: the lesson under way, else the question this page was opened for, else the newest.
@@ -189,6 +190,9 @@ class FullscreenActivity : PageActivity() {
             prepId != null -> UserAsk.byId(prepId!!)
             else -> waiting.firstOrNull { it.id == focus } ?: waiting.firstOrNull()
         }
+        // 1.4.0-beta5: every new request opens unfolded. The folded ball was kept from an earlier request (and folded
+        // by itself during a lesson), so a lesson's Start and a text question's Send were hidden behind it.
+        LaunchedEffect(req?.id, recording, prepId) { BriefPlace.ball = false; BriefPlace.open = true }
         val mark = remember { MarkState() }
         val marking = req != null && !recording && (req.kind == UserAsk.Kind.POINT || req.kind == UserAsk.Kind.AREA) && !mark.finding && !takenOver
         var picSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
@@ -249,8 +253,6 @@ class FullscreenActivity : PageActivity() {
                                     }
                                     return@awaitEachGesture
                                 }
-                                // The user starts working on the screen: the request card steps into the bar.
-                                if ((Teach.count.value != null || Teach.prep.value != null) && !BriefPlace.ball) BriefPlace.ball = true
                                 val t0 = SystemClock.uptimeMillis()
                                 // 1.2.0-beta2: while the user controls the screen the finger is sent as it moves
                                 // (UserTouch), not replayed as one swipe after it lifts.
@@ -324,10 +326,13 @@ class FullscreenActivity : PageActivity() {
                 // 1.4.0-beta4: turn the page to landscape and back, whatever the phone's rotation lock says (a
                 // landscape app is small on an upright page). Without recreating the page: the takeover goes on.
                 val wide = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-                Circle(Icons.Filled.ScreenRotation, if (wide) tr("转回竖屏", "Back to portrait") else tr("转成横屏", "Turn to landscape"), Color(0x33FFFFFF)) {
-                    requestedOrientation = if (wide) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                // 1.4.0-beta5: only when it helps: a landscape picture on an upright page, or the page already turned.
+                if (wide || s.screenWidth > s.screenHeight) {
+                    Circle(Icons.Filled.ScreenRotation, if (wide) tr("转回竖屏", "Back to portrait") else tr("转成横屏", "Turn to landscape"), Color(0x33FFFFFF)) {
+                        requestedOrientation = if (wide) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    }
+                    Spacer(Modifier.width(8.dp))
                 }
-                Spacer(Modifier.width(8.dp))
                 // The request folded into a ball: it lives here, in the bar, not over the picture.
                 if (showCard && BriefPlace.ball) {
                     Box(Modifier.size(44.dp).clip(CircleShape).clickable { BriefPlace.ball = false; BriefPlace.open = true }, contentAlignment = Alignment.Center) { AskMark(30f) }

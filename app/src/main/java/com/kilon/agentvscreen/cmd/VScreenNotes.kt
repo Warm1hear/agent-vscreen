@@ -57,6 +57,8 @@ internal fun VScreenOffloadHandler.noteCmd(sid: String?, args: OffloadArgs): Nat
         first == "before" || first == "after" -> {
             val body = p.drop(1).joinToString(" ").trim()
             if (body.isEmpty()) throw ActionError("INVALID_ARGS", tr("note $first \"<步骤>\"，如 note $first \"tap 1840 60\"", "note $first \"<steps>\", e.g. note $first \"tap 1840 60\""))
+            // 1.4.0-beta5: `note before off` (the way human pacing is turned off) removes them too, same as note delete before.
+            if (body.lowercase() in setOf("off", "none", "关")) { VScreenMap.setProfile(pkg, mapOf(first to "")); return text(tr("已删 $pkg 的 $first 步骤", "deleted $pkg's $first steps")) }
             Steps.parseAll(body)
             VScreenMap.setProfile(pkg, mapOf(first to body))
             tr("已记 $pkg 的${if (first == "before") "前置" else "收尾"}步骤：$body。之后每段带步骤或 --watch 的 act 会${if (first == "before") "先" else "在最后"}做它（--bare 跳过；不带步骤的 act 只看，不做）",

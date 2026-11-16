@@ -133,6 +133,9 @@ class MotionTrack(val cols: Int, val rows: Int) {
 class Mask(val cells: BooleanArray, val cols: Int, val rows: Int, val screenW: Int, val screenH: Int) {
     val rects: List<Rect> by lazy { VScreenActivity.boxes(cells, cols, rows, screenW, screenH) }
     val share: Double get() = cells.count { it }.toDouble() / maxOf(1, cells.size)
+    /** 1.4.0-beta5: moving over most of the picture = the app itself moves (a game, an animated background), not a video in a page. */
+    val mostly: Boolean get() = share > MOSTLY
+    companion object { const val MOSTLY = 0.5 }
 
     /** Whether screen point (x, y) lies in a moving cell. */
     fun covers(x: Int, y: Int): Boolean {

@@ -47,8 +47,47 @@ object TaskLog {
     private val done = ArrayList<Task>()
     @Volatile private var loaded = false
 
-    fun init(ctx: Context) = synchronized(this) { dir = File(ctx.filesDir, "tasks").apply { mkdirs() }; loaded = false; open.clear(); done.clear() }
-    fun frameFile(name: String): File? = dir?.let { File(it, name) }?.takeIf { it.isFile && name.matches(Regex("^t[0-9_]+\\.jpg$")) }
+    @Volatile private var app: Context? = null
+    fun init(ctx: Context) = synchronized(this) { app = ctx.applicationContext; dir = File(ctx.filesDir, "tasks").apply { mkdirs() }; loaded = false; open.clear(); done.clear() }
+    fun frameFile(name: String): File? = dir?.let { File(it, name) }?.takeIf { it.isFile && name.matches(Regex("^t[0-9_]+(s[0-9]+)?\\.jpg$")) }
+
+    // ── 1.4.0-beta5: every step of a task, to open one by one on the task's page ──
+    private const val STEP_TEXT = 4_000
+    private const val STEP_FRAMES = 60
+
+    private fun stepsFile(id: Long) = dir?.let { File(it, "t$id.steps.jsonl") }
+
+    /**
+     * One command of a task: the command as logged (typed text as a length), how it ended, how long it took, what the
+     * agent was told (pictures left out), and a small copy of the picture it got (the reply's own pictures are cleared
+     * with the screen, so a copy is kept here, at most [STEP_FRAMES] per task).
+     */
+    private fun saveStep(t: Task, n: Int, argv: List<String>, code: String, exit: Int, ms: Long, output: String) {
+        val f = stepsFile(t.id) ?: return
+        val shot = com.kilon.agentvscreen.cmd.ShotStore.refs(output).firstOrNull()
+        var frame: String? = null
+        if (shot != null && n <= STEP_FRAMES) runCatching {
+            val c = app ?: return@runCatching
+            val src = com.kilon.agentvscreen.cmd.ShotStore.file(c, shot) ?: return@runCatching
+            val b = android.graphics.BitmapFactory.decodeFile(src.path) ?: return@runCatching
+            val name = "t${t.id}_s$n.jpg"
+            Pictures.write(b, File(f.parentFile, name), Pictures.Use.STEP); b.recycle(); frame = name
+        }
+        val text = com.kilon.agentvscreen.cmd.ShotStore.IN_TEXT.replace(output, "").trim().take(STEP_TEXT)
+        val o = JSONObject().put("n", n).put("at", System.currentTimeMillis()).put("cmd", com.kilon.agentvscreen.host.Audit.redact(argv))
+            .put("code", code).put("exit", exit).put("ms", ms).put("text", text).put("frame", frame ?: JSONObject.NULL)
+        f.appendText(o.toString() + "\n")
+    }
+
+    /** The steps of task [id], oldest first (empty for tasks from before 1.4.0-beta5). */
+    fun steps(id: Long): List<JSONObject> = runCatching {
+        stepsFile(id)?.takeIf { it.isFile }?.readLines()?.mapNotNull { l -> runCatching { JSONObject(l) }.getOrNull() }
+    }.getOrNull() ?: emptyList()
+
+    private fun dropFiles(t: Task) {
+        t.frames.forEach { n -> dir?.let { File(it, n).delete() } }
+        dir?.listFiles { f -> f.name.startsWith("t${t.id}_s") || f.name == "t${t.id}.steps.jsonl" }?.forEach { it.delete() }
+    }
 
     private fun load() {
         if (loaded) return
@@ -58,16 +97,24 @@ object TaskLog {
     }
 
     /** A command of [session] finished with [code] (called for every audited command). */
-    fun onCommand(session: String, token: String, argv: List<String>, code: String, exit: Int) {
+    fun onCommand(session: String, token: String, argv: List<String>, code: String, exit: Int, ms: Long = 0L, output: String = "") {
         val sub = argv.firstOrNull() ?: return
         if (sub in setOf("status", "guide", "help", "remembered", "events", "diag", "version")) return
         val now = System.currentTimeMillis()
+        // 1.4.0-beta5 (test: home said "running" after release / stop): the log hears of a command after it ran, so
+        // `release` ended the turn and then opened a new one for itself. A command that ends the turn is the last step
+        // of the open task (none open: nothing to log), and the task ends with it.
+        val ends = sub in setOf("done", "release", "stop")
+        if (ends && synchronized(this) { open[session] } == null) return
         val t = synchronized(this) {
             open.getOrPut(session) { Task(now, session, token, now) }.also { t ->
                 t.commands++; t.lastCode = code; t.lastAt = now; if (exit != 0) t.failed++
                 BackgroundOperation.state.value.agentTitle?.let { t.title = it }
             }
         }
+        val n = t.commands
+        worker.execute { runCatching { saveStep(t, n, argv, code, exit, ms, output) } }
+        if (ends) { onTurnEnd(session); return }
         if (now - t.lastFrameAt < FRAME_GAP_MS) return
         t.lastFrameAt = now
         worker.execute { runCatching { capture(t) } }
@@ -94,7 +141,7 @@ object TaskLog {
         worker.execute {
             synchronized(this) {
                 val drop = if (done.size > KEEP) done.subList(0, done.size - KEEP).toList() else emptyList()
-                drop.forEach { old -> old.frames.forEach { n -> dir?.let { File(it, n).delete() } } }
+                drop.forEach { old -> dropFiles(old) }
                 done.removeAll(drop.toSet())
                 dir?.let { File(it, "log.jsonl").writeText(done.joinToString("\n") { it.json().toString() } + "\n") }
             }

@@ -100,7 +100,16 @@ object VScreenPerception {
             synchronized(w.lock) {
                 if (sm.isRecycled || sm.width != cur.width || sm.height != cur.height) null
                 // 1.3: a playing area differs in every frame; outside it the picture is the same, and so are its words.
-                else if (Change.same(sm, cur, Change.Level.TINY, skip = mask(displayId)?.rectsIn(cur.width, cur.height).orEmpty())) r else null
+                // 1.4.0-beta5 (test: collect right after launching another app returned the previous app's words, 3 in
+                // 9): when the moving areas cover most of the picture (an animated weather background), "the same
+                // outside them" compares almost nothing, and another app's reading passed for this one. Then only the
+                // exact frame counts.
+                else {
+                    val m = mask(displayId)
+                    val skip = m?.rectsIn(cur.width, cur.height).orEmpty()
+                    if (m?.mostly == true) null
+                    else if (Change.same(sm, cur, Change.Level.TINY, skip = skip)) r else null
+                }
             }
         } finally { cur.recycle() }
     }
@@ -157,7 +166,10 @@ object VScreenPerception {
     }
 
     /** OCR items outside the moving areas (the words inside a playing video are not the page's words). */
-    internal fun still(items: List<VScreenOcr.Item>, mask: Mask?): List<VScreenOcr.Item> = if (mask == null) items else items.filter { !mask.coversMostOf(it.box) }
+    // 1.4.0-beta5 (test: a game's title page listed no words, so `tap 进入世界` was NOT_FOUND although the words were
+    // read): when nearly everything moves, the moving areas are the app itself, not a video inside a page; its words
+    // are the page's words and stay listed.
+    internal fun still(items: List<VScreenOcr.Item>, mask: Mask?): List<VScreenOcr.Item> = if (mask == null || mask.mostly) items else items.filter { !mask.coversMostOf(it.box) }
 
     fun engine(displayId: Int): String? = watcher(displayId)?.let { it.ocrEngine + if (it.ocrMs > 0) tr("（约 ${it.ocrMs}ms/次）", " (about ${it.ocrMs}ms each)") else "" }
 

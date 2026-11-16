@@ -403,6 +403,10 @@ class ApiServer(private val ctx: Context) {
         val auth = when (val a = authenticate(r)) { is Auth -> a; is Resp -> return a; else -> return Resp.err(401, "BAD_TOKEN", "?") }
         r.auth = auth
         Tokens.used(auth.token.id)
+        // 1.4.0-beta5: on demand, the server stays up in the app's process while the service sleeps (no notification,
+        // no foreground service). A signed request is the agent needing the phone: wake the service and wait for it,
+        // so any client (curl, Operit, MCP) wakes it, not only one with Android's `am` at hand.
+        if (!com.kilon.agentvscreen.host.HostService.isAlive) com.kilon.agentvscreen.host.HostService.wakeFor(ctx, "agent request")
         lastClient = r.headers["user-agent"]?.take(60)
         lastCaller = r.caller
         val resp = langOf(r) { when {
@@ -648,7 +652,7 @@ class ApiServer(private val ctx: Context) {
         }
         val (res, replayed) = runFor(r, argv, session, requestId)
         val env = envelope(res, session, requestId, replayed, r, v2)
-        val headers = mapOf("X-VScreen-Exit" to env.optInt("exit").toString(), "X-VScreen-Code" to env.optString("code"), "X-VScreen-Images" to ShotStore.refs(res.output).joinToString(","), "X-VScreen-Session" to session) +
+        val headers = mapOf("X-VScreen-Exit" to env.optInt("exit").toString(), "X-VScreen-Code" to env.optString("code"), "X-VScreen-Images" to env.optJSONArray("images").let { a -> (0 until (a?.length() ?: 0)).joinToString(",") { a!!.getJSONObject(it).optString("name") } }, "X-VScreen-Session" to session) +
             (if (v2) emptyMap() else mapOf("Deprecation" to "true", "Link" to "</v2/run>; rel=\"successor-version\""))
         return if (r.q("format") == "text" || r.headers["accept"]?.startsWith("text/plain") == true) Resp.text(env.optString("text"), 200, headers)
         else Resp.json(env, 200, headers)
@@ -664,10 +668,11 @@ class ApiServer(private val ctx: Context) {
      */
     private fun envelope(res: NativeOffloadResult, session: String, requestId: String?, replayed: Boolean, r: Req, v2: Boolean): JSONObject {
         val all = ShotStore.refs(res.output)
-        // 1.4.0-beta2: clients that feed images[] to a model get only pictures that say something new, compact
-        // (ImagePolicy); the CLI prints paths only, so it gets them all at full size.
+        // 1.4.0-beta2: clients get only pictures that say something new (ImagePolicy). 1.4.0-beta5: the CLI too (test:
+        // it got a fresh copy of an unchanged screen every time and its text never said "no picture"); it still gets
+        // them at full size, since it prints paths instead of feeding a model directly.
         val cli = r.headers["x-vscreen-client"] == "cli"
-        val shots = if (cli || !v2) all else ImagePolicy.pick(res, all)
+        val shots = if (!v2) all else ImagePolicy.pick(res, all)
         val text = ShotStore.IN_TEXT.replace(res.output) { m -> val n = m.groupValues[1]; if (n in shots) shotUrl(n, r, v2) else ImagePolicy.leftOut() }
         val exit = if (!v2 && res.softFail) 0 else res.exitCode
         val code = if (!v2 && res.softFail) "OK" else res.codeOrDefault

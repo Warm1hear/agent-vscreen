@@ -23,6 +23,8 @@ object Pictures {
         LESSON(0, 75),
         /** A task's small frame in the app's 记录 (TaskLog). */
         THUMB(240, 70),
+        /** 1.4.0-beta5: a task step's picture, opened on the task page. */
+        STEP(720, 70),
         /** A frame of the recording track (many, kept minutes). */
         RECORDING(0, 60),
     }

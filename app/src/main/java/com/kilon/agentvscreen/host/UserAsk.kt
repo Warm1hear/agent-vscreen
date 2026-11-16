@@ -165,6 +165,17 @@ object UserAsk {
         quiet("ask-withdraw") { ctx.getSystemService(NotificationManager::class.java)?.cancel(noteId(a.id)) }
     }
 
+    /**
+     * 1.4.0-beta5: the agent's turn is over (done, released, quiet): its unanswered requests about the screen (a
+     * lesson, a point, an area) go with it; they only make sense on the page the agent was on. Before, they stayed live
+     * for 10–15 minutes and came back on the screen page long after the agent had stopped asking. Plain questions
+     * (choose, text, confirm) keep their time: the agent may still send them again for the answer.
+     */
+    fun withdrawSession(ctx: Context, session: String) {
+        val gone = synchronized(lock) { asks.filter { it.session == session && it.answer == null && it.kind in setOf(Kind.TEACH, Kind.POINT, Kind.AREA) } }
+        gone.forEach { withdraw(ctx, it) }
+    }
+
     private fun noteId(id: Int) = 7400 + (id % 500)
 
     private fun post(ctx: Context, a: Ask) {

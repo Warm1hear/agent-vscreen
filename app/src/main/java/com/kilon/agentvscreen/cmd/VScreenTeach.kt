@@ -74,6 +74,8 @@ internal data class TeachLine(
     val snap: TeachSnap? = null,
     /** 1.3.0-beta19: a small picture of the screen before the step (the contact sheet). */
     val pic: TeachPic? = null,
+    /** 1.4.0-beta5: [at] as the steps write it (shares of the screen when its size was known). */
+    val pos: String? = null,
 )
 
 /** 1.3.0 (rainbow): a small picture of the background screen while a lesson was recorded; [scale] maps screen pixels onto it. */
@@ -143,6 +145,20 @@ internal object Teach {
     }
 
     fun cancelPrep() { _prep.value = null; UserAsk.hold(null) }
+
+    /**
+     * 1.4.0-beta5: the user handed the screen back (from the floating window, the notification, the full screen page,
+     * Stop): the lesson cannot go on without them holding the screen. One answer, wherever the hand-back came from
+     * (beta4 only handled it on the full screen page, so a hand-back from the floating window left the agent waiting):
+     *  - recording: it ends as if Done was tapped (the review page opens with what was shown);
+     *  - getting ready: the request ends as not shown, and the agent hears it at once.
+     */
+    fun onTakeoverEnded(ctx: Context?) {
+        if (rec != null) { stop(ctx); return }
+        val p = _prep.value ?: return
+        cancelPrep()
+        ctx?.let { UserAsk.answer(it, p, false, org.json.JSONObject().put("kind", "handed_back")) }
+    }
 
     /** 撤掉上一步: the last thing recorded (or the typing not yet written) is dropped. */
     fun undo() = synchronized(this) {
@@ -333,7 +349,8 @@ internal object Teach {
             val evs = r.events.filter { it !is TeachEv.Touch || (!it.cancelled && it.end > 0) }
             val app = evs.firstNotNullOfOrNull { it.before?.pkg } ?: end?.pkg
             runCatching { r.startRead?.get(4, TimeUnit.SECONDS) }
-            result = Result(r.session, r.purpose, r.askId, r.name, app, translate(evs, end), endPic, startJson(r.start))
+            val size = runCatching { BackgroundOperation.previewDisplayFor(r.session)?.let { it.width to it.height } }.getOrNull()
+            result = Result(r.session, r.purpose, r.askId, r.name, app, translate(evs, end, size), endPic, startJson(r.start))
             ctx?.let { c -> runCatching { c.startActivity(Intent(c, com.kilon.agentvscreen.ui.TeachActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
         }, "vscreen-teach-stop").apply { isDaemon = true }.start()
     }
@@ -433,7 +450,41 @@ internal object Teach {
     }
 
     /** The steps for [evs]; [end] is the screen when recording stopped. */
-    internal fun translate(evs: List<TeachEv>, end: TeachSnap?): List<TeachLine> {
+    /**
+     * 1.4.0-beta5 (rainbow: 坐标按屏幕比例保存): the screen the lesson was shown on. Points in the steps are written as
+     * shares of it (`50% 80%`), so replay on another size or orientation lands on the same place. Null (tests, a
+     * screen that could not be read) keeps pixels.
+     */
+    @Volatile private var size: Pair<Int, Int>? = null
+
+    /** A point as the steps write it: shares of [size], or pixels without one. */
+    private fun pt(x: Int, y: Int): String = size?.let { (w, h) -> "${Steps.pct(x, w)} ${Steps.pct(y, h)}" } ?: "$x $y"
+    private fun area(r: android.graphics.Rect): String = size?.let { (w, h) -> "${Steps.pct(r.left, w)},${Steps.pct(r.top, h)},${Steps.pct(r.right, w)},${Steps.pct(r.bottom, h)}" } ?: "${r.left},${r.top},${r.right},${r.bottom}"
+    private fun off(d: Int, of: Int?): String = (if (d >= 0) "+" else "-") + (of?.let { Steps.pct(abs(d), it) } ?: abs(d).toString())
+
+    /**
+     * 1.4.0-beta5 (rainbow: 点击按附近的锚点文字定位): a tap where nothing can be read (an icon, a switch) is written
+     * relative to the nearest words that name one place, `tap 蓝牙 +62%,+0%`, so it follows the row when the list
+     * moves. Words on the same row come first (a switch beside its label); nothing nearby keeps a plain point.
+     */
+    internal fun anchorAt(sn: TeachSnap?, x: Int, y: Int): Pair<String, Pair<Int, Int>>? {
+        val w = size?.first ?: (sn?.els?.maxOfOrNull { it.box.right } ?: 1080)
+        // The same row reaches across the screen (a switch at the right edge, its label at the left); elsewhere only
+        // words close by (an icon under its caption).
+        val reach = maxOf(240, w / 4)
+        val cands = texts(sn).filter { e -> val t = e.text.trim(); nameable(t) && unique(sn, t) && !Regex("^[\\d\\s,，.:%]+$").matches(t) }
+            .map { e -> e to hypot((e.box.centerX() - x).toDouble(), (e.box.centerY() - y).toDouble()) }
+        val row = cands.filter { (e, _) -> y in (e.box.top - 24)..(e.box.bottom + 24) }
+        val best = (row.ifEmpty { cands.filter { it.second <= reach } }).minByOrNull { it.second }?.first ?: return null
+        return best.text.trim() to ((x - best.box.centerX()) to (y - best.box.centerY()))
+    }
+
+    internal fun translate(evs: List<TeachEv>, end: TeachSnap?, size: Pair<Int, Int>? = null): List<TeachLine> {
+        this.size = size?.takeIf { it.first > 0 && it.second > 0 }
+        try { return translateIn(evs, end) } finally { this.size = null }
+    }
+
+    private fun translateIn(evs: List<TeachEv>, end: TeachSnap?): List<TeachLine> {
         val out = ArrayList<TeachLine>()
         var i = 0
         while (i < evs.size) {
@@ -520,7 +571,7 @@ internal object Teach {
             else android.graphics.Rect(v.box.left - step / 3, band.top.coerceAtLeast(0), v.box.right + step / 3, band.bottom.coerceAtMost(v.box.bottom + 400))
         val value = v.text.trim()
         val sw = swipe(v.box.centerX(), v.box.centerY(), vertical, dir, (step * 1.2).toInt())
-        return TeachLine("repeat 40 { $sw }", "text:$value in ${row.left},${row.top},${row.right},${row.bottom}",
+        return TeachLine("repeat 40 { $sw }", "text:$value in ${area(row)}",
             tr("把这一列拨到「$value」（重放时拨到结果为止，不按距离）", "set this column to \"$value\" (replayed until it reads so, not by distance)"), "value", typed = value)
     }
 
@@ -529,8 +580,8 @@ internal object Teach {
     /** A slow swipe of [len] px from (x, y) along the user's direction (no fling). */
     private fun swipe(x: Int, y: Int, vertical: Boolean, dir: Int, len: Int): String {
         val h = len / 2
-        return if (vertical) "swipe $x ${(y - dir * h).coerceAtLeast(1)} $x ${(y + dir * h).coerceAtLeast(1)} 450ms"
-            else "swipe ${(x - dir * h).coerceAtLeast(1)} $y ${(x + dir * h).coerceAtLeast(1)} $y 450ms"
+        return if (vertical) "swipe ${pt(x, (y - dir * h).coerceAtLeast(1))} ${pt(x, (y + dir * h).coerceAtLeast(1))} 450ms"
+            else "swipe ${pt((x - dir * h).coerceAtLeast(1), y)} ${pt((x + dir * h).coerceAtLeast(1), y)} 450ms"
     }
 
     private fun touchLine(e: TeachEv.Touch, next: TeachSnap?): TeachLine {
@@ -540,17 +591,20 @@ internal object Teach {
         if (far < SLOP) {
             val press = ms >= PRESS_MS
             val words = wordsAt(e.before, e.x, e.y)
-            val target = words?.let { quote(it) } ?: "${e.x} ${e.y}"
+            val anchor = if (words == null) anchorAt(e.before, e.x, e.y) else null
+            val target = words?.let { quote(it) } ?: anchor?.let { (t, d) -> "${quote(t)} ${off(d.first, size?.first)},${off(d.second, size?.second)}" } ?: pt(e.x, e.y)
             val verb = if (press) "press" else "tap"
             val head = if (press) "$verb $target ${((ms + 50) / 100 * 100).coerceIn(100, 10_000)}ms" else "$verb $target"
-            val c = changeCond(e.before, next, listOfNotNull(words).toSet())
-            val what = (if (press) tr("长按", "held") else tr("点了", "tapped")) + (words?.let { tr("「$it」", " \"$it\"") } ?: " (${e.x}, ${e.y})")
+            val c = changeCond(e.before, next, listOfNotNull(words, anchor?.first).toSet())
+            val what = (if (press) tr("长按", "held") else tr("点了", "tapped")) + (words?.let { tr("「$it」", " \"$it\"") }
+                ?: anchor?.let { tr("「${it.first}」旁边", " beside \"${it.first}\"") } ?: " (${e.x}, ${e.y})")
             val warn = when {
                 c == null && next != null -> tr("之后画面上没读到变化：可能点空了，可以不勾这一步", "no change was read afterwards: it may have missed; you can untick it")
-                words == null -> tr("那里没有能叫出名字的字，按坐标记", "no words name that place: kept as a point")
+                words == null && anchor != null -> null
+                words == null -> tr("那里和附近都没有能叫出名字的字，按屏幕比例的位置记", "no words name that place or its neighbours: kept as a point (share of the screen)")
                 else -> null
             }
-            return TeachLine(head, c?.first, what + (c?.let { "，" + it.second } ?: ""), verb, warn = warn, at = e.x to e.y, words = words, snap = e.before)
+            return TeachLine(head, c?.first, what + (c?.let { "，" + it.second } ?: ""), verb, warn = warn, at = e.x to e.y, words = words, snap = e.before, pos = pt(e.x, e.y))
         }
         // Moved: a straight line is a swipe; a bent path is a drag through its turns.
         val dur = ms.coerceIn(50, 10_000)
@@ -559,12 +613,12 @@ internal object Teach {
         val len = max(1.0, hypot(dx, dy))
         val bend = pts.maxOf { abs((it[0] - e.x) * dy - (it[1] - e.y) * dx) / len }
         if (bend < 48 || pts.size < 4) {
-            return TeachLine("swipe ${e.x} ${e.y} ${last[0]} ${last[1]} ${dur}ms", null, tr("从 (${e.x}, ${e.y}) 滑到 (${last[0]}, ${last[1]})", "swiped from (${e.x}, ${e.y}) to (${last[0]}, ${last[1]})"), "swipe",
+            return TeachLine("swipe ${pt(e.x, e.y)} ${pt(last[0], last[1])} ${dur}ms", null, tr("从 (${e.x}, ${e.y}) 滑到 (${last[0]}, ${last[1]})", "swiped from (${e.x}, ${e.y}) to (${last[0]}, ${last[1]})"), "swipe",
                 warn = tr("机械重放：读不出这一下滑动的结果，重放时按原样滑", "replayed as is: what this swipe did could not be read, so it is repeated by distance"))
         }
         val n = 6
         val picked = (0 until n).map { k -> pts[(k * (pts.size - 1)) / (n - 1)] }.distinctBy { it[0] to it[1] }
-        return TeachLine("drag " + picked.joinToString(" ") { "${it[0]} ${it[1]}" } + " ${dur}ms", null,
+        return TeachLine("drag " + picked.joinToString(" ") { pt(it[0], it[1]) } + " ${dur}ms", null,
             tr("拖动，经过 ${picked.size} 个点", "dragged through ${picked.size} points"), "drag",
             warn = tr("机械重放：读不出这次拖动的结果，重放时按原样拖", "replayed as is: what this drag did could not be read, so it is repeated by distance"))
     }
@@ -605,7 +659,7 @@ internal object Teach {
                 if (q != null && l.kind == "tap" && l.at != null && l.words != null && VScreenOcr.norm(l.words).contains(q)) {
                     // What this tap opens depends on the value too: wait for a change, not for the demo's words.
                     if (until != null) until = "change"
-                    rankOf(l.snap, q, l.at)?.let { k -> "tap *{$paramN}*@$k" } ?: "tap ${l.at.first} ${l.at.second}"
+                    rankOf(l.snap, q, l.at)?.let { k -> "tap *{$paramN}*@$k" } ?: "tap ${l.pos ?: "${l.at.first} ${l.at.second}"}"
                 } else l.head
             }
             if (until != null) "$head until $until" else head
@@ -664,6 +718,7 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
         null -> throw ActionError("ASK_PENDING", tr("请求已显示在手机上（通知、副屏小窗和 App 首页），用户 ${wait / 1000} 秒内还没做完。告诉用户去手机上演示；之后把同一条 teach 原样再发一次就能拿到结果（${ask.validMs / 60_000} 分钟内有效）",
             "The request is on the phone (notification, the floating window and the app's home page); the user has not finished within ${wait / 1000} s. Tell the user to show it on the phone; then send the same teach again for the result (valid for ${ask.validMs / 60_000} minutes)"))
         false -> { UserAsk.markUsed(ask); UserAsk.endedWhy(ask)?.let { why -> throw ActionError("ASK_DECLINED", tr("副屏已经关闭（$why），示教请求结束了：$what。要演示请先 launch 应用再发 teach", "The background screen was closed ($why), so the lesson request ended: $what. launch the app first, then send teach again")) }
+            if (ask.reply?.optString("kind") == "handed_back") throw ActionError("ASK_DECLINED", tr("用户没开始示范就把副屏交还给你了，这次不示范：$what。看一眼现在的画面，问用户想怎么办，不要原样再发", "The user handed the screen back before showing anything, so no lesson this time: $what. Look at the screen and ask the user what they want; don't send the same again"))
             throw ActionError("ASK_DECLINED", tr("用户没有演示（或丢弃了录下的步骤）：$what", "The user did not show it (or discarded the recording): $what")) }
         true -> UserAsk.markUsed(ask)
     }

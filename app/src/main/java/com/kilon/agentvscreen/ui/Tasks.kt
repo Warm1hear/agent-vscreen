@@ -1,5 +1,15 @@
 package com.kilon.agentvscreen.ui
 
+import androidx.compose.runtime.mutableStateOf
+
+import androidx.compose.runtime.setValue
+
+import androidx.compose.foundation.rememberScrollState
+
+import androidx.compose.foundation.verticalScroll
+
+import androidx.compose.foundation.layout.heightIn
+
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -157,7 +167,12 @@ fun TaskCard(t: TaskLog.Task, onClick: () -> Unit) {
     }
 }
 
-/** A task's own page: its frames large, then every command it sent, from the audit log. */
+/**
+ * A task's own page: its frames large, then every command it sent.
+ * 1.4.0-beta5: a frame opens large (swipe between them); a step opens its detail: the command, how it ended and what
+ * that code means, how long it took, what the agent was told and the picture it got. Tasks from before beta5 have no
+ * step records: their commands come from the audit log, without detail.
+ */
 @Composable
 fun TaskPage(id: Long) {
     val t = remember(id) { TaskLog.recent().firstOrNull { it.id == id } }
@@ -166,31 +181,86 @@ fun TaskPage(id: Long) {
     val (word, good) = taskOutcome(t)
     val rows by produceState(emptyList<JSONObject>(), id) {
         value = withContext(Dispatchers.IO) {
-            runCatching { Audit.tail(600).filter { o -> o.optString("kind") == "command" && o.optString("session") == t.session &&
-                o.optLong("at") >= t.start - 1000 && (t.running || o.optLong("at") <= t.end + 1000) } }.getOrDefault(emptyList())
+            TaskLog.steps(id).ifEmpty {
+                runCatching { Audit.tail(600).filter { o -> o.optString("kind") == "command" && o.optString("session") == t.session &&
+                    o.optLong("at") >= t.start - 1000 && (t.running || o.optLong("at") <= t.end + 1000) } }.getOrDefault(emptyList())
+            }
         }
     }
+    var preview by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
+    var step by remember { mutableStateOf<JSONObject?>(null) }
     MiuixPage(taskTitle(t, app), subtitle = hhmm(t.start) + " · " + t.token) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(word, fontSize = 14.sp, color = if (good) Palette.takeover else Palette.stopped)
             Text(" · ${t.commands} " + tr("步", "steps") + " · " + took(t) + (app?.let { " · $it" } ?: ""), fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
         if (t.frames.isNotEmpty()) Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            (0 until 4).forEach { i -> TaskFrame(t.frames.getOrNull(i), Modifier.weight(1f).aspectRatio(0.45f), 12.dp) }
+            (0 until 4).forEach { i ->
+                val f = t.frames.getOrNull(i)
+                TaskFrame(f, Modifier.weight(1f).aspectRatio(0.45f).clickable(enabled = f != null) { preview = t.frames to i }, 12.dp)
+            }
         }
         Group(tr("每一步", "Every step")) {
             if (rows.isEmpty()) Note(tr("日志里没有这次的命令了", "The log no longer has these commands"), modifier = Modifier.padding(16.dp))
-            rows.forEachIndexed { i, o ->
+            // Newest first, as before; numbered in the order they were sent.
+            rows.asReversed().forEachIndexed { i, o ->
                 val ok = o.optInt("exit") == 0
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                    Text("${i + 1}", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.width(28.dp))
+                val detail = o.has("text")
+                Row(Modifier.fillMaxWidth().clickable(enabled = detail) { step = o }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${rows.size - i}", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.width(28.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(o.optString("cmd").take(160), fontSize = 14.sp)
+                        Text(o.optString("cmd").take(160), fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                         Text(hhmmss(o.optLong("at")) + " · " + o.optString("code") + " · ${o.optLong("ms")} ms", fontSize = 12.sp,
                             color = if (ok) MiuixTheme.colorScheme.onSurfaceVariantSummary else Palette.stopped)
                     }
+                    o.optString("frame").takeIf { it.isNotEmpty() && it != "null" }?.let { f ->
+                        Spacer(Modifier.width(8.dp)); TaskFrame(f, Modifier.width(22.dp).height(44.dp), 4.dp)
+                    }
                 }
             }
+        }
+    }
+    StepSheet(step, open = { f -> preview = listOf(f) to 0 }) { step = null }
+    preview?.let { (list, at) -> FramePreview(list, at) { preview = null } }
+}
+
+/** One step in full. */
+@Composable
+private fun StepSheet(o: JSONObject?, open: (String) -> Unit, close: () -> Unit) {
+    val c = MiuixTheme.colorScheme
+    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(show = o != null, title = o?.let { tr("第 ${it.optInt("n")} 步", "Step ${it.optInt("n")}") } ?: "", onDismissRequest = close) {
+        if (o == null) return@OverlayBottomSheet
+        val ok = o.optInt("exit") == 0
+        val frame = o.optString("frame").takeIf { it.isNotEmpty() && it != "null" }
+        Column(Modifier.padding(bottom = 24.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(o.optString("cmd"), fontSize = 15.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+            Text(hhmmss(o.optLong("at")) + " · ${o.optLong("ms")} ms · " + o.optString("code"), fontSize = 13.sp, color = if (ok) c.onSurfaceVariantSummary else Palette.stopped)
+            com.kilon.agentvscreen.cmd.Codes.of(o.optString("code"))?.takeIf { !ok }?.let { Text(it.text, fontSize = 13.sp, lineHeight = 19.sp, color = c.onSurfaceVariantSummary) }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                frame?.let { f -> TaskFrame(f, Modifier.width(120.dp).aspectRatio(0.45f).clickable { open(f) }, 10.dp) }
+                Text(o.optString("text").ifEmpty { tr("（没有文字回复）", "(no text reply)") }, fontSize = 12.sp, lineHeight = 17.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = c.onSurface, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** Frames large, on black: swipe between them, tap to close. */
+@Composable
+private fun FramePreview(frames: List<String>, start: Int, close: () -> Unit) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = close, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = start) { frames.size }
+        Box(Modifier.fillMaxSize().background(Color.Black).clickable(onClick = close)) {
+            androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxSize()) { i ->
+                val img by produceState<ImageBitmap?>(null, frames[i]) {
+                    value = withContext(Dispatchers.IO) { TaskLog.frameFile(frames[i])?.let { f -> runCatching { BitmapFactory.decodeFile(f.path)?.asImageBitmap() }.getOrNull() } }
+                }
+                Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                    img?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+                }
+            }
+            if (frames.size > 1) Text("${pager.currentPage + 1} / ${frames.size}", color = Color.White, fontSize = 13.sp,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 32.dp))
         }
     }
 }

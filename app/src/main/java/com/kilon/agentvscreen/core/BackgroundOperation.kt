@@ -481,6 +481,8 @@ object BackgroundOperation {
         if (sessionId.isEmpty()) return
         synchronized(lock) { tasks.remove(sessionId); turns.remove(sessionId) }
         TaskLog.onTurnEnd(sessionId, _state.value.userStopped)
+        appContext?.let { c -> com.kilon.agentvscreen.host.UserAsk.withdrawSession(c, sessionId) }
+        if (com.kilon.agentvscreen.cmd.Teach.prep.value != null && _state.value.ownerSessionId == sessionId) com.kilon.agentvscreen.cmd.Teach.cancelPrep()
         // A finger the agent left down (run … --keep without a release) never outlives the turn.
         if (_state.value.ownerSessionId == sessionId) display?.let { d ->
             Thread { runCatching { VScreenShell.finger(d.displayId, "cancel", 0, -1, -1) } }.apply { isDaemon = true }.start()
@@ -514,7 +516,9 @@ object BackgroundOperation {
     fun userStop() {
         val d = display
         _state.value.ownerSessionId?.let { TaskLog.stoppedByUser(it) }
+        val wasHeld = _state.value.takeoverSessionId != null
         _state.update { it.copy(userStopped = true, stoppedAt = System.currentTimeMillis(), takeoverSessionId = null, operating = false) }
+        if (wasHeld) com.kilon.agentvscreen.cmd.Teach.onTakeoverEnded(appContext)
         d?.let { Thread { runCatching { VScreenShell.finger(it.displayId, "cancel", 0, -1, -1) } }.apply { isDaemon = true }.start() }
         AppLogger.info(TAG, "user stop")
     }
@@ -524,6 +528,7 @@ object BackgroundOperation {
         val s = _state.value
         synchronized(lock) { s.ownerSessionId?.let { tasks[it]?.rereadRequired = true } }
         _state.update { it.copy(userStopped = false, stoppedAt = 0L, takeoverSessionId = null) }
+        if (s.takeoverSessionId != null) com.kilon.agentvscreen.cmd.Teach.onTakeoverEnded(appContext)
         AppLogger.info(TAG, "user allowed the AI to continue")
         // 1.3.0-beta16: the agent hears it (vscreen events) instead of finding out on its next call.
         if (s.takeoverSessionId != null || s.userStopped) s.ownerSessionId?.let { sid ->
@@ -554,6 +559,7 @@ object BackgroundOperation {
         if (s.takeoverSessionId != null) {
             synchronized(lock) { tasks[owner]?.rereadRequired = true }
             _state.update { it.copy(takeoverSessionId = null) }
+            com.kilon.agentvscreen.cmd.Teach.onTakeoverEnded(appContext)
         }
         _state.update { it.copy(windowHidden = true) }
         AppLogger.info(TAG, "window hidden by the user (AI keeps working)")

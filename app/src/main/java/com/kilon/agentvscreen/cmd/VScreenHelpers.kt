@@ -61,7 +61,8 @@ internal fun VScreenOffloadHandler.spotsCmd(sid: String?, args: OffloadArgs): Na
 /** `zoom x1,y1,x2,y2 [--scale N]`: that area enlarged, with screen coordinates on its edges, plus the elements in it. */
 internal fun VScreenOffloadHandler.zoomCmd(sid: String?, args: OffloadArgs): NativeOffloadResult {
     val s = sid ?: throw ActionError("NO_SESSION", tr("没有会话（请求头 X-VScreen-Session）", "No session (header X-VScreen-Session)"))
-    val r0 = args.positional.firstOrNull()?.let { parseRect(it, tr("区域", "region")) } ?: throw ActionError("INVALID_ARGS", "zoom x1,y1,x2,y2 [--scale 2]")
+    val r0 = args.positional.firstOrNull()?.let { parseRect(it, tr("区域", "region")) }
+        ?: if (args.get("scale") != null) Rect(0, 0, Int.MAX_VALUE / 2, Int.MAX_VALUE / 2) else throw ActionError("INVALID_ARGS", "zoom x1,y1,x2,y2 [--scale 2]")
     return BackgroundOperation.agentAction(s, null, isRead = true, describe = tr("放大看", "zoom in")) { d ->
         val frame = freshFrameOf(d)
         val r = Rect(r0.left.coerceIn(0, frame.width - 1), r0.top.coerceIn(0, frame.height - 1), r0.right.coerceIn(1, frame.width), r0.bottom.coerceIn(1, frame.height))

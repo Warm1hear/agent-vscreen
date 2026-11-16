@@ -91,6 +91,26 @@ class HostService : Service() {
         }
 
         fun stop(ctx: Context) { if (pending) stopWhenUp = true else ctx.stopService(Intent(ctx, HostService::class.java)) }
+
+        /**
+         * 1.4.0-beta5: the local server outlives the service unless the user turned it off. On demand, the app's
+         * process often lives on without the service (the accessibility service keeps it), and a server that went with
+         * the service left agents a refused connection they could do nothing about. Now the process keeps listening and
+         * the first request wakes the service ([wakeFor]).
+         */
+        fun ensureServer(ctx: Context): ApiServer = synchronized(this) {
+            server ?: ApiServer(ctx.applicationContext).also { server = it; it.start(ApiConfig.port) }
+        }
+
+        fun dropServer() = synchronized(this) { server?.onChange = null; server?.stop(); server = null }
+
+        /** A request arrived while the service sleeps: wake it and wait up to 8 s for it (false: off, or it did not come). */
+        fun wakeFor(ctx: Context, why: String): Boolean {
+            if (!ServiceControl.wake(ctx, why)) return false
+            val until = android.os.SystemClock.elapsedRealtime() + 8_000L
+            while (!isAlive && android.os.SystemClock.elapsedRealtime() < until) Thread.sleep(100)
+            return isAlive
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -103,7 +123,7 @@ class HostService : Service() {
         goForeground()
         pendingAt = 0L
         BackgroundOperation.setEnabled(true)
-        server = ApiServer(applicationContext).also { it.onChange = { renotify() }; it.start(ApiConfig.port) }
+        ensureServer(applicationContext).onChange = { renotify() }
         Overlay.attach(applicationContext)
         Presence.start(applicationContext)
         A11yHeal.maybeHeal(applicationContext, "service start")
@@ -204,7 +224,8 @@ class HostService : Service() {
         com.kilon.agentvscreen.host.quiet("HostService:167") { getSystemService(NotificationManager::class.java)?.cancel(STOP_NOTE_ID) }
         Overlay.detach()
         Presence.stop()
-        server?.onChange = null; server?.stop(); server = null
+        // On demand the server stays (the next request wakes the service); off, it goes with the service.
+        if (ServiceControl.now(this) == ServiceControl.State.BLOCKED) dropServer() else server?.onChange = null
         Liveness.serviceGone()
         if (!Prefs.serviceOn(this)) BackgroundOperation.setEnabled(false)
         isAlive = false

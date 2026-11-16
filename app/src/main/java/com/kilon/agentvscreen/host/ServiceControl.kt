@@ -60,6 +60,7 @@ object ServiceControl {
     /** Out of the shade and the background; still woken by whatever needs it. */
     fun hide(ctx: Context, why: String) {
         Prefs.setServiceOn(ctx, false); Prefs.setBlocked(ctx, false)
+        HostService.ensureServer(ctx)
         BackgroundOperation.stopAndRelease(tr("服务改成按需（agent 用到时会再叫醒）", "The service is on demand now (an agent wakes it when needed)"))
         HostService.stop(ctx)
         now(ctx)
@@ -70,6 +71,7 @@ object ServiceControl {
     fun block(ctx: Context, why: String) {
         Prefs.setServiceOn(ctx, false); Prefs.setBlocked(ctx, true)
         BackgroundOperation.stopAndRelease(tr("用户关闭了 Agent-VScreen", "The user turned Agent-VScreen off"))
+        if (!HostService.isAlive) HostService.dropServer()
         // 1.4.0-beta4: off is off: watches (their own notification) end too.
         runCatching { com.kilon.agentvscreen.core.VScreenRules.stopAll(tr("用户关闭了服务", "the user turned the service off")) }
         HostService.stop(ctx)
@@ -80,6 +82,7 @@ object ServiceControl {
     /** From blocked back to hidden (woken on demand) without turning it on. */
     fun allow(ctx: Context, why: String) {
         Prefs.setBlocked(ctx, false); now(ctx)
+        HostService.ensureServer(ctx)
         AppLogger.info("ServiceControl", "allowed (hidden): $why")
     }
 

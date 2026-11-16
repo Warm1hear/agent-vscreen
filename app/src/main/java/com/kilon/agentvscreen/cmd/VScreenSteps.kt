@@ -23,12 +23,13 @@ internal sealed class StepTarget {
     data class At(val x: Int, val y: Int) : StepTarget()
     data class Ref(val n: Int) : StepTarget()
     /** [nth]: 0 = the one match; N > 0 the N-th in reading order; -1 the last. */
-    data class Words(val text: String, val nth: Int = 0) : StepTarget()
+    /** [dx]/[dy]: 1.4.0-beta5, a point beside the words (an icon next to its label), in pixels from their centre. */
+    data class Words(val text: String, val nth: Int = 0, val dx: Int = 0, val dy: Int = 0) : StepTarget()
 
     fun describe(): String = when (this) {
         is At -> "$x,$y"
         is Ref -> "#$n"
-        is Words -> "“$text”" + (if (nth != 0) "@$nth" else "")
+        is Words -> "“$text”" + (if (nth != 0) "@$nth" else "") + (if (dx != 0 || dy != 0) " %+d,%+d".format(dx, dy) else "")
     }
 }
 
@@ -248,10 +249,10 @@ internal object Steps {
                     tail.lowercase().startsWith("else") || tail.startsWith("否则") -> {
                         val after = tail.drop(if (tail.startsWith("否则")) 2 else 4).trim()
                         if (after.isEmpty()) bad(raw, tr("else 后面写 { 步骤 } 或一步", "write { steps } or a step after else"))
-                        if (after.startsWith("{")) block(raw, after, 0).also { (_, c) -> if (after.substring(c + 1).isNotBlank()) bad(raw, tr("else { … } 后面不能再写东西", "nothing may follow else { … }")) }.first
+                        if (after.startsWith("{")) block(raw, after, 0).also { (_, c) -> if (after.substring(c + 1).isNotBlank()) bad(raw, tr("else { … } 后面不能再写东西。要等结果：把 until 写在 { } 里最后一步后面，或用 ; 另起一步 wait <条件>", "nothing may follow else { … }. To wait for a result: put until after the last step inside { }, or add a step ; wait <condition>")) }.first
                         else listOf(parse(after))
                     }
-                    else -> bad(raw, tr("} 后面只能接 else", "only else may follow }"))
+                    else -> bad(raw, tr("} 后面只能接 else。要等结果：把 until 写在 { } 里最后一步后面，或用 ; 另起一步 wait <条件>", "only else may follow }. To wait for a result: put until after the last step inside { }, or add a step ; wait <condition>"))
                 }
                 return Step(raw, StepKind.IF, until = conds, untilMs = max ?: CHECK_DEFAULT_MS, body = body, alt = alt)
             }
@@ -275,7 +276,51 @@ internal object Steps {
     }
 
     /** One step. Throws INVALID_STEP with what was wrong and how to write it. */
-    fun parse(raw: String): Step {
+    /**
+     * 1.4.0-beta5 (rainbow: 坐标按屏幕比例保存): coordinates may be written as shares of the screen, `50% 80%`, so a
+     * lesson recorded on one screen size lands on the same place on another. They become pixels of the screen the
+     * step runs on ([frame]; without a screen a 1000×1000 stand-in only checks the writing). A share stands for a
+     * coordinate only in a pair (x then y), so one `50%` alone stays words (a battery level); typing is left as is.
+     */
+    @Volatile var frame: () -> Pair<Int, Int>? = { null }
+
+    private val PCT_RUN = Regex("(?<![\\w.%])[+-]?\\d+(?:\\.\\d+)?%(?:[\\s,，]+[+-]?\\d+(?:\\.\\d+)?%)+(?![\\w%])")
+
+    fun resolvePct(raw: String): String {
+        if ('%' !in raw) return raw
+        val verb = raw.trimStart().substringBefore(' ').lowercase()
+        if (verb == "type" || verb == "type+" || verb == "输入") return raw
+        val (w, h) = frame() ?: (1000 to 1000)
+        val out = StringBuilder(); var q: Char? = null; var seg = StringBuilder()
+        fun flush() {
+            out.append(PCT_RUN.replace(seg) { m ->
+                val vals = Regex("[+-]?\\d+(?:\\.\\d+)?%").findAll(m.value).toList()
+                if (vals.size % 2 != 0) return@replace m.value
+                var k = 0
+                Regex("([+-]?)(\\d+(?:\\.\\d+)?)%").replace(m.value) { v ->
+                    val share = v.groupValues[2].toDouble() / 100.0
+                    val px = Math.round(share * (if (k++ % 2 == 0) w else h)).toInt()
+                    v.groupValues[1] + (if (v.groupValues[1].isEmpty()) px.coerceAtLeast(0) else px)
+                }
+            }); seg = StringBuilder()
+        }
+        for (c in raw) when {
+            q != null -> { out.append(c); if (c == q) q = null }
+            c == '"' || c == '“' -> { flush(); out.append(c); q = if (c == '“') '”' else c }
+            else -> seg.append(c)
+        }
+        flush()
+        return out.toString()
+    }
+
+    /** Pixels as a share of the screen, as [resolvePct] reads it back ("50%", "12.5%"). */
+    fun pct(px: Int, of: Int): String {
+        val v = Math.round(px * 1000.0 / maxOf(1, of)) / 10.0
+        return (if (v == Math.floor(v)) v.toLong().toString() else v.toString()) + "%"
+    }
+
+    fun parse(raw0: String): Step {
+        val raw = resolvePct(raw0)
         val toks0 = tokens(raw)
         if (toks0.isEmpty()) bad(raw, tr("空步骤", "empty step"))
         val verb = toks0[0].lowercase()
@@ -378,10 +423,22 @@ internal object Steps {
             if (nums.size != 2) bad(raw, tr("坐标是两个数：x y（只写一个数＝点画面上的这个数字；#N＝元素编号）", "coordinates are two numbers: x y (a single number = tap that number on the screen; #N = element number)"))
             return StepTarget.At(nums[0], nums[1]) to ms
         }
+        // 1.4.0-beta5: words then a signed offset, `设置 +120,-8`: the point that far from the words (an icon or a switch
+        // beside its label). Both signs are required, so a word that is a number is never read as an offset.
+        var dx = 0; var dy = 0
+        val off = Regex("^([+-]\\d+)[,，]([+-]\\d+)$")
+        if (a.size >= 2) {
+            val one = off.find(a.last())
+            val two = if (a.size >= 3 && Regex("^[+-]\\d+$").matches(a[a.size - 2]) && Regex("^[+-]\\d+$").matches(a.last())) a[a.size - 2] to a.last() else null
+            when {
+                one != null -> { dx = one.groupValues[1].toInt(); dy = one.groupValues[2].toInt(); a = a.dropLast(1) }
+                two != null -> { dx = two.first.toInt(); dy = two.second.toInt(); a = a.dropLast(2) }
+            }
+        }
         // 1.3.0-beta18: words@N = the N-th place they are on the screen (top to bottom, left to right; @-1 the last).
         val w = a.joinToString(" ").trim()
-        Regex("^(.*\\S)@(-?\\d{1,2})$").find(w)?.let { m -> val k = m.groupValues[2].toInt(); if (k != 0) return StepTarget.Words(m.groupValues[1], k) to ms }
-        return StepTarget.Words(w) to ms
+        Regex("^(.*\\S)@(-?\\d{1,2})$").find(w)?.let { m -> val k = m.groupValues[2].toInt(); if (k != 0) return StepTarget.Words(m.groupValues[1], k, dx, dy) to ms }
+        return StepTarget.Words(w, 0, dx, dy) to ms
     }
 
     /** Conditions joined by or, then an optional duration last (the longest wait). */
@@ -433,7 +490,7 @@ internal object Steps {
     }
 
     /** Conditions of a --stop / keep value. */
-    fun conds(spec: String): List<Cond> = condsWithMax(tokens(spec)).first
+    fun conds(spec: String): List<Cond> = condsWithMax(tokens(resolvePct(spec))).first
 
     private fun bad(raw: String, why: String): Nothing = throw ActionError("INVALID_STEP",
         tr("步骤“$raw”：$why。整段没有执行。步骤写法：tap x y | tap #N | tap 字 | press x y [时长] | swipe x1 y1 x2 y2 [时长] | " +

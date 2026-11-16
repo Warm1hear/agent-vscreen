@@ -110,7 +110,15 @@ internal class Probe(private val h: VScreenOffloadHandler, private val d: VScree
 
     private fun diff(a: Bitmap, b: Bitmap, c: Cond?): Double {
         if (a.width != b.width || a.height != b.height) return 1.0
-        val skip = if (c?.area != null) emptyList() else mask?.rectsIn(a.width, a.height).orEmpty()
+        // 1.4.0-beta5 (test: a game's title page → its loading page, 75% different, reported as "no change"): when
+        // nearly the whole picture moves by itself (games, animated backgrounds), leaving the moving areas out leaves
+        // nothing to compare. Then the whole picture is compared and only a change far beyond the animation counts.
+        val m = mask
+        if (c?.area == null && m != null && m.share > Mask.MOSTLY) {
+            val r = Change.ratio(a, b, null, emptyList()).coerceAtLeast(0.0)
+            return if (r >= Change.PAGE_OVER_MOTION) r else 0.0
+        }
+        val skip = if (c?.area != null) emptyList() else m?.rectsIn(a.width, a.height).orEmpty()
         return Change.ratio(a, b, c?.let { scaled(it, a) }, skip).coerceAtLeast(0.0)
     }
 
@@ -155,7 +163,13 @@ internal class Probe(private val h: VScreenOffloadHandler, private val d: VScree
     /** For a wait that timed out: what each condition sees now (a fact the caller can compare with what it asked). */
     fun now(): String = (if (waitingForChange) tr("动作之后画面没有变化，应用没有反应；", "nothing on the screen changed after the action, the app did not react; ") else "") + conds.joinToString(tr("；", "; ")) { c ->
         when (c.kind) {
-            CondKind.TEXT -> tr("画面上没有“${c.text}”", "\"${c.text}\" is not on the screen")
+            // 1.4.0-beta5: with an area, say whether the words are elsewhere on the screen (beta4 said "not on the
+            // screen" for words that were there, only outside the area).
+            CondKind.TEXT -> if (c.area != null) {
+                val elsewhere = runCatching { seen(c.text!!) }.getOrNull() != null
+                if (elsewhere) tr("${where(c)}里没有“${c.text}”（画面上有，在区域外）", "\"${c.text}\" is not in ${where(c)} (it is on the screen, outside the region)")
+                else tr("${where(c)}里没有“${c.text}”，画面上也没有", "\"${c.text}\" is not in ${where(c)}, nor anywhere on the screen")
+            } else tr("画面上没有“${c.text}”", "\"${c.text}\" is not on the screen")
             CondKind.GONE -> tr("“${c.text}”还在", "\"${c.text}\" is still there")
             CondKind.CHANGE -> tr("${where(c)}没有明显变化", "no clear change in ${where(c)}")
             CondKind.STILL -> tr("${where(c)}一直在变", "${where(c)} keeps changing")
@@ -596,10 +610,10 @@ private class Target(val x: Int, val y: Int, val label: String?, val moved: Stri
  * them. With `*` (a pattern over the whole text): input boxes only when nothing else matches, since a pattern names
  * something shown (the box typed into holds the same words). A taught lesson picks its @N by this same rule.
  */
-internal fun wordHits(els: List<El>, text: String): List<El> {
+internal fun wordHits(els: List<El>, text: String, hints: Boolean = false): List<El> {
     val pat = TextPat(text)
-    val exact = els.filter { !it.placeholder && pat.exact(it.text) }
-    val all0 = if (pat.wild) exact else exact.ifEmpty { els.filter { !it.placeholder && pat.hit(it.text) } }
+    val exact = els.filter { (hints || !it.placeholder) && pat.exact(it.text) }
+    val all0 = if (pat.wild) exact else exact.ifEmpty { els.filter { (hints || !it.placeholder) && pat.hit(it.text) } }
     val all = if (pat.wild) all0.filter { !it.editable }.ifEmpty { all0 } else all0
     val one = ArrayList<El>().also { out -> all.forEach { h -> if (out.none { near(it, h) }) out += h } }
     return readingOrder(one) { it.box }
@@ -682,16 +696,25 @@ private fun VScreenOffloadHandler.target(sid: String, d: VScreenDisplay, t: Step
         }
     }
     is StepTarget.Words -> run {
+        // 1.4.0-beta5: with an offset the point is beside the words, not on them (no box: it is a point tap).
+        fun hit(e: El): Target = if (t.dx == 0 && t.dy == 0) Target(e.box.centerX(), e.box.centerY(), e.label, box = e.box)
+            else Target((e.box.centerX() + t.dx).coerceAtLeast(0), (e.box.centerY() + t.dy).coerceAtLeast(0), tr("「${e.label.orEmpty().take(24)}」旁", "beside \"${e.label.orEmpty().take(24)}\""))
         fun choose(hits: List<El>): El? = if (t.nth != 0) hits.getOrNull(if (t.nth > 0) t.nth - 1 else hits.size + t.nth)
             else hits.singleOrNull() ?: hits.filter { it.clickable || it.editable }.singleOrNull()
         // 1.3.0-beta19 (test N, a pattern tap took 10.9 s): the app's own elements answer first. A full look waits for
         // a fresh frame and OCRs it, and reads it again while the page is still changing (a result list updating as
         // you type): seconds. OCR is only needed when the tree does not settle it (no match there, or not one place).
-        val quick = runCatching { mergeElements(d, a11yRaw(d), null) }.getOrDefault(emptyList()).filter { !it.placeholder }
-        val fast = wordHits(quick, t.text).takeIf { it.isNotEmpty() }?.let { choose(it) }
-        if (fast != null) return@run Target(fast.box.centerX(), fast.box.centerY(), fast.label, box = fast.box)
-        val els = snapshot(d).els.filter { !it.placeholder }
-        val hits = wordHits(els, t.text)
+        // 1.4.0-beta5 (test: 搜索@2 NOT_FOUND, @-1 the first place, *搜索*@2 the third): @N counts in the list the agent
+        // was shown. It lists a search box's hint words ("搜索", tagged as a hint) but matching skipped hints, so the
+        // places the agent counted were not the places counted here. With @N every listed place counts, hints too,
+        // and only the full list is used (the tree alone may lack an OCR-only place).
+        if (t.nth == 0) {
+            val quick = runCatching { mergeElements(d, a11yRaw(d), null) }.getOrDefault(emptyList()).filter { !it.placeholder }
+            val fast = wordHits(quick, t.text).takeIf { it.isNotEmpty() }?.let { choose(it) }
+            if (fast != null) return@run hit(fast)
+        }
+        val els = snapshot(d).els.let { all -> if (t.nth != 0) all else all.filter { !it.placeholder } }
+        val hits = wordHits(els, t.text, hints = t.nth != 0)
         if (hits.isEmpty()) throw StepRefused("NOT_FOUND", tr("画面上没找到“${t.text}”（控件文字和 OCR 都没有）", "\"${t.text}\" was not found on the screen (neither in widget text nor OCR)") + nearMiss(els, t.text.replace("*", "")))
         val pick = if (t.nth != 0) choose(hits)
             ?: throw StepRefused("NOT_FOUND", tr("“${t.text}”在画面上只有 ${hits.size} 处，没有第 ${t.nth} 处", "\"${t.text}\" is on the screen in only ${hits.size} places, there is no @${t.nth}"))
@@ -699,7 +722,7 @@ private fun VScreenOffloadHandler.target(sid: String, d: VScreenDisplay, t: Step
             ?: throw StepRefused("AMBIGUOUS", tr("“${t.text}”在画面上有 ${hits.size} 处，没点：", "\"${t.text}\" is on the screen in ${hits.size} places; nothing was tapped: ") +
                 hits.take(8).withIndex().joinToString(tr("；", "; ")) { (i, h) -> "@${i + 1} “${h.text.take(24)}” (${h.box.centerX()},${h.box.centerY()})" + h.flags.let { f -> if (f.isNotEmpty()) " $f" else "" } } +
                 tr("。写 ${t.text}@N 点从上往下第 N 处，或用坐标（tap x y）", ". Write ${t.text}@N for the N-th from the top, or tap by coordinates (tap x y)"))
-        Target(pick.box.centerX(), pick.box.centerY(), pick.label, box = pick.box)
+        hit(pick)
     }
 }
 

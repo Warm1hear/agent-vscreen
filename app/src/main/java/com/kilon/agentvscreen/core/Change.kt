@@ -26,6 +26,8 @@ object Change {
 
     /** At least this share changed: "the screen / region changed" for a `change` condition. */
     const val CHANGED = 0.02
+    /** 1.4.0-beta5: on a picture that moves all over by itself, a change counts only from this share (a new page). */
+    const val PAGE_OVER_MOTION = 0.4
     /** A region expectation: at least this share is "changed", below [REGION_SAME] is "the same". */
     const val REGION_CHANGED = 0.08
     const val REGION_SAME = 0.03
