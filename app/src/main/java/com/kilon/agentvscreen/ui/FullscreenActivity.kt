@@ -1,5 +1,6 @@
 package com.kilon.agentvscreen.ui
 
+import androidx.compose.foundation.layout.offset
 import com.kilon.agentvscreen.tr
 
 import android.os.Bundle
@@ -334,11 +335,6 @@ class FullscreenActivity : PageActivity() {
                     }
                     Spacer(Modifier.width(8.dp))
                 }
-                // The request folded into a ball: it lives here, in the bar, not over the picture.
-                if (showCard && BriefPlace.ball) {
-                    Box(Modifier.size(44.dp).clip(CircleShape).clickable { BriefPlace.ball = false; BriefPlace.open = true }, contentAlignment = Alignment.Center) { AskMark(30f) }
-                    Spacer(Modifier.width(8.dp))
-                }
                 when (mode) {
                     Mode.ACTING, Mode.STANDBY -> Pill(tr("停止 AI", "Stop AI"), Icons.Filled.Stop, Palette.stopped, Color.White) { BackgroundOperation.userStop() }
                     else -> Circle(Icons.Filled.Close, tr("关闭副屏", "Close screen"), Color(0x33FFFFFF)) {
@@ -349,7 +345,19 @@ class FullscreenActivity : PageActivity() {
 
             // 1.3.0-beta14: what the agent asked to be shown, in full, while the user shows it.
             if (showCard && !BriefPlace.ball && !BriefPlace.bottom) RequestCard(req, session, recording, prepId != null && !recording, teachN ?: 0, paused, takenOver, mark, ::markReply,
-                Modifier.padding(start = 14.dp, end = 14.dp, bottom = 4.dp))
+                Modifier.padding(start = 14.dp, end = 14.dp, bottom = 4.dp), onFold = { BriefPlace.ball = true }, onMove = { BriefPlace.bottom = true }, atBottom = false)
+            }
+
+            // 1.4.0-beta7 (rainbow: the card over the page could not be moved; earlier versions folded it into a button
+            // that could be dragged): folded, the request is a ball floating over the picture, dragged anywhere, tapped
+            // to open again.
+            if (showCard && BriefPlace.ball) {
+                Box(Modifier.align(Alignment.TopEnd).padding(top = 96.dp, end = 16.dp)
+                    .offset { androidx.compose.ui.unit.IntOffset(BriefPlace.dx.toInt(), BriefPlace.dy.toInt()) }
+                    .size(52.dp).clip(CircleShape).background(Color(0xCC1A1530)).border(1.5.dp, Palette.asking, CircleShape)
+                    .pointerInput(Unit) { detectDragGestures { ch, d -> ch.consume(); BriefPlace.dx += d.x; BriefPlace.dy += d.y } }
+                    .clickable { BriefPlace.ball = false; BriefPlace.open = true },
+                    contentAlignment = Alignment.Center) { AskMark(30f) }
             }
 
             // Hint.
@@ -363,7 +371,8 @@ class FullscreenActivity : PageActivity() {
             // Bottom block: floats over the picture and rides on top of the keyboard.
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding().navigationBarsPadding().padding(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (showCard && !BriefPlace.ball && BriefPlace.bottom) RequestCard(req, session, recording, prepId != null && !recording, teachN ?: 0, paused, takenOver, mark, ::markReply)
+                if (showCard && !BriefPlace.ball && BriefPlace.bottom) RequestCard(req, session, recording, prepId != null && !recording, teachN ?: 0, paused, takenOver, mark, ::markReply,
+                    onFold = { BriefPlace.ball = true }, onMove = { BriefPlace.bottom = false }, atBottom = true)
                 if (typing) {
                     // 1.3.0-beta14: this box mirrors the focused field on the screen: it starts with what the field
                     // reads, and every change (typing, deleting with the keyboard's own key) goes there as it happens.
@@ -506,6 +515,8 @@ private object BriefPlace {
     var open by mutableStateOf(true)
     var bottom by mutableStateOf(false)
     var ball by mutableStateOf(false)
+    var dx by mutableStateOf(0f)
+    var dy by mutableStateOf(0f)
 }
 
 internal fun vscreenUserInput(sessionId: String, op: (Int) -> Unit) {

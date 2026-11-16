@@ -31,7 +31,7 @@ internal fun noteLines(pkg: String, verNow: String? = null): List<String> {
     val name = VScreenKnowledge.label(pkg)?.let { "$it（$pkg）" } ?: pkg
     out += if (I18n.en) "[$name]" else "【$name】"
     if (m.notes.isEmpty()) out += tr("笔记：无", "Notes: none") else { out += tr("笔记：", "Notes:"); m.notes.forEach { out += "  ${it.id}. ${it.text}" + noteOrigin(it, verNow) } }
-    if (m.segments.isEmpty()) out += tr("段：无", "Segments: none") else { out += tr("段（act \"use 名字\"）：", "Segments (act \"use name\"):"); m.segments.forEach { out += "  ${it.name} = ${it.steps}" + tr("（用过 ${it.uses} 次）", " (used ${it.uses} times)") +
+    if (m.segments.isEmpty()) out += tr("段：无", "Segments: none") else { out += tr("段（act \"use 名字\"）：", "Segments (act \"use name\"):"); m.segments.forEach { out += "  ${it.name} = ${it.steps}" + tr("（用过 ${it.uses} 次）", " (used ${it.uses} times)") + (it.by?.let { b -> tr("（为 ${com.kilon.agentvscreen.api.Agents.name(b)} 存的）", " (saved for ${com.kilon.agentvscreen.api.Agents.name(b)})") } ?: "") +
         (if (VScreenMap.picture(pkg, it.name) != null) tr("（有示教缩略图：note show ${it.name}）", " (lesson thumbnails: note show ${it.name})") else "") } }
     val p = m.profile
     val none = tr("没记", "not kept")
@@ -116,21 +116,27 @@ internal fun VScreenOffloadHandler.noteCmd(sid: String?, args: OffloadArgs): Nat
 }
 
 /** `keep` — the watches kept after turns; `keep off <名字|all>` — stop them. Started by `act --stop … --keep notify|wake`. */
-internal fun VScreenOffloadHandler.keepCmd(@Suppress("UNUSED_PARAMETER") sid: String?, args: OffloadArgs): NativeOffloadResult {
+internal fun VScreenOffloadHandler.keepCmd(sid: String?, args: OffloadArgs): NativeOffloadResult {
     val p = args.positional
+    // 1.4.0-beta7: an agent lists and stops its own watches only (another agent's `keep off all` left this one's gone).
+    val me = com.kilon.agentvscreen.api.Agents.ofSession(sid ?: VScreenOffloadHandler.DEFAULT_SESSION)
+    fun mine(l: VScreenRules.Live) = com.kilon.agentvscreen.api.Agents.ofSession(l.spec.sid) == me
     if (p.firstOrNull()?.lowercase() == "off") {
         val name = p.getOrNull(1) ?: throw ActionError("INVALID_ARGS", tr("keep off <名字|all>", "keep off <name|all>"))
         // 1.1: ended watches (seen / timed out) stay listed until cleared; off clears them too.
         if (name == "all") {
-            val stopped = VScreenRules.stopAll(); val cleared = VScreenRules.clearEnded()
+            val own = VScreenRules.list().filter(::mine)
+            val stopped = own.count { !it.stopped && VScreenRules.stop(it.spec.name) }
+            val cleared = own.filter { it.stopped }.sumOf { VScreenRules.clearEnded(it.spec.name) }
             return text(tr("已停 $stopped 个正在盯的", "Stopped $stopped running watches") + if (cleared > 0) tr("，清掉 $cleared 条已结束的", ", cleared $cleared ended ones") else "")
         }
+        if (VScreenRules.list().any { it.spec.name == name && !mine(it) }) throw ActionError("NOT_FOUND", tr("没有叫「$name」的盯守（同名的那个是别的 agent 的）：keep 看你的列表", "no watch of yours called \"$name\" (that one is another agent's): keep lists yours"))
         if (VScreenRules.stop(name)) { VScreenRules.clearEnded(name); return text(tr("已停「$name」", "Stopped \"$name\"")) }
         if (VScreenRules.clearEnded(name) > 0) return text(tr("「$name」已经结束了，已从列表清掉", "\"$name\" had already ended; cleared from the list"))
         throw ActionError("NOT_FOUND", tr("没有叫「$name」的盯守：keep 看列表", "no watch called \"$name\": keep lists them"))
     }
     if (p.isNotEmpty()) throw ActionError("INVALID_ARGS", tr("keep（列表）| keep off <名字|all>。开始盯守用 act --stop \"条件\" --keep notify|wake [--for 1h]", "keep (list) | keep off <name|all>. Start a watch with act --stop \"condition\" --keep notify|wake [--for 1h]"))
-    val list = VScreenRules.list()
+    val list = VScreenRules.list().filter(::mine)
     if (list.isEmpty()) return text(tr("没有盯守。开始：act --stop \"text:到货\" --keep notify [--for 2h]", "No watches. Start one: act --stop \"text:In stock\" --keep notify [--for 2h]"))
     fun action(l: VScreenRules.Live) = l.json().optJSONArray("action")?.join(tr("、", ", "))?.replace("\"", "")
     val running = list.filter { !it.stopped }.map { l ->

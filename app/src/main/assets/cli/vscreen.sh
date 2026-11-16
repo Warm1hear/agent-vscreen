@@ -114,7 +114,9 @@ if [ "$1" = "install" ]; then
     done
   fi
   [ -n "$dest" ] || { echo "vscreen: «找不到可写的安装目录，请指定：vscreen install <令牌> <目录>|no writable install dir found, give one: vscreen install <token> <dir>»" >&2; exit 2; }
-  c -fsS "$URL/cli?via=install" -o "$dest/vscreen" || { echo "vscreen: «下载失败：Agent-VScreen 在运行吗？|download failed: is Agent-VScreen running?»" >&2; exit 3; }
+  # 1.4.0-beta7: which agent installed (the token's id, never its secret), so each agent has its own record.
+  tid=$(printf '%s' "$tok" | sed -n 's/^avs_\([a-z0-9]*\)_.*/\1/p')
+  c -fsS "$URL/cli?via=install&id=$tid" -o "$dest/vscreen" || { echo "vscreen: «下载失败：Agent-VScreen 在运行吗？|download failed: is Agent-VScreen running?»" >&2; exit 3; }
   chmod +x "$dest/vscreen"
   mkdir -p "$CONF_DIR"
   printf 'VSCREEN_URL=%s\nVSCREEN_TOKEN=%s\n' "$URL" "$tok" > "$CONF_DIR/env"

@@ -105,6 +105,8 @@ fun RecordsTab(bottom: Dp) {
     var beat by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { delay(4_000); beat++ } }
     var filter by remember { mutableStateOf(Filter.ALL) }
+    // 1.4.0-beta7: whose records (null = every agent); shown once more than one agent left any.
+    var who by remember { mutableStateOf<String?>(null) }
     var lines by remember { mutableStateOf(emptyList<Line>()) }
     LaunchedEffect(beat, app.tick) {
         lines = withContext(Dispatchers.IO) {
@@ -120,13 +122,19 @@ fun RecordsTab(bottom: Dp) {
                 FilterChip(label, filter == f) { filter = f }
             }
         }
+        fun agentOf(l: Line) = com.kilon.agentvscreen.api.Agents.ofSession(when (l) { is Line.T -> l.t.session; is Line.A -> l.o.optString("session") })
+        val whoList = lines.map(::agentOf).distinct()
+        if (whoList.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(tr("所有 agent", "Every agent"), who == null) { who = null }
+            whoList.forEach { id -> FilterChip(com.kilon.agentvscreen.api.Agents.name(id), who == id) { who = id } }
+        }
         AnimatedContent(filter, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) }, label = "filter") { f ->
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 when (f) {
                     Filter.PLANS -> Plans(beat)
                     Filter.LESSONS -> LessonsList(app.tick)
                     else -> {
-                        val shown = lines.filter { f == Filter.ALL || (f == Filter.TASKS && it is Line.T) || (f == Filter.ASKS && it is Line.A) }
+                        val shown = lines.filter { (f == Filter.ALL || (f == Filter.TASKS && it is Line.T) || (f == Filter.ASKS && it is Line.A)) && (who == null || agentOf(it) == who) }
                         if (shown.isEmpty()) {
                             if (f == Filter.ASKS) EmptyState(androidx.compose.material.icons.Icons.Outlined.QuestionAnswer, tr("还没有提问", "No questions yet"),
                                 tr("agent 拿不准时会在手机上问你，你的回答会记在这里", "When an agent is unsure it asks you on the phone; your answers are kept here"))

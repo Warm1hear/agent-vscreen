@@ -146,7 +146,7 @@ fun OverviewTab(bottom: Dp) {
         Home.FIRST -> tr("接上你的 agent", "Connect your agent")
     }
     val eyebrow = when (home) {
-        Home.ACTING -> Palette.word(mode) + (s.ownerSessionId?.let { " · $it" } ?: "")
+        Home.ACTING -> Palette.word(mode) + (s.ownerSessionId?.let { " · " + com.kilon.agentvscreen.api.Agents.nameOfSession(it) } ?: "")
         Home.IDLE -> if (app.serviceOn) tr("agent 随时连得上", "Agents can connect any time") else ServiceControl.title(ctx)
         Home.BROKEN -> tr("agent 现在用不了副屏", "Agents cannot use the screen right now")
         Home.FIRST -> tr("还没有 agent 用过", "No agent has used it yet")

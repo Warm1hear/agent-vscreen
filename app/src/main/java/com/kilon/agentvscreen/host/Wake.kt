@@ -276,9 +276,11 @@ object Wake {
         return e
     }
 
-    fun remove(ctx: Context, name: String): Int {
+    /** [agent] null: anyone's (the user, in the app); else only that agent's bookings. */
+    fun remove(ctx: Context, name: String, agent: String? = null): Int {
         load(ctx)
-        val n = synchronized(lock) { val before = entries.size; if (name == "all") entries.clear() else entries.removeAll { it.name == name }; before - entries.size }
+        fun own(e: Entry) = agent == null || com.kilon.agentvscreen.api.Agents.ofSession(e.session) == agent
+        val n = synchronized(lock) { val before = entries.size; entries.removeAll { own(it) && (name == "all" || it.name == name) }; before - entries.size }
         if (n > 0) { save(ctx); arm(ctx) }
         return n
     }

@@ -162,7 +162,7 @@ class TeachActivity : PageActivity() {
 
     private fun save(r: Teach.Result, name: String, steps: String, params: Int, keep: Set<Int>) {
         val app = r.app ?: return
-        VScreenMap.saveSegment(app, name, steps, r.start)
+        VScreenMap.saveSegment(app, name, steps, r.start, com.kilon.agentvscreen.api.Agents.ofSession(r.session))
         // 1.3.0: the lesson's contact sheet, kept with the segment (before the answer: the agent's reply attaches it).
         Teach.sheet(r, keep)?.let { VScreenMap.savePicture(app, name, it); it.recycle() } ?: VScreenMap.pictureFile(app, name)?.delete()
         r.askId?.let { id ->

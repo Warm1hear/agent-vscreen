@@ -14,12 +14,13 @@ internal fun VScreenOffloadHandler.scheduleCmd(sid: String?, args: OffloadArgs):
     val session = sid ?: VScreenOffloadHandler.DEFAULT_SESSION
     if (p.firstOrNull()?.lowercase() == "off") {
         val name = p.getOrNull(1) ?: throw ActionError("INVALID_ARGS", tr("schedule off <名字|all>", "schedule off <name|all>"))
-        val n = Wake.remove(context, name)
+        // 1.4.0-beta7: only this agent's bookings.
+        val n = Wake.remove(context, name, com.kilon.agentvscreen.api.Agents.ofSession(session))
         if (n == 0) throw ActionError("NOT_FOUND", tr("没有叫「$name」的预约：schedule 看列表", "no schedule called \"$name\": schedule lists them"))
-        return ok(args, JSONObject().put("removed", n).put("schedules", JSONArray(Wake.list(context).map { it.json() })))
+        return ok(args, JSONObject().put("removed", n).put("schedules", JSONArray(Wake.list(context).filter { com.kilon.agentvscreen.api.Agents.ofSession(it.session) == com.kilon.agentvscreen.api.Agents.ofSession(session) }.map { it.json() })))
     }
     if (p.isEmpty()) {
-        val list = Wake.list(context)
+        val list = Wake.list(context).filter { com.kilon.agentvscreen.api.Agents.ofSession(it.session) == com.kilon.agentvscreen.api.Agents.ofSession(session) }
         return ok(args, JSONObject()
             .put("schedules", JSONArray(list.map { it.json() }))
             .put("exact_alarm", Wake.exactAllowed(context))

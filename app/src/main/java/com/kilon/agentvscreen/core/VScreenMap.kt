@@ -35,8 +35,9 @@ internal object VScreenMap {
     }
 
     /** [start]: 1.4.0-beta4, a taught lesson's starting page (Teach.startJson); null for agent-saved segments and older lessons. */
-    class Segment(val name: String, val steps: String, val at: Long, var uses: Int, val start: JSONObject? = null) {
-        fun json(): JSONObject = JSONObject().put("name", name).put("steps", steps).put("at", at).put("uses", uses).also { o -> start?.let { o.put("start", it) } }
+    /** [by]: 1.4.0-beta7, the agent (token id) that saved it or asked for the lesson; lessons are shared, the source is said. */
+    class Segment(val name: String, val steps: String, val at: Long, var uses: Int, val start: JSONObject? = null, val by: String? = null) {
+        fun json(): JSONObject = JSONObject().put("name", name).put("steps", steps).put("at", at).put("uses", uses).also { o -> start?.let { o.put("start", it) }; by?.let { o.put("by", it) } }
     }
 
     class AppMap(val pkg: String) {
@@ -65,7 +66,7 @@ internal object VScreenMap {
             val o = JSONObject(f.readText())
             m.seq = o.optInt("seq")
             arr(o, "notes").forEach { n -> m.notes += Note(n.getInt("id"), n.getString("text"), n.optLong("at"), n.optString("by").ifEmpty { null }, n.optString("app_version").ifEmpty { null }) }
-            arr(o, "segments").forEach { s -> m.segments += Segment(s.getString("name"), s.getString("steps"), s.optLong("at"), s.optInt("uses"), s.optJSONObject("start")) }
+            arr(o, "segments").forEach { s -> m.segments += Segment(s.getString("name"), s.getString("steps"), s.optLong("at"), s.optInt("uses"), s.optJSONObject("start"), s.optString("by").takeIf { it.isNotEmpty() }) }
             o.optJSONObject("profile")?.let { p -> p.keys().forEach { k0 ->
                 val k = LEGACY_KEYS[k0] ?: k0
                 PROFILE_KEYS[k]?.invoke(p.optString(k0))?.let { v -> if (k !in m.profile || k == k0) m.profile[k] = v } } }
@@ -126,10 +127,10 @@ internal object VScreenMap {
     /** 1.4.0-beta4: a lesson taught before lessons kept their starting page (it has a contact sheet but no start). */
     fun oldLesson(pkg: String, s: Segment): Boolean = s.start == null && pictureFile(pkg, s.name)?.isFile == true
 
-    @Synchronized fun saveSegment(pkg: String, name: String, steps: String, start: JSONObject? = null): Segment {
+    @Synchronized fun saveSegment(pkg: String, name: String, steps: String, start: JSONObject? = null, by: String? = com.kilon.agentvscreen.cmd.Call.current()?.tokenId): Segment {
         val m = load(pkg)
         m.segments.removeAll { it.name == name }
-        val s = Segment(name, steps, System.currentTimeMillis(), 0, start)
+        val s = Segment(name, steps, System.currentTimeMillis(), 0, start, by)
         m.segments += s
         while (m.segments.size > MAX_SEGMENTS) m.segments.removeAt(0)
         save(m)

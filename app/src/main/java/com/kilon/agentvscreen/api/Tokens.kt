@@ -109,7 +109,9 @@ object Tokens {
         save(l.map { if (it.id == id) it.with(lastUsedAt = now) else it })
     }
 
-    @Synchronized fun revoke(id: String) { if (id != MAIN) save(_list.value.filter { it.id != id }) }
+    /** 1.4.0-beta7: each connected agent has its own token; its name is how the app shows that agent. */
+    @Synchronized fun rename(id: String, name: String) { val n = name.trim().take(24); if (n.isNotEmpty()) save(_list.value.map { if (it.id == id) it.with(name = n) else it }) }
+        @Synchronized fun revoke(id: String) { if (id != MAIN) save(_list.value.filter { it.id != id }) }
     @Synchronized fun setScope(id: String, scope: String) { if (scope in SCOPES && id != MAIN) save(_list.value.map { if (it.id == id) it.with(scope = scope) else it }) }
     /** [minutes] 0 ends the period now. */
     @Synchronized fun trust(id: String, minutes: Int) =

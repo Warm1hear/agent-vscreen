@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -89,7 +90,23 @@ fun ConnectPage() {
     var where by rememberSaveable { mutableIntStateOf(com.kilon.agentvscreen.host.Access.lastWay()) }
     var how by rememberSaveable { mutableIntStateOf(0) }
     var raw by remember { mutableStateOf(false) }
-    val ledger by AgentLedger.snap.collectAsState()
+    val agents by AgentLedger.agents.collectAsState()
+    val tokens by com.kilon.agentvscreen.api.Tokens.list.collectAsState()
+    // 1.4.0-beta7: every agent connected from here gets its own token, made when its message is first copied; the
+    // same name on this page reuses it (copying twice does not make two agents).
+    var name by rememberSaveable { mutableStateOf("") }
+    var made by rememberSaveable { mutableStateOf<String?>(null) }
+    var madeFor by rememberSaveable { mutableStateOf<String?>(null) }
+    var editing by remember { mutableStateOf<String?>(null) }
+    val suggested = tr("agent ${tokens.size + 1}", "agent ${tokens.size + 1}")
+    fun tokenText(): String {
+        val want = name.trim().ifEmpty { suggested }
+        made?.takeIf { madeFor == want }?.let { return it }
+        val (t, text) = com.kilon.agentvscreen.api.Tokens.create(want, "system")
+        com.kilon.agentvscreen.host.Audit.security("token_created", "${t.name} ${t.scope}")
+        made = text; madeFor = want
+        return text
+    }
     val ts by Tailnet.status.collectAsState()
     val remoteBase = rememberRemoteBase(ApiConfig.tailnetMode)
     val remoteReady = where == 1 && remoteBase != null
@@ -97,7 +114,14 @@ fun ConnectPage() {
     val canCopy = where == 0 || remoteReady
 
     MiuixPage(tr("接入 agent", "Connect an agent")) {
-        if (ledger.installed) Group(tr("已经接入的", "Already connected")) { AgentMemoryRow(ledger) }
+        val shown = tokens.filter { t -> agents[t.id]?.used == true || t.id != com.kilon.agentvscreen.api.Tokens.MAIN }
+        if (shown.isNotEmpty()) Group(tr("已经接入的", "Already connected")) {
+            shown.forEach { t -> AgentCard(t.id, agents[t.id] ?: AgentLedger.Snapshot()) { editing = t.id } }
+        }
+        Group(tr("新的 agent 叫什么", "Name the new agent")) {
+            TextField(value = name, onValueChange = { name = it.take(24) }, label = tr("例如 Minis、电脑上的助手（不填就叫 $suggested）", "e.g. Minis, desktop assistant (blank: $suggested)"),
+                useLabelAsPlaceholder = true, singleLine = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp))
+        }
         Group(tr("1 · agent 在哪", "1 · Where the agent runs")) {
             RadioButtonPreference(title = tr("这台手机上", "On this phone"), summary = tr("Termux、Operit 等，直接连 127.0.0.1:${ApiConfig.port}", "Termux, Operit…, straight to 127.0.0.1:${ApiConfig.port}"),
                 selected = where == 0, onClick = { where = 0 })
@@ -117,17 +141,18 @@ fun ConnectPage() {
         }
         Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
             PrimaryButton(onClick = {
-                host.copy(tr("给 agent 的话", "Message for your agent"), when (how) { 1 -> AgentGuide.onboardMcp(base); 2 -> AgentGuide.onboardHttp(base); else -> AgentGuide.onboard(base) })
+                val tok = tokenText()
+                host.copy(tr("给 agent 的话", "Message for your agent"), when (how) { 1 -> AgentGuide.onboardMcp(base, tok); 2 -> AgentGuide.onboardHttp(base, tok); else -> AgentGuide.onboard(base, tok) })
             }, enabled = canCopy, modifier = Modifier.fillMaxWidth(), color = MiuixTheme.colorScheme.primary) {
                 Text(tr("复制给 agent 的话", "Copy message for your agent"), color = MiuixTheme.colorScheme.onPrimary)
             }
         }
-        Footnote(tr("把这段话发给 agent，它会自己装好、记住，并告诉你记在了哪里。", "Send this to your agent: it sets itself up, remembers it and tells you where it saved it."))
+        Footnote(tr("把这段话发给 agent，它会自己装好、记住，并告诉你记在了哪里。每个 agent 用自己的一段话：它们的记录、任务和提问各归各的。", "Send this to your agent: it sets itself up, remembers it and tells you where it saved it. One message per agent: their records, tasks and questions stay apart."))
         Group(tr("单独的部分", "The pieces")) {
             if (how != 2) ArrowPreference(title = if (how == 0) tr("安装命令", "Install command") else tr("MCP 配置", "MCP config"),
                 endActions = { Value(if (raw) tr("收起", "Hide") else tr("查看", "Show")) }, enabled = canCopy, onClick = { raw = !raw })
             AnimatedVisibility(raw && canCopy && how != 2) {
-                val text = if (how == 0) ApiConfig.installLine(base) else ApiConfig.mcpJson(base)
+                val text = remember(how, base, made) { val tok = made ?: tokenText(); if (how == 0) ApiConfig.installLine(base, tok) else ApiConfig.mcpJson(base, tok) }
                 Code(text) { host.copy(if (how == 0) tr("安装命令", "Install command") else tr("MCP 配置", "MCP config"), text) }
             }
             BasicComponent(title = tr("能力说明", "Ability note"), summary = tr("贴进 agent 的自定义指令或记忆", "Paste into the agent's custom instructions or memory"),
@@ -137,6 +162,33 @@ fun ConnectPage() {
             ArrowPreference(title = tr("令牌", "Token"), onClick = { nav.go(Route.Tokens) })
         }
     }
+    editing?.let { id -> AgentEdit(id) { editing = null } }
+}
+
+/** 1.4.0-beta7: rename an agent, or forget it (its token stops working; its past tasks keep its name). */
+@Composable
+private fun AgentEdit(id: String, close: () -> Unit) {
+    val main = id == com.kilon.agentvscreen.api.Tokens.MAIN
+    var n by remember { mutableStateOf(com.kilon.agentvscreen.api.Agents.name(id)) }
+    var sure by remember { mutableStateOf(false) }
+    GlassDialog(onDismissRequest = close, title = { Text(com.kilon.agentvscreen.api.Agents.name(id)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                TextField(value = n, onValueChange = { n = it.take(24) }, label = tr("名字", "Name"), useLabelAsPlaceholder = true, singleLine = true, modifier = Modifier.fillMaxWidth())
+                if (!main) {
+                    Text(if (sure) tr("再点一次：它的令牌作废，这个 agent 连不上了；它做过的任务还留在记录里。", "Tap again: its token stops working and this agent can no longer connect; its past tasks stay in the records.")
+                        else tr("忘掉这个 agent", "Forget this agent"), fontSize = 14.sp, color = MiuixTheme.colorScheme.error,
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable {
+                            if (!sure) sure = true else {
+                                com.kilon.agentvscreen.api.Tokens.revoke(id); AgentLedger.forget(id)
+                                com.kilon.agentvscreen.host.Audit.security("revoke", n); close()
+                            }
+                        }.padding(vertical = 6.dp))
+                }
+            }
+        },
+        confirmButton = { LinkButton(onClick = { com.kilon.agentvscreen.api.Tokens.rename(id, n); close() }) { Text(tr("保存", "Save")) } },
+        dismissButton = { LinkButton(onClick = close) { Text(tr("取消", "Cancel")) } })
 }
 
 /** Code in a dark monospace box with its own copy button. */
@@ -171,9 +223,9 @@ private fun CardAction(text: String, primary: Boolean = true, onClick: () -> Uni
         Text(text, color = if (primary) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface)
     }
 
-/** 1.1.6: did the agent keep VScreen in mind? Facts only (see AgentLedger). */
+/** 1.1.6: did the agent keep VScreen in mind? Facts only (see AgentLedger). 1.4.0-beta7: one card per agent. */
 @Composable
-private fun AgentMemoryRow(l: AgentLedger.Snapshot) {
+private fun AgentCard(id: String, l: AgentLedger.Snapshot, edit: () -> Unit) {
     val fmt = remember(I18n.en) { java.text.SimpleDateFormat(tr("M月d日 HH:mm", "MMM d HH:mm"), if (I18n.en) java.util.Locale.US else java.util.Locale.CHINA) }
     fun at(t: Long) = fmt.format(java.util.Date(t))
     val (color, title, body) = when {
@@ -182,15 +234,25 @@ private fun AgentMemoryRow(l: AgentLedger.Snapshot) {
                 (l.rememberedWhere?.let { tr("它说存在了「$it」。", "It says it saved it in \"$it\".") } ?: ""))
         l.remembered -> Triple(Palette.standby, tr("agent 说已记住", "The agent says it saved it"),
             tr("存在了「${l.rememberedWhere}」（${at(l.rememberedAt)}）。等它在新对话里主动用起来，这里会变成“记住了”。", "Saved in \"${l.rememberedWhere}\" (${at(l.rememberedAt)}). Once it uses vscreen on its own in a new conversation, this turns into \"remembers\"."))
+        !l.used -> Triple(Palette.standby, tr("还没连上过", "Not connected yet"),
+            tr("把给它的话发给它；它第一次连上后，这里会写它存在了哪里。", "Send it its message; once it connects, this says where it saved the note."))
         else -> Triple(Palette.stopped, tr("agent 还没确认记住", "The agent has not confirmed it saved it"),
             tr("${at(l.installAt)} 装好了 vscreen，但 agent 没有报告把说明存在哪。新对话里它可能不知道自己有这个能力：再把“给 agent 的话”发给它一次，或把能力说明放进它的自定义指令。",
                 "vscreen was installed ${at(l.installAt)}, but the agent has not said where it saved the note. New conversations may not know they have this ability: send the message for your agent again, or put the ability note in its custom instructions."))
     }
-    val ack = remember(l) { AgentLedger.ackVersion("main") }
-    val stale = if (ack >= BuildConfig.VERSION_CODE) "" else "\n" + (
+    val ack = remember(l, id) { AgentLedger.ackVersion(id) }
+    val way = when {
+        l.lastCallAt == 0L -> ""
+        l.lastRemoteAt > l.lastLocalAt -> tr("其它设备 · 最近 ${at(l.lastCallAt)}", "another device · last ${at(l.lastCallAt)}")
+        else -> tr("这台手机 · 最近 ${at(l.lastCallAt)}", "this phone · last ${at(l.lastCallAt)}")
+    }
+    val stale = if (!l.used || ack >= BuildConfig.VERSION_CODE) "" else "\n" + (
         if (ack <= 0) tr("还不知道它记下的说明是哪个版本的；它下次用 vscreen 时会收到更新提醒。", "Not known which version its note is for; its next use of vscreen brings an update notice.")
         else tr("它记下的说明是 ${com.kilon.agentvscreen.api.AgentNews.nameOf(ack)} 的；下次用 vscreen 时会收到这一版的变化，并被请求更新说明。", "Its note is from ${com.kilon.agentvscreen.api.AgentNews.nameOf(ack)}; its next use of vscreen brings this version's changes and a request to refresh the note."))
-    InfoCard(color, title, body + stale)
+    Column(Modifier.clickable(onClick = edit)) {
+        BasicComponent(title = com.kilon.agentvscreen.api.Agents.name(id), summary = way.ifEmpty { null })
+        InfoCard(color, title, body + stale)
+    }
 }
 
 /** 远程连接: off / built-in Tailscale / the Tailscale app on this phone, and what state it is in. */

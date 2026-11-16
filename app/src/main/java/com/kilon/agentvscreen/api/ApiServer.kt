@@ -396,7 +396,7 @@ class ApiServer(private val ctx: Context) {
                 .put("endpoints", JSONArray(listOf("/v2/run", "/v2/shot/<name>", "/v2/events", "/v2/help", "/v2/codes", "/mcp", "/cli"))))
             "/v1/help", "/v2/help" -> return langOf(r) { Resp.text(VScreenOffloadHandler.HELP + "\n") }
             "/v2/codes" -> return langOf(r) { Resp.json(JSONObject().put("codes", JSONArray(com.kilon.agentvscreen.cmd.Codes.all.map { JSONObject().put("code", it.name).put("next", it.next.key).put("text", it.text) }))) }
-            "/cli" -> { if (r.q("via") == "install") AgentLedger.installed(); return Resp.text(cliScript()) }
+            "/cli" -> { if (r.q("via") == "install") AgentLedger.installed(r.q("id")?.takeIf { id -> Tokens.list.value.any { it.id == id } } ?: Tokens.MAIN); return Resp.text(cliScript()) }
             "/skill" -> return langOf(r) { Resp.text(AgentGuide.skill()) }
             "/memory" -> return langOf(r) { Resp.text(AgentGuide.memoryFor(when (r.q("via")) { "mcp" -> Abilities.Via.MCP; "http" -> Abilities.Via.HTTP; else -> Abilities.Via.CLI }) + "\n") }
         }

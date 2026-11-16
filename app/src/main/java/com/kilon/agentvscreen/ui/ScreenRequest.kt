@@ -20,6 +20,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Minimize
+import androidx.compose.material.icons.filled.VerticalAlignBottom
+import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -78,7 +81,9 @@ internal fun feedback(ctx: Context, a: UserAsk.Ask, text: String) =
  */
 @Composable
 internal fun RequestCard(a: UserAsk.Ask?, session: String, recording: Boolean, prep: Boolean, steps: Int, paused: Boolean, takenOver: Boolean,
-                         mark: MarkState, send: (() -> JSONObject?), modifier: Modifier = Modifier) {
+                         mark: MarkState, send: (() -> JSONObject?), modifier: Modifier = Modifier,
+                         /** 1.4.0-beta7: fold into a ball the user can drag aside / move the card to the other edge (lost when the pages merged). */
+                         onFold: (() -> Unit)? = null, onMove: (() -> Unit)? = null, atBottom: Boolean = false) {
     val ctx = LocalContext.current
     var open by remember { mutableStateOf(true) }
     var saying by remember(a?.id) { mutableStateOf(false) }
@@ -104,6 +109,14 @@ internal fun RequestCard(a: UserAsk.Ask?, session: String, recording: Boolean, p
             Text(if (open) head else (a?.title ?: head), color = if (open) Color(0xCCFFFFFF) else Color.White, fontSize = if (open) 12.sp else 13.sp,
                 fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = Color(0x99FFFFFF), modifier = Modifier.size(18.dp))
+            onMove?.let { mv ->
+                Spacer(Modifier.width(6.dp))
+                Icon(if (atBottom) Icons.Filled.VerticalAlignTop else Icons.Filled.VerticalAlignBottom, if (atBottom) tr("移到上面", "Move up") else tr("移到下面", "Move down"),
+                    tint = Color(0xCCFFFFFF), modifier = Modifier.size(28.dp).clip(CircleShape).clickable(onClick = mv).padding(5.dp))
+            }
+            onFold?.let { f ->
+                Icon(Icons.Filled.Minimize, tr("缩成按钮", "Fold into a button"), tint = Color(0xCCFFFFFF), modifier = Modifier.size(28.dp).clip(CircleShape).clickable(onClick = f).padding(5.dp))
+            }
         }
         if (!open) return@Column
         a?.let { Text(it.title, color = Color.White, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 5, overflow = TextOverflow.Ellipsis) }

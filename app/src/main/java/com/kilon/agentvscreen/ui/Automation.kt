@@ -361,7 +361,7 @@ internal fun LessonsList(tick: Int) {
                     Column(Modifier.weight(1f)) {
                         Text(s.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(tr("$count 步", "$count steps") + (if (s.uses > 0) tr(" · 用过 ${s.uses} 次", " · used ${s.uses}×") else "") +
-                            " · " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(s.at)),
+                            " · " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(s.at)) + (s.by?.let { " · " + tr("为 ", "for ") + com.kilon.agentvscreen.api.Agents.name(it) } ?: ""),
                             fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                     if (!picking) Icon(Icons.Filled.KeyboardArrowDown, null, tint = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.rotate(turn))
