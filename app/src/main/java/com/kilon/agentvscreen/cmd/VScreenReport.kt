@@ -201,7 +201,26 @@ internal fun mergeElements(d: VScreenDisplay, a11y: List<El>, ocr: List<VScreenO
     val items = ocr.orEmpty().filter { !VScreenOcr.isJunk(it) && !isJunkLabel(it.text.trim()) && it.text.isNotBlank() }
     val out = ArrayList<El>()
     val usedOcr = HashSet<VScreenOcr.Item>()
-    for (a in a11y) {
+    // 1.4.0-beta6 (test: 计时器 listed as "计时器" and "O · 计时器"; every 哔哩哔哩 tab as "直播,7之1,标签" and "直播"):
+    // a tappable wrapper around a label is one place, not two. When an element holds a smaller element with words
+    // (its label) and the wrapper either says nothing or says the label plus extras (position, role), the label is
+    // the entry: it takes the wrapper's tap, and glyphs OCR read off the wrapper's icon go with the wrapper.
+    fun area(r: Rect) = r.width().toLong() * r.height()
+    val dropped = HashSet<El>(); val tappable = HashSet<El>()
+    for (w in a11y) {
+        if (w.scrollable || w.editable || w.kind == ElKind.LINK || w.kind == ElKind.EMPTY_INPUT) continue
+        val wn = VScreenOcr.norm(w.text)
+        val label = a11y.filter { c -> c !== w && c.kind == ElKind.TEXT && !c.editable && w.box.contains(c.box.centerX(), c.box.centerY()) && area(c.box) < area(w.box) }
+            .filter { c -> val cn = VScreenOcr.norm(c.text); cn.isNotEmpty() && (w.kind == ElKind.NO_TEXT || (wn != cn && wn.startsWith(cn))) }
+        // A wrapper with several labels (a whole list row) stays out of this: only a single label is its name.
+        val one = label.singleOrNull() ?: continue
+        dropped += w
+        if (w.clickable) tappable += one
+        items.filter { it !in usedOcr && w.box.contains(it.box.centerX(), it.box.centerY()) && VScreenOcr.norm(it.text).length <= 1 }.forEach { usedOcr += it }
+    }
+    for (a0 in a11y) {
+        if (a0 in dropped) continue
+        val a = if (a0 in tappable && !a0.clickable) a0.copy(clickable = true) else a0
         if (!a.placeholder && DIGIT.containsMatchIn(a.text) && a.text.length <= 24) {
             val drawn = items.filter { Rect(a.box).apply { inset(-8, -8) }.contains(it.box.centerX(), it.box.centerY()) && DIGIT.containsMatchIn(it.text) }
             val drawnText = drawn.joinToString(" ") { it.text.trim() }
@@ -418,7 +437,9 @@ internal fun pictureFacts(d: VScreenDisplay, from: Long, to: Long): Pair<List<St
             lines += if (share <= 0.0) tr("开头和现在的画面一样（中间动过又回去了）", "the start and now look the same (it moved and came back)")
                 else tr("开头和现在相比：${(share * 100).roundToInt()}% 的格子不同", "start vs now: ${(share * 100).roundToInt()}% of cells differ") + (bb?.let { " [${Report.box(it)}]" } ?: "")
         }
-        return lines to true
+        // 1.4.0-beta6 (test: "start and now look the same" yet picture_changed and a picture attached): the picture the
+        // agent had is the start; when now looks the same, it has nothing new to see.
+        return lines to (firstLast?.let { it.first > 0.0 } ?: true)
     } finally { pics.forEach { it.second.recycle() } }
 }
 

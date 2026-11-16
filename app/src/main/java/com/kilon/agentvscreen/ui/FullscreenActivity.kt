@@ -135,6 +135,7 @@ class FullscreenActivity : PageActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (MainDisplay.moved(this)) return
         teachAsk.value = intent.getIntExtra("teach_ask", -1)
         askOpen.value = intent.getIntExtra("ask", -1)
         WindowCompat.setDecorFitsSystemWindows(window, false)

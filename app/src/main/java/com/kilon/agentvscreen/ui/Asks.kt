@@ -73,7 +73,7 @@ internal object AskWords {
     fun openPage(ctx: Context, a: UserAsk.Ask) {
         // A lesson starts right on the tap (take over, record), whatever page opens after it.
         if (a.kind == UserAsk.Kind.TEACH) com.kilon.agentvscreen.cmd.Teach.beginFor(a)
-        runCatching { ctx.startActivity(UserAsk.answerIntent(ctx, a.id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        MainDisplay.start(ctx, UserAsk.answerIntent(ctx, a.id))
     }
 }
 

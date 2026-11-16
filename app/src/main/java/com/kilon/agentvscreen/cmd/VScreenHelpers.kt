@@ -74,7 +74,12 @@ internal fun VScreenOffloadHandler.zoomCmd(sid: String?, args: OffloadArgs): Nat
         val side = if (asked != null) Detail.HIGH.zoomSide else detail.zoomSide
         val maxK = side.toDouble() / maxOf(r.width(), r.height())
         val k = (asked ?: minOf(4.0, maxK)).coerceIn(0.5, maxOf(1.0, maxK))
-        if (asked != null && kotlin.math.abs(asked - k) > 0.05) adjusted(tr("--scale $asked 按 ${"%.1f".format(k)} 执行：这块区域再放大图会超过 $side 像素，框小一点能放得更大",
+        val whole = args.positional.isEmpty()
+        // 1.4.0-beta6 (test: zoom --scale 1.5 on the whole screen always came out ×1 "would pass 2048 px"): the whole
+        // screen at full detail is all there is; enlarging it adds no detail. Said so, with the way to get more.
+        if (whole && asked != null && asked > 1.0) adjusted(tr("整屏已按最清楚的给（放大整屏不会多出细节）；要看更细就框一块：zoom x1,y1,x2,y2 --scale $asked",
+            "the whole screen is given at full detail (enlarging it adds nothing); for more, frame a part: zoom x1,y1,x2,y2 --scale $asked"))
+        else if (asked != null && kotlin.math.abs(asked - k) > 0.05) adjusted(tr("--scale $asked 按 ${"%.1f".format(k)} 执行：这块区域再放大图会超过 $side 像素，框小一点能放得更大",
             "--scale $asked used as ${"%.1f".format(k)}: a larger picture of this region would pass $side px; a smaller region zooms further"))
         val w = (r.width() * k).roundToInt(); val h = (r.height() * k).roundToInt()
         val m = 34

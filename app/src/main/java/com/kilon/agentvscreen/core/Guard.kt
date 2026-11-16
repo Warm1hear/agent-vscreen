@@ -35,7 +35,7 @@ object Guard {
         "The user set this in Agent-VScreen › App rules; don't work around it (and don't reach the same app through another entry)")
 
     /** May [session] do [act] to [pkg] (the app it targets; for READ / SCROLL / BACK / INPUT the app on the screen)? */
-    fun check(act: Act, pkg: String?, session: String? = null): Verdict {
+    fun check(act: Act, pkg: String?, session: String? = null, asked: Boolean = false): Verdict {
         // The app this session was working on is with the user on the main screen: whatever is under it now is not
         // what the agent planned for. Reading is fine; changing anything is not.
         if (act == Act.INPUT || act == Act.SCROLL || act == Act.BACK) VScreenOwnership.blocking(session)?.let { g ->
@@ -43,9 +43,10 @@ object Guard {
             return Verdict.Deny("APP_WITH_USER", tr("$app 现在在用户手上（${when (g.why) { "user" -> "用户在主屏打开了它"; "ours" -> "你的上一步让它跑到了主屏，handoff in 可以拿回"; else -> "你把它交给了用户" }}），副屏上已经没有它，动作没有执行。等用户交回（vscreen events --wait 收 handback），或 launch 别的应用去做别的事",
                 "$app is with the user now (${when (g.why) { "user" -> "the user opened it on the main screen"; "ours" -> "your last step moved it to the main screen; handoff in takes it back"; else -> "you handed it to the user" }}); it is no longer on the background screen and the action was not done. Wait for the hand-back (vscreen events --wait for handback), or launch another app to do something else"))
         }
-        if (act == Act.OPEN && pkg != null) VScreenOwnership.givenFor(pkg)?.let {
-            return Verdict.Deny("APP_WITH_USER", tr("$pkg 现在在用户手上（主屏），还没交回。等 handback 事件（vscreen events --wait），或先问用户（vscreen ask）",
-                "$pkg is with the user now (main screen) and not handed back yet. Wait for the handback event (vscreen events --wait), or ask the user first (vscreen ask)"))
+        // 1.4.0-beta6 (test: `launch 计算器 --asked` refused): once the user agreed (--asked), a separate copy may open.
+        if (act == Act.OPEN && pkg != null && !asked) VScreenOwnership.givenFor(pkg)?.let {
+            return Verdict.Deny("APP_WITH_USER", tr("$pkg 现在在用户手上（主屏），还没交回。等 handback 事件（vscreen events --wait）；或先问用户（vscreen ask），同意后 launch $pkg --asked 另开一份，或 handoff in 接着他的页面",
+                "$pkg is with the user now (main screen) and not handed back yet. Wait for the handback event (vscreen events --wait); or ask the user first (vscreen ask) and, once they agree, launch $pkg --asked for a separate copy or handoff in to carry on from their page"))
         }
         val rule = VScreenStore.ruleFor(pkg ?: return Verdict.Allow) ?: return Verdict.Allow
         return when (rule) {
@@ -63,8 +64,8 @@ object Guard {
     }
 
     /** [check] for callers that refuse by throwing (commands). Ask is left to the caller (it knows what to show). */
-    fun require(act: Act, pkg: String?, session: String? = null): Verdict {
-        val v = check(act, pkg, session)
+    fun require(act: Act, pkg: String?, session: String? = null, asked: Boolean = false): Verdict {
+        val v = check(act, pkg, session, asked)
         if (v is Verdict.Deny) throw BackgroundOperation.ActionError(v.code, v.text)
         return v
     }

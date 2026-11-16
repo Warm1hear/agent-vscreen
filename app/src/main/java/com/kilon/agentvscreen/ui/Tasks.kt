@@ -104,12 +104,21 @@ fun took(t: TaskLog.Task): String {
 @Composable
 fun TaskFrame(name: String?, modifier: Modifier, corner: Dp = 8.dp) {
     val img by produceState<ImageBitmap?>(null, name) {
-        value = withContext(Dispatchers.IO) { name?.let { TaskLog.frameFile(it) }?.let { f -> runCatching { BitmapFactory.decodeFile(f.path)?.asImageBitmap() }.getOrNull() } }
+        value = withContext(Dispatchers.IO) { name?.let { TaskLog.frameFile(it) }?.let { f -> decodeFit(f.path, 360)?.asImageBitmap() } }
     }
     Box(modifier.clip(RoundedCornerShape(corner)).background(MiuixTheme.colorScheme.surfaceContainerHigh)) {
         img?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
     }
 }
+
+/** A picture file no larger than about [side] px (thumbnails do not decode full-size frames). */
+private fun decodeFit(path: String, side: Int): android.graphics.Bitmap? = runCatching {
+    val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, o)
+    var k = 1
+    while (maxOf(o.outWidth, o.outHeight) / (k * 2) >= side) k *= 2
+    BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = k })
+}.getOrNull()
 
 @Composable
 fun AppBadge(icon: ImageBitmap?, size: Dp = 36.dp) {
@@ -205,8 +214,7 @@ fun TaskPage(id: Long) {
             // Newest first, as before; numbered in the order they were sent.
             rows.asReversed().forEachIndexed { i, o ->
                 val ok = o.optInt("exit") == 0
-                val detail = o.has("text")
-                Row(Modifier.fillMaxWidth().clickable(enabled = detail) { step = o }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().clickable { step = o }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("${rows.size - i}", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.width(28.dp))
                     Column(Modifier.weight(1f)) {
                         Text(o.optString("cmd").take(160), fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -224,22 +232,29 @@ fun TaskPage(id: Long) {
     preview?.let { (list, at) -> FramePreview(list, at) { preview = null } }
 }
 
-/** One step in full. */
+/**
+ * One step in full. 1.4.0-beta6 (rainbow: rows did nothing): a dialog of its own, not a sheet that needs the page's
+ * popup host; every row opens it (older records show what they have).
+ */
 @Composable
 private fun StepSheet(o: JSONObject?, open: (String) -> Unit, close: () -> Unit) {
+    if (o == null) return
     val c = MiuixTheme.colorScheme
-    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(show = o != null, title = o?.let { tr("第 ${it.optInt("n")} 步", "Step ${it.optInt("n")}") } ?: "", onDismissRequest = close) {
-        if (o == null) return@OverlayBottomSheet
-        val ok = o.optInt("exit") == 0
-        val frame = o.optString("frame").takeIf { it.isNotEmpty() && it != "null" }
-        Column(Modifier.padding(bottom = 24.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(o.optString("cmd"), fontSize = 15.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-            Text(hhmmss(o.optLong("at")) + " · ${o.optLong("ms")} ms · " + o.optString("code"), fontSize = 13.sp, color = if (ok) c.onSurfaceVariantSummary else Palette.stopped)
-            com.kilon.agentvscreen.cmd.Codes.of(o.optString("code"))?.takeIf { !ok }?.let { Text(it.text, fontSize = 13.sp, lineHeight = 19.sp, color = c.onSurfaceVariantSummary) }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                frame?.let { f -> TaskFrame(f, Modifier.width(120.dp).aspectRatio(0.45f).clickable { open(f) }, 10.dp) }
-                Text(o.optString("text").ifEmpty { tr("（没有文字回复）", "(no text reply)") }, fontSize = 12.sp, lineHeight = 17.sp,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = c.onSurface, modifier = Modifier.weight(1f))
+    val ok = o.optInt("exit") == 0
+    val frame = o.optString("frame").takeIf { it.isNotEmpty() && it != "null" }
+    androidx.compose.ui.window.Dialog(onDismissRequest = close, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxSize().clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null, onClick = close),
+            contentAlignment = Alignment.Center) {
+            Column(Modifier.padding(20.dp).fillMaxWidth().heightIn(max = 640.dp).clip(RoundedCornerShape(28.dp)).background(c.surfaceContainer.copy(alpha = 0.96f))
+                .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { }
+                .verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(tr("第 ${o.optInt("n")} 步", "Step ${o.optInt("n")}"), fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = c.primary)
+                Text(o.optString("cmd"), fontSize = 15.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                Text(hhmmss(o.optLong("at")) + (if (o.has("ms")) " · ${o.optLong("ms")} ms" else "") + " · " + o.optString("code"), fontSize = 13.sp, color = if (ok) c.onSurfaceVariantSummary else Palette.stopped)
+                com.kilon.agentvscreen.cmd.Codes.of(o.optString("code"))?.takeIf { !ok }?.let { Text(it.text, fontSize = 13.sp, lineHeight = 19.sp, color = c.onSurfaceVariantSummary) }
+                frame?.let { f -> TaskFrame(f, Modifier.fillMaxWidth(0.6f).aspectRatio(0.45f).align(Alignment.CenterHorizontally).clickable { open(f) }, 14.dp) }
+                Text(o.optString("text").ifEmpty { tr("（这一步没有存下回执文字）", "(no reply text was kept for this step)") }, fontSize = 12.sp, lineHeight = 17.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = c.onSurface)
             }
         }
     }

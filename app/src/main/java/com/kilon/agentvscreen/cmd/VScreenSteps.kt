@@ -411,19 +411,7 @@ internal object Steps {
         // v0.5: a bare number after the target is the duration in ms too (press 600 2400 1200 / press #3 1200), as the help says.
         if (allowDuration && ms == null && a.size >= 2 && a.last().all { it.isDigit() } &&
             (a[0].startsWith("#") && a.size == 2 || numbers(a)?.size == 3)) { ms = a.last().toLong(); a = a.dropLast(1) }
-        val first = a[0]
-        if (first.startsWith("#") && a.size == 1) {
-            val n = first.drop(1).toIntOrNull() ?: bad(raw, tr("#后面写元素编号（第三块列表里的 #N）", "write an element number after # (#N in the third block's list)"))
-            return StepTarget.Ref(n) to ms
-        }
-        val nums = numbers(a)
-        if (nums != null) {
-            // 1.1: one number alone is a word on the screen (a calculator's "1", a page number), not half a coordinate.
-            if (nums.size == 1) return StepTarget.Words(a[0]) to ms
-            if (nums.size != 2) bad(raw, tr("坐标是两个数：x y（只写一个数＝点画面上的这个数字；#N＝元素编号）", "coordinates are two numbers: x y (a single number = tap that number on the screen; #N = element number)"))
-            return StepTarget.At(nums[0], nums[1]) to ms
-        }
-        // 1.4.0-beta5: words then a signed offset, `设置 +120,-8`: the point that far from the words (an icon or a switch
+        // 1.4.0-beta5/6: words then a signed offset (read before numbers: `8 +50,+100` is the word 8 and an offset), `设置 +120,-8`: the point that far from the words (an icon or a switch
         // beside its label). Both signs are required, so a word that is a number is never read as an offset.
         var dx = 0; var dy = 0
         val off = Regex("^([+-]\\d+)[,，]([+-]\\d+)$")
@@ -434,6 +422,18 @@ internal object Steps {
                 one != null -> { dx = one.groupValues[1].toInt(); dy = one.groupValues[2].toInt(); a = a.dropLast(1) }
                 two != null -> { dx = two.first.toInt(); dy = two.second.toInt(); a = a.dropLast(2) }
             }
+        }
+        val first = a[0]
+        if (first.startsWith("#") && a.size == 1) {
+            val n = first.drop(1).toIntOrNull() ?: bad(raw, tr("#后面写元素编号（第三块列表里的 #N）", "write an element number after # (#N in the third block's list)"))
+            return StepTarget.Ref(n) to ms
+        }
+        val nums = numbers(a)
+        if (nums != null) {
+            // 1.1: one number alone is a word on the screen (a calculator's "1", a page number), not half a coordinate.
+            if (nums.size == 1) return StepTarget.Words(a[0], 0, dx, dy) to ms
+            if (nums.size != 2) bad(raw, tr("坐标是两个数：x y（只写一个数＝点画面上的这个数字；#N＝元素编号）", "coordinates are two numbers: x y (a single number = tap that number on the screen; #N = element number)"))
+            return StepTarget.At(nums[0], nums[1]) to ms
         }
         // 1.3.0-beta18: words@N = the N-th place they are on the screen (top to bottom, left to right; @-1 the last).
         val w = a.joinToString(" ").trim()

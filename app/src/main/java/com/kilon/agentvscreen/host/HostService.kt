@@ -167,7 +167,7 @@ class HostService : Service() {
         if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(STOP_CHANNEL) == null)
             nm.createNotificationChannel(NotificationChannel(STOP_CHANNEL, tr("AI 已停止", "AI stopped"), NotificationManager.IMPORTANCE_DEFAULT))
         val allow = PendingIntent.getService(this, 3, Intent(this, HostService::class.java).setAction(ACTION_ALLOW), PendingIntent.FLAG_IMMUTABLE)
-        val open = PendingIntent.getActivity(this, 4, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val open = PendingIntent.getActivity(this, 4, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE, com.kilon.agentvscreen.ui.MainDisplay.options())
         val at = BackgroundOperation.state.value.stoppedAt.takeIf { it > 0 }?.let { java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(java.util.Date(it)) }
         val n = NotificationCompat.Builder(this, STOP_CHANNEL)
             .setSmallIcon(com.kilon.agentvscreen.R.drawable.ic_stat)
@@ -236,7 +236,7 @@ class HostService : Service() {
         val nm = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26 && nm?.getNotificationChannel(CHANNEL) == null)
             nm?.createNotificationChannel(NotificationChannel(CHANNEL, tr("Agent-VScreen 服务", "Agent-VScreen service"), NotificationManager.IMPORTANCE_LOW))
-        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE, com.kilon.agentvscreen.ui.MainDisplay.options())
         val stop = PendingIntent.getService(this, 1, Intent(this, HostService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
         val err = server?.lastError ?: Liveness.problem()
         val s = BackgroundOperation.state.value
@@ -255,7 +255,7 @@ class HostService : Service() {
             .setOngoing(true)
         if (s.windowHidden && s.displayId != null)
             b.addAction(0, tr("显示小窗", "Show window"), PendingIntent.getService(this, 5, Intent(this, HostService::class.java).setAction(ACTION_SHOW_WINDOW), PendingIntent.FLAG_IMMUTABLE))
-        else b.addAction(0, tr("查看副屏", "View screen"), PendingIntent.getActivity(this, 2, Intent(this, com.kilon.agentvscreen.ui.FullscreenActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE))
+        else b.addAction(0, tr("查看副屏", "View screen"), PendingIntent.getActivity(this, 2, Intent(this, com.kilon.agentvscreen.ui.FullscreenActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE, com.kilon.agentvscreen.ui.MainDisplay.options()))
         // 1.3.0: the button says what it does to remote access: with the built-in Tailscale on, hiding stops it.
         val remote = Tailnet.Mode.BUILTIN == com.kilon.agentvscreen.api.ApiConfig.tailnetMode
         return b.addAction(0, if (remote) tr("关闭（远程断开）", "Off (remote goes offline)") else tr("关闭", "Off"), stop).build()

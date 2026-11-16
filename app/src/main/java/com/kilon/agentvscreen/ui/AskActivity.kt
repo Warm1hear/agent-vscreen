@@ -89,6 +89,7 @@ class AskActivity : PageActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        if (MainDisplay.moved(this)) return
         val id = intent.getIntExtra("id", -1)
         val ask = UserAsk.byId(id)
         setContent { AvsTheme { Surface(Modifier.fillMaxSize(), color = Color.Transparent) {

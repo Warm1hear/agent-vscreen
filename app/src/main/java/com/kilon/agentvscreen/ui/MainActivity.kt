@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity(), AppHost {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        if (MainDisplay.moved(this)) return
         val page = intent?.getStringExtra(EXTRA_PAGE)
         val tab = when (page?.uppercase()) { "RECORDS" -> 1; "SETTINGS" -> 2; else -> 0 }
         setContent { AvsTheme { AppRoot(this, routeOf(page), snack, tab) } }

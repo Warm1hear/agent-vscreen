@@ -65,6 +65,7 @@ class TeachActivity : PageActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        if (MainDisplay.moved(this)) return
         val r = Teach.result
         if (r == null) { back(); return }
         // Left without saving or discarding (back, swipe away): the steps are dropped and the question shows again.
@@ -187,7 +188,7 @@ class TeachActivity : PageActivity() {
         BackgroundOperation.beginTakeover(r.session)
         Teach.start(r.session, r.purpose, r.askId, r.name)
         Teach.clearResult()
-        startActivity(Intent(this, FullscreenActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        MainDisplay.start(this, Intent(this, FullscreenActivity::class.java))
         back()
     }
 }

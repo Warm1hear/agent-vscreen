@@ -88,6 +88,12 @@ internal fun VScreenOffloadHandler.status(sid: String?, args: OffloadArgs): Nati
             else -> tr("没开过（App 首页一键配置）", "never turned on (Set up the rest on the app's home page)")
         } })
         .put("user_stopped", BackgroundOperation.state.value.userStopped)
+        // 1.4.0-beta6 (test: an app with the user was read as "the user pressed Stop AI"): three different states,
+        // each with its own way back. with_user = apps the user has on the main screen now (handback event ends it).
+        .put("with_user", org.json.JSONArray(com.kilon.agentvscreen.core.VScreenOwnership.given.value.values.map { g ->
+            JSONObject().put("app", g.pkg).put("label", com.kilon.agentvscreen.core.VScreenOwnership.label(context, g.pkg)).put("since", g.at)
+                .put("note", tr("这个应用在用户手上（主屏），不是“停止 AI”：等 handback 事件（vscreen events --wait），或 launch 别的应用", "This app is with the user (main screen); it is not Stop AI: wait for the handback event (vscreen events --wait), or launch another app"))
+        }))
         .also { o -> if (BackgroundOperation.state.value.userStopped) o.put("user_stopped_note", BackgroundOperation.userStoppedMessage()) }
         .put("window_hidden_by_user", s.windowHidden)
         .put("remote", when (com.kilon.agentvscreen.api.ApiConfig.tailnetMode) {

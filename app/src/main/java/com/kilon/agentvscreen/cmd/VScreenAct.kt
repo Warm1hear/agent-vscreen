@@ -615,7 +615,9 @@ internal fun wordHits(els: List<El>, text: String, hints: Boolean = false): List
     val exact = els.filter { (hints || !it.placeholder) && pat.exact(it.text) }
     val all0 = if (pat.wild) exact else exact.ifEmpty { els.filter { (hints || !it.placeholder) && pat.hit(it.text) } }
     val all = if (pat.wild) all0.filter { !it.editable }.ifEmpty { all0 } else all0
-    val one = ArrayList<El>().also { out -> all.forEach { h -> if (out.none { near(it, h) }) out += h } }
+    // 1.4.0-beta6 (test: two listed 搜索, the word and the search box under it, @2 NOT_FOUND): @N counts the places as
+    // the list shows them; the list already merged a node with the OCR words on it, so nothing more is folded here.
+    val one = if (hints) all else ArrayList<El>().also { out -> all.forEach { h -> if (out.none { near(it, h) }) out += h } }
     return readingOrder(one) { it.box }
 }
 
@@ -1071,7 +1073,7 @@ internal fun VScreenOffloadHandler.launchCmd(sid: String?, args: OffloadArgs): N
     val s = sid ?: throw ActionError("NO_SESSION", tr("没有会话（请求头 X-VScreen-Session）", "No session (header X-VScreen-Session)"))
     val q = args.positional.joinToString(" ").trim().ifEmpty { throw ActionError("INVALID_ARGS", tr("launch <应用名或包名>", "launch <app name or package>")) }
     val pkg = VScreenKnowledge.resolveApp(q) ?: throw ActionError("APP_NOT_FOUND", tr("没找到“$q”：apps $q 看看已安装的应用和包名", "\"$q\" not found: apps $q lists installed apps and packages"))
-    com.kilon.agentvscreen.core.Guard.require(com.kilon.agentvscreen.core.Guard.Act.OPEN, pkg, s)
+    com.kilon.agentvscreen.core.Guard.require(com.kilon.agentvscreen.core.Guard.Act.OPEN, pkg, s, asked = args.hasFlag("asked"))
     // The user is using this very app on the main screen right now: a second copy, a cold start or a redirect can
     // disturb what they are doing (log-ins, half-typed text, single-instance apps). Not the agent's call: ask first.
     if (!args.hasFlag("asked") && userUsing(pkg)) {

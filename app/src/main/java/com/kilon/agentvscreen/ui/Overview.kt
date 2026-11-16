@@ -210,7 +210,7 @@ private fun Stage(s: BackgroundOperation.State, mode: Mode, last: TaskLog.Task?,
     val live = s.displayId != null && !s.idle
     val ratio = if (s.screenHeight > 0) s.screenWidth.toFloat() / s.screenHeight else 0.45f
     val (app, icon) = appOf(last?.takeIf { it.running }?.pkg)
-    val open = { ctx.startActivity(Intent(ctx, FullscreenActivity::class.java)) }
+    val open = { MainDisplay.start(ctx, Intent(ctx, FullscreenActivity::class.java)) }
     val picture = @Composable { m: Modifier ->
         Box(m.aspectRatio(ratio).glowBorder(if (live) mode else Mode.IDLE, 16.dp, pad = 5.dp).clickable(enabled = s.displayId != null) { open() }) {
             if (s.displayId != null) ScreenThumb(s.ownerSessionId ?: "default", Modifier.fillMaxSize(), 16.dp)

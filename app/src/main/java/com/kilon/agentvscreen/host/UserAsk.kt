@@ -115,6 +115,7 @@ object UserAsk {
             a.reply = reply; a.answer = allow; a.answeredAt = System.currentTimeMillis()
             publish(); lock.notifyAll(); a
         }
+        com.kilon.agentvscreen.cmd.Teach.askGone(id)
         val what = when {
             reply?.optString("kind") == "feedback" -> "feedback"
             a.kind == Kind.CONFIRM -> if (allow) "allowed" else "denied"
@@ -162,6 +163,7 @@ object UserAsk {
     /** The caller went away before an answer: take the question off the phone. */
     fun withdraw(ctx: Context, a: Ask) {
         synchronized(lock) { if (a.answer == null) { asks.remove(a); a.picture?.delete(); publish() } }
+        com.kilon.agentvscreen.cmd.Teach.askGone(a.id)
         quiet("ask-withdraw") { ctx.getSystemService(NotificationManager::class.java)?.cancel(noteId(a.id)) }
     }
 
@@ -191,14 +193,14 @@ object UserAsk {
                 fun pi(allow: Boolean) = PendingIntent.getService(ctx, a.id * 2 + (if (allow) 1 else 0),
                     Intent(ctx, HostService::class.java).setAction(ACTION).putExtra("id", a.id).putExtra("allow", allow),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-                val open = PendingIntent.getActivity(ctx, 6, Intent(ctx, com.kilon.agentvscreen.ui.MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+                val open = PendingIntent.getActivity(ctx, 6, Intent(ctx, com.kilon.agentvscreen.ui.MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE, com.kilon.agentvscreen.ui.MainDisplay.options())
                 val body = tr("${a.detail}\n来自：${a.tokenName}（会话 ${a.session}）", "${a.detail}\nFrom: ${a.tokenName} (session ${a.session})")
                 b.setContentTitle(tr("AI 请求：${a.title}", "AI asks: ${a.title}"))
                     .setContentText(a.detail).setStyle(NotificationCompat.BigTextStyle().bigText(body))
                     .setContentIntent(open)
                     .addAction(0, tr("拒绝", "Deny"), pi(false)).addAction(0, tr("允许", "Allow"), pi(true))
             } else {
-                val open = PendingIntent.getActivity(ctx, 9000 + a.id % 500, answerIntent(ctx, a.id), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+                val open = PendingIntent.getActivity(ctx, 9000 + a.id % 500, answerIntent(ctx, a.id), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT, com.kilon.agentvscreen.ui.MainDisplay.options())
                 val how = when (a.kind) {
                     Kind.POINT -> tr("点开，在画面上点一下回答", "Open it and tap the picture to answer")
                     Kind.AREA -> tr("点开，在画面上框出一块回答", "Open it and drag a box on the picture to answer")

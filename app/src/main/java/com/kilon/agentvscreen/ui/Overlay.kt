@@ -568,7 +568,7 @@ object Overlay {
 
     internal fun openFull() {
         val c = ctx ?: return
-        runCatching { c.startActivity(Intent(c, FullscreenActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        MainDisplay.start(c, Intent(c, FullscreenActivity::class.java))
     }
 
     private class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {

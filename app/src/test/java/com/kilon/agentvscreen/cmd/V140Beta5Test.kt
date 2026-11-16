@@ -66,3 +66,26 @@ class V140Beta5Test {
         assertEquals("50%", Steps.pct(500, 1000))
     }
 }
+
+/** 1.4.0-beta6: an offset after a word that is a number; @N counts every listed place. */
+@RunWith(RobolectricTestRunner::class)
+@Config(application = android.app.Application::class)
+class V140Beta6Test {
+    @After fun reset() { Steps.frame = { null } }
+
+    @Test fun offsetAfterANumberWord() {
+        assertEquals(StepTarget.Words("8", 0, 50, 100), Steps.parse("tap 8 +50,+100").target)
+        assertEquals(StepTarget.Words("8", 0, 50, 100), Steps.parse("tap 8 +50 +100").target)
+        Steps.frame = { 1000 to 2000 }
+        assertEquals(StepTarget.Words("8", 0, 500, 2000), Steps.parse("tap 8 +50%,+100%").target)
+    }
+
+    @Test fun nthCountsListedPlacesUnfolded() {
+        val word = El(1, "搜索", Rect(100, 500, 170, 560), true)
+        val box = El(2, "搜索", Rect(80, 490, 1180, 570), true, editable = true, kind = ElKind.EMPTY_INPUT, hint = "搜索")
+        val hits = wordHits(listOf(word, box), "搜索", hints = true)
+        assertTrue(hits.size >= 1)
+        assertEquals(1, wordHits(listOf(word, El(3, "搜索", Rect(120, 505, 160, 555), false)), "搜索").size)
+        assertEquals(2, wordHits(listOf(word, El(3, "搜索", Rect(120, 505, 160, 555), false)), "搜索", hints = true).size)
+    }
+}

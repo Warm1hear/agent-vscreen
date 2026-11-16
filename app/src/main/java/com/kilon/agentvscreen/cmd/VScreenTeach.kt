@@ -147,6 +147,12 @@ internal object Teach {
     fun cancelPrep() { _prep.value = null; UserAsk.hold(null) }
 
     /**
+     * 1.4.0-beta6 (test: after the teach request was cancelled the screen page still said 示教准备中 with 开始示范):
+     * getting ready belongs to one request; when that request is answered, withdrawn or gone, so is getting ready.
+     */
+    fun askGone(id: Int) { if (_prep.value == id) cancelPrep() }
+
+    /**
      * 1.4.0-beta5: the user handed the screen back (from the floating window, the notification, the full screen page,
      * Stop): the lesson cannot go on without them holding the screen. One answer, wherever the hand-back came from
      * (beta4 only handled it on the full screen page, so a hand-back from the floating window left the agent waiting):
@@ -351,7 +357,7 @@ internal object Teach {
             runCatching { r.startRead?.get(4, TimeUnit.SECONDS) }
             val size = runCatching { BackgroundOperation.previewDisplayFor(r.session)?.let { it.width to it.height } }.getOrNull()
             result = Result(r.session, r.purpose, r.askId, r.name, app, translate(evs, end, size), endPic, startJson(r.start))
-            ctx?.let { c -> runCatching { c.startActivity(Intent(c, com.kilon.agentvscreen.ui.TeachActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+            ctx?.let { c -> com.kilon.agentvscreen.ui.MainDisplay.start(c, Intent(c, com.kilon.agentvscreen.ui.TeachActivity::class.java)) }
         }, "vscreen-teach-stop").apply { isDaemon = true }.start()
     }
 

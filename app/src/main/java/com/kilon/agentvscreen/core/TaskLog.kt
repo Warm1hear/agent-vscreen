@@ -54,6 +54,7 @@ object TaskLog {
     // ── 1.4.0-beta5: every step of a task, to open one by one on the task's page ──
     private const val STEP_TEXT = 4_000
     private const val STEP_FRAMES = 60
+    private const val STEP_PICS_TASKS = 20
 
     private fun stepsFile(id: Long) = dir?.let { File(it, "t$id.steps.jsonl") }
 
@@ -126,7 +127,7 @@ object TaskLog {
         val bmp = d.latestFrame()?.takeIf { !it.isRecycled && it.width > 0 } ?: return
         val dir = dir ?: return
         val name = "t${t.id}_${System.currentTimeMillis() % 1_000_000}.jpg"
-        Pictures.write(bmp, File(dir, name), Pictures.Use.THUMB)
+        Pictures.write(bmp, File(dir, name), Pictures.Use.TASK)
         synchronized(this) {
             t.frames += name
             if (t.frames.size > FRAMES) t.frames.removeAt(1).let { File(dir, it).delete() }
@@ -142,6 +143,10 @@ object TaskLog {
             synchronized(this) {
                 val drop = if (done.size > KEEP) done.subList(0, done.size - KEEP).toList() else emptyList()
                 drop.forEach { old -> dropFiles(old) }
+                // 1.4.0-beta6: step pictures are full size now; only the newest tasks keep theirs (their text stays).
+                if (done.size > STEP_PICS_TASKS) done.subList(0, done.size - STEP_PICS_TASKS).forEach { old ->
+                    dir?.listFiles { f -> f.name.startsWith("t${old.id}_s") && f.name.endsWith(".jpg") }?.forEach { it.delete() }
+                }
                 done.removeAll(drop.toSet())
                 dir?.let { File(it, "log.jsonl").writeText(done.joinToString("\n") { it.json().toString() } + "\n") }
             }
