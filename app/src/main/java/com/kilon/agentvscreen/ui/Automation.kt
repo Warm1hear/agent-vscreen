@@ -155,10 +155,10 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
 
             when (d.kind) {
                 1 -> {
-                    Group(tr("间隔", "Every")) {
+                    EditGroup(tr("间隔", "Every")) {
                         Stepper("${d.every} " + tr("分钟", "min"), { d = d.copy(every = (d.every - 30).coerceAtLeast(Wake.MIN_EVERY_MIN)) }, { d = d.copy(every = (d.every + 30).coerceAtMost(24 * 60)) })
                     }
-                    Group(tr("时段", "Between")) {
+                    EditGroup(tr("时段", "Between")) {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             TimeChip(hm(d.from)) { pickTime(ctx, d.from) { d = d.copy(from = it) } }
                             Text("–", fontSize = 18.sp)
@@ -166,7 +166,7 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
                         }
                     }
                 }
-                else -> Group(tr("时间", "Times")) {
+                else -> EditGroup(tr("时间", "Times")) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         d.times.forEachIndexed { i, t ->
                             TimeChip(hm(t), onRemove = if (d.times.size > 1) ({ d = d.copy(times = d.times.filterIndexed { k, _ -> k != i }) }) else null) {
@@ -182,12 +182,12 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
                 }
             }
 
-            if (d.kind == 2) Group(tr("日期", "Day")) {
+            if (d.kind == 2) EditGroup(tr("日期", "Day")) {
                 TimeChip("${d.date.monthValue}-${d.date.dayOfMonth}") {
                     DatePickerDialog(ctx, { _, y, m, day -> d = d.copy(date = LocalDate.of(y, m + 1, day)) }, d.date.year, d.date.monthValue - 1, d.date.dayOfMonth)
                         .apply { datePicker.minDate = System.currentTimeMillis() - 1000 }.show()
                 }
-            } else Group(tr("重复", "Repeat")) {
+            } else EditGroup(tr("重复", "Repeat")) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     dayLabels().forEachIndexed { i, l ->
                         val on = d.days and (1 shl i) != 0
@@ -208,7 +208,7 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
                 }
             }
 
-            Group(tr("每次保持", "Keep ready for")) {
+            EditGroup(tr("每次保持", "Keep ready for")) {
                 Stepper("${d.forMin} " + tr("分钟", "min"), { d = d.copy(forMin = (d.forMin - 1).coerceAtLeast(1)) }, { d = d.copy(forMin = (d.forMin + 1).coerceAtMost(Wake.MAX_FOR_MIN)) })
             }
 
@@ -240,7 +240,7 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
 }
 
 @Composable
-private fun Group(title: String, content: @Composable () -> Unit) {
+private fun EditGroup(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
         content()

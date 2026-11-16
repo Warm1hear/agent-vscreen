@@ -45,6 +45,7 @@ class HostService : Service() {
         const val ACTION_ON = "com.kilon.agentvscreen.ON"
         const val ACTION_ALLOW = "com.kilon.agentvscreen.ALLOW"
         const val ACTION_SHOW_WINDOW = "com.kilon.agentvscreen.SHOW_WINDOW"
+        const val ACTION_HAND_BACK = "com.kilon.agentvscreen.HAND_BACK"
         private const val STOP_CHANNEL = "agent_vscreen_stopped"
         private const val STOP_NOTE_ID = 7002
 
@@ -108,6 +109,10 @@ class HostService : Service() {
         A11yHeal.maybeHeal(applicationContext, "service start")
         Tailnet.sync(applicationContext)
         com.kilon.agentvscreen.core.VScreenPower.heal(applicationContext, "service start")
+        // 1.4.0-beta2: read a known picture once with both OCR engines, so a broken one is logged (and said in every
+        // reply) before an agent's first look, not discovered from missing words.
+        com.kilon.agentvscreen.core.VScreenOwnership.start(applicationContext)
+        if (com.kilon.agentvscreen.core.VScreenOcr.selfTestReport == null) Thread({ runCatching { com.kilon.agentvscreen.core.VScreenOcr.selfTest(applicationContext) } }, "ocr-selftest").start()
         // 1.3 beta4: woken while hidden: go back once nothing needs the service (ServiceControl.shouldSleep).
         sleeper = scope.launch {
             while (true) {
@@ -169,6 +174,7 @@ class HostService : Service() {
         if (intent?.action == ACTION_ON) ServiceControl.turnOn(this, "notification")
         if (intent?.action == ACTION_ALLOW) { BackgroundOperation.userResume(); return START_STICKY }
         if (intent?.action == ACTION_SHOW_WINDOW) { BackgroundOperation.showWindow(); return START_STICKY }
+        if (intent?.action == ACTION_HAND_BACK) { intent.getStringExtra("pkg")?.let { p -> Thread { com.kilon.agentvscreen.core.VScreenOwnership.handBack(applicationContext, p, "notification") }.start() }; return START_STICKY }
         if (intent?.action == Consent.ACTION) { Consent.answer(applicationContext, intent.getIntExtra("id", -1), intent.getBooleanExtra("allow", false)); return START_STICKY }
         // Started again (the user opened the app, boot, update): whatever failed before gets another go now.
         if (!Liveness.foreground) goForeground()

@@ -34,7 +34,7 @@ class ShotTest {
         // 1.3 beta3: the home page with a question waiting, and each second-level page.
         com.kilon.agentvscreen.host.UserAsk.create(app, com.kilon.agentvscreen.host.UserAsk.Kind.CHOOSE, "shot", "这周末你想先动哪块？", "",
             options = listOf("考研单词", "大创器件", "先歇着"))
-        for (page in listOf("CONNECT", "PERMS", "SCREEN", "SCHEDULE", "LOG", "SETUP")) {
+        for (page in listOf("RECORDS", "SETTINGS", "CONNECT", "REMOTE", "TOKENS", "RULES", "SCHEDULES", "LESSONS", "LOG", "SETUP", "DIAG", "HELP")) {
             val a = Robolectric.buildActivity(MainActivity::class.java, android.content.Intent().putExtra(MainActivity.EXTRA_PAGE, page)).setup().get()
             repeat(20) { ShadowLooper.idleMainLooper(); Thread.sleep(50) }
             val v = a.window.decorView

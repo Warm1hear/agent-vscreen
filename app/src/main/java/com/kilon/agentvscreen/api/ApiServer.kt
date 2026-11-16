@@ -663,8 +663,12 @@ class ApiServer(private val ctx: Context) {
      * /v1 (deprecated, one more version): as 1.1 — a stretch that stopped at a step still says ok=true, exit=0.
      */
     private fun envelope(res: NativeOffloadResult, session: String, requestId: String?, replayed: Boolean, r: Req, v2: Boolean): JSONObject {
-        val shots = ShotStore.refs(res.output)
-        val text = ShotStore.IN_TEXT.replace(res.output) { shotUrl(it.groupValues[1], r, v2) }
+        val all = ShotStore.refs(res.output)
+        // 1.4.0-beta2: clients that feed images[] to a model get only pictures that say something new, compact
+        // (ImagePolicy); the CLI prints paths only, so it gets them all at full size.
+        val cli = r.headers["x-vscreen-client"] == "cli"
+        val shots = if (cli || !v2) all else ImagePolicy.pick(res, all)
+        val text = ShotStore.IN_TEXT.replace(res.output) { m -> val n = m.groupValues[1]; if (n in shots) shotUrl(n, r, v2) else ImagePolicy.leftOut() }
         val exit = if (!v2 && res.softFail) 0 else res.exitCode
         val code = if (!v2 && res.softFail) "OK" else res.codeOrDefault
         val o = JSONObject()
@@ -672,7 +676,8 @@ class ApiServer(private val ctx: Context) {
         else o.put("data", text.trim().takeIf { it.startsWith("{") }?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject.NULL)
         if (v2) fixShots(o, r)
         o.put("ok", exit == 0).put("exit", exit).put("code", if (v2 || exit != 0) code else JSONObject.NULL).put("session", session).put("text", text)
-            .put("images", JSONArray(shots.map { JSONObject().put("name", it).put("url", shotUrl(it, r, v2)) }))
+            .put("images", JSONArray(shots.map { n -> JSONObject().put("name", n).put("full_url", shotUrl(n, r, v2))
+                .put("url", if (cli || !v2) shotUrl(n, r, v2) else shotUrl(ImagePolicy.compact(ctx, n), r, v2)) }))
         if (v2) {
             o.put("next", com.kilon.agentvscreen.cmd.Codes.next(code).takeIf { exit != 0 } ?: "none")
             requestId?.let { o.put("request_id", it) }

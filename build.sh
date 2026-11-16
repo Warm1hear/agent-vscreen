@@ -12,5 +12,8 @@ SO=app/src/main/jniLibs/arm64-v8a/libtsbridge.so
 if [ ! -f "$SO" ] || [ -n "$(find tsbridge -newer "$SO" -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) | head -1)" ]; then
   ./tsbridge/build.sh >> /srv/avs-build/logs/tsb.log 2>&1
 fi
+# 1.4.0-beta2: the OCR models must build and read on the app's own onnxruntime version (beta1 did not on the phone).
+ORT=$(grep -o 'onnxruntime-android:[0-9.]*' app/build.gradle.kts | cut -d: -f2)
+/srv/avs-build/ocrbench/venv120/bin/python tools/ocr-bench/check_assets.py app/src/main/assets/vscreen-ocr "$ORT" > /srv/avs-build/logs/ocrcheck.log 2>&1 || { cat /srv/avs-build/logs/ocrcheck.log; echo AVS_BUILD_FAILED_OCR; exit 1; }
 ./gradlew --no-daemon --max-workers=2 -Dorg.gradle.jvmargs='-Xmx3g -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process $TASK > /srv/avs-build/logs/gradle.log 2>&1
 echo AVS_BUILD_SUCCESS

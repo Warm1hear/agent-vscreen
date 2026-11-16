@@ -238,7 +238,9 @@ internal fun mergeElements(d: VScreenDisplay, a11y: List<El>, ocr: List<VScreenO
 }
 /** One look at the screen: a frame, the OCR words of exactly that frame, the elements, the foreground activity. */
 internal class Snap(val frame: Bitmap?, val version: Long, val items: List<VScreenOcr.Item>?, val els: List<El>,
-                    val activity: String?, val ocrReused: Boolean, val mask: com.kilon.agentvscreen.core.Mask? = null)
+                    val activity: String?, val ocrReused: Boolean, val mask: com.kilon.agentvscreen.core.Mask? = null,
+                    /** Set when the words could not be read (both engines failed) or the accurate one fell back: said in 【注意】. */
+                    val ocrProblem: String? = null, val ocrFallback: String? = null)
 
 private val snapPool = java.util.concurrent.Executors.newCachedThreadPool { r -> Thread(r, "vscreen-snap").apply { isDaemon = true } }
 
@@ -262,10 +264,14 @@ internal fun VScreenOffloadHandler.snapshot(d: VScreenDisplay, freshMs: Long = 1
         val a11yF = snapPool.submit<List<El>> { runCatching { a11yRaw(d) }.getOrDefault(emptyList()) }
         val actF = snapPool.submit<String?> { runCatching { VScreenShell.topActivity(d.displayId) }.getOrNull() }
         var reused = false
+        var problem: String? = null
+        var fellBack: String? = null
         val items: List<VScreenOcr.Item>? = if (fv == null) null else {
             VScreenPerception.readingFor(d.displayId, fv.first, fv.second)?.let { reused = true; it.items }
                 ?: runCatching { VScreenOcr.recognize(d.displayId, fv.first, fv.second, accurate = VScreenOcr.accurateEnabled()) }
-                    .getOrNull()?.takeIf { it.error == null }?.let { r ->
+                    .getOrElse { t -> VScreenOcr.Result(emptyList(), d.displayId, fv.second, 0L, "${t.javaClass.simpleName}: ${t.message}") }
+                    .also { r -> problem = r.error?.let { e -> VScreenOcr.downLine(e) }; fellBack = r.fallback }
+                    .takeIf { it.error == null }?.let { r ->
                         val a11yTexts = runCatching { a11yF.get(3, java.util.concurrent.TimeUnit.SECONDS) }.getOrDefault(emptyList()).map { it.label }
                         VScreenPerception.offerReading(d.displayId, fv.first, fv.second, r, a11yTexts)
                         r.items
@@ -276,7 +282,8 @@ internal fun VScreenOffloadHandler.snapshot(d: VScreenDisplay, freshMs: Long = 1
         val after = d.latestWithVersion()
         val mask = VScreenPerception.mask(d.displayId)
         if (attempt == 0 && fv != null && after != null && after.second != fv.second && !samePicture(fv.first, after.first, mask)) { attempt++; continue }
-        return Snap(fv?.first, fv?.second ?: -1L, items, mergeElements(d, raw, items?.let { VScreenPerception.still(it, mask) }), act, reused, mask)
+        return Snap(fv?.first, fv?.second ?: -1L, items, mergeElements(d, raw, items?.let { VScreenPerception.still(it, mask) }), act, reused, mask,
+            problem ?: VScreenOcr.downLine(null), fellBack)
     }
 }
 
@@ -538,6 +545,9 @@ internal fun VScreenOffloadHandler.fourBlocks(sid: String, d: VScreenDisplay, li
     val pic = snap.frame?.let { picture(sid, d, it, since, tag, shownCells) } ?: run { shownCells.forEach { it.bmp.recycle() }; null }
     timing.pictureMs = SystemClock.elapsedRealtime() - tPic
     if (snap.activity == null) notes.add("NO_APP", tr("副屏上没有应用（副屏没有桌面，back 回不到桌面）：launch <应用名> 打开一个", "No app on the screen (the screen has no launcher; back can't reach one): open one with launch <app name>"))
+    // 1.4.0-beta2: a reading that failed is said, never left as a short element list that looks complete.
+    com.kilon.agentvscreen.core.VScreenOwnership.takeNotes(sid).forEach { notes += it }
+    snap.ocrProblem?.let { notes.add("OCR_DOWN", it) } ?: snap.ocrFallback?.let { notes += it }
     VScreenPerception.blankFor(d.displayId)?.let { ms -> notes += tr("画面已连续 ${(ms / 100) / 10.0} 秒是一整片纯色（黑屏/白屏）", "The picture has been one solid color for ${(ms / 100) / 10.0} s (black / white screen)") }
     val sb = StringBuilder()
     sb.append(Blocks.done + "\n")

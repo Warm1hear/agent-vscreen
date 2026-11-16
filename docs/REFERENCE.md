@@ -6,7 +6,7 @@
 
 ## 命令
 
-### `launch <应用名|包名> [--landscape] [--portrait] [--restart] [--async]`
+### `launch <应用名|包名> [--landscape] [--portrait] [--restart] [--asked] [--async]`
 
 打开应用（找不到就 apps 关键词）。副屏方向按应用声明的方向建；被系统缩放会自动处理。
 返回四段；【做了什么】里还会列出你以前给这个应用记的 note、存的段、前置/收尾步骤。
@@ -14,6 +14,7 @@
 - `--landscape` 副屏按横屏建
 - `--portrait` 副屏按竖屏建
 - `--restart` 冷启动（先结束应用）
+- `--asked` 用户正在主屏用这个应用时，已经问过用户并得到同意
 - `--async` 不等它做完：马上返回任务号，之后 task <号> 取结果（长操作、怕连接超时时用）
 
 权限范围: `operate` · 在副屏队列里执行
@@ -241,6 +242,9 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 | `USER_DENIED` | `ask_user` | 用户在手机上拒绝了这一步。不要重试，问用户想怎么办。 |
 | `CONFIRM_REQUIRED` | `ask_user` | 同 CONFIRM_PENDING（旧名字）。 |
 | `APP_BLOCKED` | `ask_user` | 用户禁止后台操作这个应用。不要绕过，也不要从别的入口进同一个应用。 |
+| `APP_IN_USE` | `ask_user` | 用户正在主屏上用这个应用。先 ask 用户，同意后 launch --asked（另开一份）或 handoff in（接着他的页面）。 |
+| `APP_WITH_USER` | `ask_user` | 你在用的应用现在在用户手上（主屏）。等 handback 事件，或 launch 别的应用。 |
+| `OCR_DOWN` | `none` | 文字识别不可用（两种引擎都失败）：元素只来自无障碍，画面上的字可能没列出来，以截图为准。 |
 | `APP_READ_ONLY` | `ask_user` | 用户把这个应用设成只读：能看、滚动、返回，不能点击/输入/滑动。 |
 | `USER_TAKEOVER` | `ask_user` | 用户正在自己操作副屏。停下告诉用户，等用户交还。 |
 | `USER_STOPPED` | `ask_user` | 用户按了“停止 AI”。所有操作都被拒绝，只有用户能解除；把返回里怎么解除的那句转告用户。 |
@@ -306,7 +310,7 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 
 ## Commands
 
-### `launch <app name|package> [--landscape] [--portrait] [--restart] [--async]`
+### `launch <app name|package> [--landscape] [--portrait] [--restart] [--asked] [--async]`
 
 open an app (if not found, apps <keyword>). The screen orientation follows what the app declares; system scaling is handled automatically.
 Returns four blocks; [Done] also lists the notes, saved segments and before/after steps you kept for this app.
@@ -314,6 +318,7 @@ Returns four blocks; [Done] also lists the notes, saved segments and before/afte
 - `--landscape` build the screen in landscape
 - `--portrait` build the screen in portrait
 - `--restart` cold start (stops the app first)
+- `--asked` the user is using this app on the main screen and has agreed when asked
 - `--async` do not wait for it: returns a task id at once, fetch the result later with task <id> (for long operations or short connection timeouts)
 
 scope: `operate` · runs in the screen queue
@@ -541,6 +546,9 @@ scope: `look`
 | `USER_DENIED` | `ask_user` | The user denied this step on the phone. Don't retry; ask the user what they want. |
 | `CONFIRM_REQUIRED` | `ask_user` | Same as CONFIRM_PENDING (old name). |
 | `APP_BLOCKED` | `ask_user` | The user blocked background operation of this app. Don't get around it or enter the same app another way. |
+| `APP_IN_USE` | `ask_user` | The user is using this app on the main screen. Ask the user first; once they agree, launch --asked (a separate copy) or handoff in (from their page). |
+| `APP_WITH_USER` | `ask_user` | The app you were using is with the user (main screen). Wait for the handback event, or launch another app. |
+| `OCR_DOWN` | `none` | Text recognition is unavailable (both engines failed): elements come from accessibility only, words on the picture may be missing; trust the screenshot. |
 | `APP_READ_ONLY` | `ask_user` | The user set this app to read-only: you may look, scroll and go back, not tap / type / swipe. |
 | `USER_TAKEOVER` | `ask_user` | The user is operating the screen. Stop, tell the user, and wait for the hand-back. |
 | `USER_STOPPED` | `ask_user` | The user pressed "Stop AI". Everything is refused and only the user can lift it; pass on the line that says how. |

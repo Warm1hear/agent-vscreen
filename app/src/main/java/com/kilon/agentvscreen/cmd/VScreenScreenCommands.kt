@@ -344,6 +344,8 @@ internal fun VScreenOffloadHandler.capabilities(d: VScreenDisplay?): JSONObject 
     o.put("keys", if (d?.ownFocus == true) tr("带 displayId 注入（副屏有独立焦点）", "injected with displayId (the screen has its own focus)") else tr("带 displayId 注入，失败时 input -d", "injected with displayId, input -d as fallback"))
     o.put("drag", if (d?.shellOwned == true) tr("副屏服务 POINTER（drag 多点、按住）", "screen service POINTER (multi-point drag, hold)") else tr("不可用（需要 Shizuku 副屏服务）", "unavailable (needs the Shizuku screen service)"))
     o.put("ocr", VScreenOcr.engineInfo())
+    o.put("with_user", org.json.JSONArray(com.kilon.agentvscreen.core.VScreenOwnership.given.value.values.map { g ->
+        JSONObject().put("app", g.pkg).put("since", g.at).put("why", g.why) }))
     o.put("accessibility", if (a11yLive()) tr("已连接（控件树可用）", "connected (widget tree available)") else tr("未连接（只用 OCR/视觉）", "not connected (OCR / vision only)"))
     o.put("vision", tr("由调用方的模型看截图（本应用不调用任何模型）", "the caller's model looks at screenshots (this app calls no model)"))
     o.put("orientation", if (d == null) "-" else run { val src = d.geometryJson().optString("turn_source"); tr("旋转 ${d.rotation * 90}°，画面转正 ${d.bufferTurn}°（$src）", "rotated ${d.rotation * 90}°, picture turned upright ${d.bufferTurn}° ($src)") })

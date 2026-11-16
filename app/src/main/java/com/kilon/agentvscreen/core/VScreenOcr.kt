@@ -68,8 +68,26 @@ internal object VScreenOcr {
         val fallback: String? = null,
     )
 
-    private val recognizer by lazy { TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build()) }
+    private val recognizer by lazy {
+        // 1.4.0-beta2: beta1 on a phone failed inside getClient (its component lookup returned null). Initialise ML Kit
+        // here with the app context, which is a no-op when its provider already did it.
+        BackgroundOperation.appContextOrNull()?.let { runCatching { com.google.mlkit.common.MlKit.initialize(it) } }
+        TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+    }
     @Volatile private var cache: Result? = null
+    /** The fast engine's last failure, cleared by its next success: lets a reused or skipped reading still say OCR is down. */
+    @Volatile private var fastError: String? = null
+
+    /**
+     * 1.4.0-beta2: the line for 【注意】 when no engine could read the screen ([err], or the fast engine's last failure);
+     * null when reading works. Never silent: an element list from accessibility alone looks complete but is not.
+     */
+    fun downLine(err: String?): String? {
+        val e = err ?: fastError ?: return null
+        val acc = VScreenPaddleOcr.loadError()
+        return tr("文字识别不可用：" + (acc?.let { "PP-OCRv6 加载失败（${it.take(140)}）；" } ?: "") + "ML Kit 也失败（${e.take(140)}）。下面的元素只来自无障碍，画面上的字可能没列出来，以截图为准；vscreen diag 看详情，并告诉用户",
+            "Text recognition is unavailable: " + (acc?.let { "PP-OCRv6 failed to load (${it.take(140)}); " } ?: "") + "ML Kit failed too (${e.take(140)}). The elements below come from accessibility only and words on the picture may be missing; trust the screenshot, see vscreen diag, and tell the user")
+    }
     @Volatile private var accurateCache: Result? = null
 
     private fun reusable(c: Result?, displayId: Int, frame: Bitmap, version: Long): Boolean {
@@ -92,10 +110,37 @@ internal object VScreenOcr {
         return BackgroundOperation.state.value.accurateOcr && VScreenPaddleOcr.available(ctx)
     }
 
+    /**
+     * 1.4.0-beta2: both engines read the self-test picture once, with this phone's runtimes. Run when the service
+     * starts (so a broken engine is known before an agent's first look) and by `vscreen diag`. One line per engine.
+     */
+    @Volatile var selfTestReport: String? = null; private set
+    fun selfTest(ctx: android.content.Context): String {
+        val lines = ArrayList<String>()
+        lines += try {
+            val (words, hit, ms) = VScreenPaddleOcr.selfTest(ctx)
+            "PP-OCRv6: ${if (hit.size == VScreenPaddleOcr.EXPECT.size) "ok" else "WRONG"} ${hit.size}/${VScreenPaddleOcr.EXPECT.size} expected words, ${words.size} lines, ${ms}ms" +
+                (VScreenPaddleOcr.optNote?.let { " [$it]" } ?: "")
+        } catch (t: Throwable) { "PP-OCRv6: FAILED ${t.javaClass.simpleName}: ${t.message?.take(240)}" }
+        lines += try {
+            val bmp = ctx.assets.open("vscreen-ocr/selftest.png").use { android.graphics.BitmapFactory.decodeStream(it) }
+            try {
+                val t0 = SystemClock.elapsedRealtime()
+                val text = Tasks.await(recognizer.process(InputImage.fromBitmap(bmp, 0)), 10, TimeUnit.SECONDS)
+                val words = text.textBlocks.flatMap { b -> b.lines.map { it.text } }
+                val hit = VScreenPaddleOcr.EXPECT.filter { w -> words.any { it.contains(w) } }
+                fastError = null
+                "ML Kit: ${if (hit.isNotEmpty()) "ok" else "WRONG"} ${hit.size}/${VScreenPaddleOcr.EXPECT.size} expected words, ${words.size} lines, ${SystemClock.elapsedRealtime() - t0}ms"
+            } finally { bmp.recycle() }
+        } catch (t: Throwable) { val c = t.cause ?: t; fastError = "${c.javaClass.simpleName}: ${c.message}"; "ML Kit: FAILED ${c.javaClass.simpleName}: ${c.message?.take(240)}" }
+        return lines.joinToString("\n").also { selfTestReport = it; AppLogger.info(TAG, "self-test\n$it") }
+    }
+
     /** Engines for status: what read / tap --text use, and what the fast paths use. */
-    fun engineInfo(): String = if (accurateEnabled()) tr("${VScreenPaddleOcr.ENGINE}；滚动等快速路径用 $ENGINE；后台感知（state 的 now.words）也用精确引擎", "${VScreenPaddleOcr.ENGINE}; fast paths such as scrolling use $ENGINE; background perception (now.words in state) uses the accurate engine too") +
+    fun engineInfo(): String = (if (accurateEnabled()) tr("${VScreenPaddleOcr.ENGINE}；滚动等快速路径用 $ENGINE；后台感知（state 的 now.words）也用精确引擎", "${VScreenPaddleOcr.ENGINE}; fast paths such as scrolling use $ENGINE; background perception (now.words in state) uses the accurate engine too") +
             (if (accurateMs > 0L) tr("（约 ${accurateMs}ms/次，慢时降低频率）", " (about ${accurateMs}ms each, less often when slow)") else "")
-        else ENGINE + (VScreenPaddleOcr.loadError()?.let { tr("（PP-OCRv6 加载失败：$it）", " (PP-OCRv6 failed to load: $it)") } ?: "")
+        else ENGINE + (VScreenPaddleOcr.loadError()?.let { tr("（PP-OCRv6 加载失败：$it）", " (PP-OCRv6 failed to load: $it)") } ?: "")) +
+        (selfTestReport?.takeIf { "FAILED" in it || "WRONG" in it }?.let { tr("；自检：", "; self-test: ") + it.replace("\n", "; ") } ?: "")
 
     /**
      * OCR of [frame] (version [version]) on display [displayId]. Never throws. Not on the main thread.
@@ -200,10 +245,12 @@ internal object VScreenOcr {
             val items = ArrayList<Item>()
             for (block in text.textBlocks) for (line in block.lines) items += segment(line)
             items.sortWith(compareBy<Item>({ it.box.top / 8 }, { it.box.left }))
+            fastError = null
             Result(items, displayId, version, SystemClock.elapsedRealtime() - t0, null, ScreenSig.of(frame)).also { cache = it }
         } catch (t: Throwable) {
             val cause = t.cause ?: t
             AppLogger.warning(TAG, "OCR failed: ${cause.javaClass.simpleName}: ${cause.message}")
+            fastError = "${cause.javaClass.simpleName}: ${cause.message}"
             Result(emptyList(), displayId, version, SystemClock.elapsedRealtime() - t0,
                 "${cause.javaClass.simpleName}: ${cause.message}")
         }

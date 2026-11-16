@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -761,7 +762,11 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
     val teachN by com.kilon.agentvscreen.cmd.Teach.count.collectAsState()
     val octx = LocalContext.current
     LaunchedEffect(mode == Mode.TAKEOVER) { if (mode != Mode.TAKEOVER && com.kilon.agentvscreen.cmd.Teach.recordingFor(owner)) com.kilon.agentvscreen.cmd.Teach.stop(octx.applicationContext) }
-    val title = teachN?.let { tr("示教录制中 · 已记 $it 步", "Recording a lesson · $it steps") } ?: s.agentTitle ?: when (mode) {
+    // 1.4.0-beta2: the app is with the user on the main screen: no stale picture, one way to hand it back.
+    val givenAll by com.kilon.agentvscreen.core.VScreenOwnership.given.collectAsState()
+    val mine = givenAll.values.firstOrNull { it.session == owner && !it.agentMovedOn }
+    val mineLabel = remember(mine?.pkg) { mine?.let { com.kilon.agentvscreen.core.VScreenOwnership.label(octx, it.pkg) } }
+    val title = mineLabel?.let { tr("已交给你 · $it", "With you · $it") } ?: teachN?.let { tr("示教录制中 · 已记 $it 步", "Recording a lesson · $it steps") } ?: s.agentTitle ?: when (mode) {
         Mode.ACTING -> s.action?.take(18) ?: Palette.word(mode)
         Mode.STANDBY -> if (left >= 0) tr("AI 待命", "AI on standby") + " · ${left / 60000}:${"%02d".format((left / 1000) % 60)}" else Palette.word(mode)
         Mode.IDLE -> if (s.powerSaving) tr("空闲 · 省电暂停", "Idle · paused to save power") else tr("空闲", "Idle")
@@ -785,6 +790,15 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
             Box(Modifier.fillMaxSize().clip(RoundedCornerShape(corner)).background(Palette.ink)) {
                 // The picture: the only layer whose fingers reach the background screen.
                 PictureLayer(owner, k, picture)
+                if (mine != null) Column(
+                    Modifier.fillMaxSize().eatTouches().background(Palette.ink).padding((12 * k).dp),
+                    verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(Icons.Filled.PanTool, null, tint = Palette.takeover, modifier = Modifier.size((26 * k).dp))
+                    Spacer(Modifier.height((6 * k).dp))
+                    Text(tr("$mineLabel 在主屏由你使用", "$mineLabel is on your main screen"), color = Color.White, fontSize = (12 * k).sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+                    Text(tr("用完点“交回 agent”，它从你离开的页面接着做", "When done, tap Hand back; it carries on from where you left it"), color = Color(0xB3FFFFFF), fontSize = (10 * k).sp, textAlign = TextAlign.Center)
+                }
                 // A soft scrim under the pill and buttons keeps them readable on white pages (draws only, no touch).
                 Box(Modifier.fillMaxWidth().height((40 * k).dp).background(Brush.verticalGradient(listOf(Color(0x80000000), Color.Transparent))))
             }
@@ -811,6 +825,7 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
 
             // The one action of this state, bottom centre (one place for all of them): stop, done or hand back.
             val action: Triple<String, Color, () -> Unit>? = when {
+                mine != null -> Triple(tr("交回 agent", "Hand back"), Palette.takeover) { val c = octx.applicationContext; val p = mine.pkg; Thread { com.kilon.agentvscreen.core.VScreenOwnership.handBack(c, p, "overlay") }.start() }
                 teachN != null && mode == Mode.TAKEOVER -> Triple(tr("完成", "Done") + " · $teachN", Palette.asking) { com.kilon.agentvscreen.cmd.Teach.finish(octx.applicationContext) }
                 mode == Mode.TAKEOVER || mode == Mode.STOPPED -> Triple(tr("交还 AI", "Hand back"), Palette.takeover) { BackgroundOperation.userResume() }
                 // 1.3.0-beta19 (rainbow): stop only while the AI acts or waits; idle shows nothing.

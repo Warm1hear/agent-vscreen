@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
@@ -12,8 +13,8 @@ android {
         applicationId = "com.kilon.agentvscreen"
         minSdk = 30
         targetSdk = 35
-        versionCode = 34
-        versionName = "1.4.0-beta1"
+        versionCode = 35
+        versionName = "1.4.0-beta2"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     // Release signing is read from keystore.properties (not committed). See keystore.properties.example.
@@ -42,8 +43,8 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
     buildFeatures { compose = true; buildConfig = true }
     androidResources { noCompress += "onnx" }
@@ -55,7 +56,7 @@ android {
         unitTests.all { it.jvmArgs("-Duser.language=zh", "-Duser.country=CN") } }
 }
 
-kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21) } }
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
@@ -68,6 +69,8 @@ dependencies {
     implementation("top.yukonga.miuix.kmp:miuix-preference:0.9.4")
     implementation("top.yukonga.miuix.kmp:miuix-blur:0.9.4")
     implementation("top.yukonga.miuix.kmp:miuix-icons:0.9.4")
+    // 1.4: real page stack (own large title per page, swipe and predictive back), as miuix apps navigate.
+    implementation("top.yukonga.miuix.kmp:miuix-nav:0.9.4")
     implementation("androidx.activity:activity-compose:1.12.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-service:2.8.7")

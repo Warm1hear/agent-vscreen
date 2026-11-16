@@ -309,7 +309,7 @@ internal fun VScreenOffloadHandler.workApp(sid: String, d: VScreenDisplay): Stri
 /** 1.3.0-beta18: the most steps one stretch does, repeats counted (each step of each round). */
 private const val MAX_RUN = 300
 
-private val INTERRUPTS = setOf("USER_TAKEOVER", "USER_STOPPED", "CONNECTION_LOST", "CANCELLED", "NOT_CONNECTED", "BUSY", "NO_SCREEN")
+private val INTERRUPTS = setOf("APP_WITH_USER", "USER_TAKEOVER", "USER_STOPPED", "CONNECTION_LOST", "CANCELLED", "NOT_CONNECTED", "BUSY", "NO_SCREEN")
 
 /** Run a stretch of [steps] on the session's screen. Never throws for a step: a failed step ends the stretch and is said. */
 internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, steps: List<Step>, o: SegmentOpts): SegmentOut {
@@ -1043,11 +1043,26 @@ internal fun VScreenOffloadHandler.launchCmd(sid: String?, args: OffloadArgs): N
     val q = args.positional.joinToString(" ").trim().ifEmpty { throw ActionError("INVALID_ARGS", tr("launch <应用名或包名>", "launch <app name or package>")) }
     val pkg = VScreenKnowledge.resolveApp(q) ?: throw ActionError("APP_NOT_FOUND", tr("没找到“$q”：apps $q 看看已安装的应用和包名", "\"$q\" not found: apps $q lists installed apps and packages"))
     if (VScreenStore.ruleFor(pkg) == VScreenStore.Rule.BLOCK) throw ActionError("APP_BLOCKED", tr("用户禁止后台操作 $pkg（Agent-VScreen › 应用限制），不要绕过", "The user blocked background operation of $pkg (Agent-VScreen › App rules); don't work around it"))
+    // 1.4.0-beta2: an app the user has (handed over or pulled to the main screen) is theirs until they hand it back.
+    com.kilon.agentvscreen.core.VScreenOwnership.givenFor(pkg)?.let { g ->
+        throw ActionError("APP_WITH_USER", tr("$pkg 现在在用户手上（主屏），还没交回。等 handback 事件（vscreen events --wait），或先问用户（vscreen ask）",
+            "$pkg is with the user (main screen) and not handed back yet. Wait for the handback event (vscreen events --wait), or ask the user (vscreen ask)"))
+    }
+    // The user is using this very app on the main screen right now: a second copy, a cold start or a redirect can
+    // disturb what they are doing (log-ins, half-typed text, single-instance apps). Not the agent's call: ask first.
+    if (!args.hasFlag("asked") && userUsing(pkg)) {
+        val app = runCatching { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrNull() ?: pkg
+        throw ActionError("APP_IN_USE", tr("用户现在正在主屏上用 $app（$pkg）。不要直接接管：先问用户，例如 vscreen ask \"你正在用 $app，我可以在后台另开一份操作吗？\" --choose \"可以|等我用完\"。" +
+            "用户同意后：launch $pkg --asked 在副屏另开一份（不动用户那份）；要接着用户的页面做就 handoff in（手机上会再确认）。用户说等，就等他离开这个应用再 launch。",
+            "The user is using $app ($pkg) on the main screen right now. Don't take it over: ask the user first, e.g. vscreen ask \"You are using $app; may I open a separate copy in the background?\" --choose \"Yes|Wait until I'm done\". " +
+            "If they agree: launch $pkg --asked opens a separate copy on the background screen (the user's copy is left alone); to carry on from the user's page use handoff in (confirmed on the phone). If they say wait, launch after they leave the app."))
+    }
     val start = System.currentTimeMillis()
     val t0 = SystemClock.elapsedRealtime()
     val main0 = mainWatch(s, pkg)
     val orient = when { args.hasFlag("landscape") -> true; args.hasFlag("portrait") -> false; else -> null }
     val facts = doLaunch(s, pkg, orient, args.hasFlag("restart"))
+    com.kilon.agentvscreen.core.VScreenOwnership.agentLaunched(s, pkg)
     val d = BackgroundOperation.acquire(s, create = false)
     VScreenPerception.ensure(d)
     val done = ArrayList(facts.done)
@@ -1063,6 +1078,14 @@ internal fun VScreenOffloadHandler.launchCmd(sid: String?, args: OffloadArgs): N
     muteNote(d)?.let { notes += it }
     takeAdjusted().forEach { notes += tr("参数被调整：$it", "options adjusted: $it") }
     return fourBlocks(s, d, done, notes, start, SystemClock.elapsedRealtime() - t0, "launch", fullList = true)
+}
+
+/** The user has [pkg] in front on the main screen and is looking at it (screen on and unlocked). */
+internal fun VScreenOffloadHandler.userUsing(pkg: String): Boolean {
+    val pm = context.getSystemService(android.os.PowerManager::class.java)
+    val kg = context.getSystemService(android.app.KeyguardManager::class.java)
+    if (pm?.isInteractive != true || kg?.isKeyguardLocked == true) return false
+    return runCatching { VScreenShell.topPackage(0) }.getOrNull() == pkg
 }
 
 /** versionName of [pkg] (null when it cannot be read). */

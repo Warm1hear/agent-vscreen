@@ -40,7 +40,7 @@ import kotlin.math.roundToInt
  */
 internal object VScreenPaddleOcr {
     private const val TAG = "VScreenPaddleOcr"
-    const val ENGINE = "pp-ocrv6 tiny-det + small-rec fp16 (on-device, onnxruntime)"
+    const val ENGINE = "pp-ocrv6 tiny-det + small-rec (fp16 weights, fp32 compute; on-device, onnxruntime)"
     private const val DIR = "vscreen-ocr"
     /** v41: 1280 (was 960) — small game text on a 2800-wide screen is lost at 960. */
     private const val DET_LONG = 1280
@@ -62,6 +62,23 @@ internal object VScreenPaddleOcr {
         runCatching { context.assets.open("$DIR/det.onnx").close(); true }.getOrDefault(false)
 
     fun loadError(): String? = loadError
+    /** Set when a model had to be built without the CPU-specific rewrite (see engine()). */
+    @Volatile var optNote: String? = null; private set
+
+    /**
+     * 1.4.0-beta2: one real reading of a known picture (assets/vscreen-ocr/selftest.png) with this phone's runtime.
+     * Unit tests run on a computer and cannot catch a model this phone's runtime cannot build or read; this can.
+     * Returns words found, which of [EXPECT] were among them, and the time; throws when the engine fails.
+     */
+    val EXPECT = listOf("取消", "Search", "收藏", "已开启")
+    fun selfTest(context: Context): Triple<List<String>, List<String>, Long> {
+        val bmp = context.assets.open("$DIR/selftest.png").use { android.graphics.BitmapFactory.decodeStream(it) }
+        try {
+            val t0 = android.os.SystemClock.elapsedRealtime()
+            val words = recognize(context, bmp).map { it.text }
+            return Triple(words, EXPECT.filter { w -> words.any { it.contains(w) } }, android.os.SystemClock.elapsedRealtime() - t0)
+        } finally { bmp.recycle() }
+    }
 
     @Synchronized
     private fun engine(context: Context): Engine {
@@ -69,13 +86,20 @@ internal object VScreenPaddleOcr {
         loadError?.let { throw IllegalStateException(it) }
         try {
             val env = OrtEnvironment.getEnvironment()
+            // 1.4.0-beta2: the full optimisation level rewrites the graph per CPU (layout to NHWC, special kernels); on
+            // beta1's phone that rewrite asked for a kernel the runtime does not have. A model that cannot be built that
+            // way is built again without the CPU-specific rewrite (plain kernels, the same answers), and that is logged.
             fun session(name: String): OrtSession {
                 val bytes = context.assets.open("$DIR/$name").use { it.readBytes() }
-                val opts = OrtSession.SessionOptions().apply {
+                fun build(level: OrtSession.SessionOptions.OptLevel): OrtSession = env.createSession(bytes, OrtSession.SessionOptions().apply {
                     setIntraOpNumThreads(max(1, min(4, Runtime.getRuntime().availableProcessors() / 2)))
-                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    setOptimizationLevel(level)
+                })
+                return try { build(OrtSession.SessionOptions.OptLevel.ALL_OPT) } catch (e: ai.onnxruntime.OrtException) {
+                    AppLogger.warning(TAG, "$name at ALL_OPT failed (${e.message?.take(200)}); building at EXTENDED_OPT")
+                    optNote = "$name: EXTENDED_OPT (${e.message?.take(120)})"
+                    build(OrtSession.SessionOptions.OptLevel.EXTENDED_OPT)
                 }
-                return env.createSession(bytes, opts)
             }
             val dict = context.assets.open("$DIR/dict.txt").bufferedReader(Charsets.UTF_8).use { r ->
                 r.readLines().filter { it.isNotEmpty() }
