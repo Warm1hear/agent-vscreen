@@ -1081,6 +1081,11 @@ internal fun VScreenOffloadHandler.launchCmd(sid: String?, args: OffloadArgs): N
     val s = sid ?: throw ActionError("NO_SESSION", tr("没有会话（请求头 X-VScreen-Session）", "No session (header X-VScreen-Session)"))
     val q = args.positional.joinToString(" ").trim().ifEmpty { throw ActionError("INVALID_ARGS", tr("launch <应用名或包名>", "launch <app name or package>")) }
     val pkg = VScreenKnowledge.resolveApp(q) ?: throw ActionError("APP_NOT_FOUND", tr("没找到“$q”：apps $q 看看已安装的应用和包名", "\"$q\" not found: apps $q lists installed apps and packages"))
+    // 1.4.0-beta10 (test: launch Agent-VScreen gave LAUNCH_NOT_ON_TOP five times): this app's pages always open on the
+    // phone's own screen (they are for the person holding it; ui/MainDisplay moves them there), so it cannot run on
+    // the background screen. Said plainly instead of a launch that cannot land.
+    if (pkg == context.packageName) throw ActionError("APP_NOT_SUPPORTED", tr("Agent-VScreen 自己的页面只开在手机主屏上，不能在副屏打开。要看它的状态用 vscreen status；要用户在 App 里做什么就 ask 用户",
+        "Agent-VScreen's own pages open only on the phone's main screen, never on the background screen. For its state use vscreen status; to have the user do something in it, ask the user"))
     com.kilon.agentvscreen.core.Guard.require(com.kilon.agentvscreen.core.Guard.Act.OPEN, pkg, s, asked = args.hasFlag("asked"))
     // The user is using this very app on the main screen right now: a second copy, a cold start or a redirect can
     // disturb what they are doing (log-ins, half-typed text, single-instance apps). Not the agent's call: ask first.

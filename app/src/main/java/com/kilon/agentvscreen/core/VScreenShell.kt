@@ -101,9 +101,9 @@ internal object VScreenShell {
             val why = VScreenDisplay.lastRemoteError?.let { tr("（Shizuku 副屏服务不可用：$it，只能用 App 自建副屏，系统不允许 shell 往上启动应用）", " (Shizuku screen service unavailable: $it; only the app's own screen can be used, and the system does not let the shell start apps on it)") } ?: ""
             fail("LAUNCHED_ON_MAIN_SCREEN", tr("系统把 $targetPkg 开到了主屏，而不是副屏 $displayId$why。不要在主屏上继续操作，请告诉用户。", "The system opened $targetPkg on the main screen instead of screen $displayId$why. Do not go on operating the main screen; tell the user."))
         } else if (top == null) {
-            ok(tr("已请求在副屏 $displayId 启动 $what（无法确认副屏顶部应用，请 read 核实）", "Asked to start $what on screen $displayId (cannot confirm the top app on the screen; check with read)"))
+            ok(tr("已请求在副屏 $displayId 启动 $what（无法确认副屏顶部应用，请用 look 核实）", "Asked to start $what on screen $displayId (cannot confirm the top app on the screen; check with look)"))
         } else {
-            fail("LAUNCH_NOT_ON_TOP", tr("副屏 $displayId 顶部是 $top，不是 $targetPkg；请 read 查看副屏状态", "The top of screen $displayId is $top, not $targetPkg; check the screen with read"))
+            fail("LAUNCH_NOT_ON_TOP", tr("副屏 $displayId 顶部是 $top，不是 $targetPkg；请用 look 看一眼副屏", "The top of screen $displayId is $top, not $targetPkg; look at the screen"))
         }
     }
 

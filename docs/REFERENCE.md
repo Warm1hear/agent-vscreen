@@ -289,6 +289,7 @@ look x1,y1,x2,y2 的旧写法：放大看一块区域（图边上标着副屏坐
 | `NOT_SUPPORTED` | `ask_user` | 这台手机做不了这个操作（副屏服务不可用）。status 的 degraded 里有原因。 |
 | `INPUT_FAILED` | `look` | 系统没有接受这次输入注入。 |
 | `APP_NOT_FOUND` | `fix_command` | 找不到这个包的启动入口。 |
+| `APP_NOT_SUPPORTED` | `fix_command` | 这个应用不能在副屏上打开（例如 Agent-VScreen 自己）。 |
 | `LAUNCH_FAILED` | `look` | 应用没启动起来。 |
 | `LAUNCH_RESOLVER` | `fix_command` | 启动后停在系统的“打开方式”选择器：这个包没有桌面入口。 |
 | `LAUNCHED_ON_MAIN_SCREEN` | `ask_user` | 系统把应用开到了主屏而不是副屏。不要在主屏上继续，告诉用户。 |
@@ -616,6 +617,7 @@ scope: `look`
 | `NOT_SUPPORTED` | `ask_user` | This phone cannot do this (the screen service is unavailable). See degraded in status. |
 | `INPUT_FAILED` | `look` | The system did not accept the injected input. |
 | `APP_NOT_FOUND` | `fix_command` | No launch entry for this package. |
+| `APP_NOT_SUPPORTED` | `fix_command` | This app cannot open on the background screen (e.g. Agent-VScreen itself). |
 | `LAUNCH_FAILED` | `look` | The app did not start. |
 | `LAUNCH_RESOLVER` | `fix_command` | It stopped on the system's "Open with" chooser: the package has no launcher entry. |
 | `LAUNCHED_ON_MAIN_SCREEN` | `ask_user` | The system opened the app on the main screen instead. Don't go on there; tell the user. |

@@ -452,7 +452,7 @@ object BackgroundOperation {
         _state.update { it.copy(displayId = null, ownerSessionId = null, takeoverSessionId = null, operating = false, note = reason) }
         AppLogger.info(TAG, "released display ${d.displayId} gen=${d.generation}: $reason")
         // A lesson being recorded and the questions answered on this screen end with it (1.3.0-beta14).
-        com.kilon.agentvscreen.cmd.Teach.cancel()
+        com.kilon.agentvscreen.cmd.Teach.screenClosed(appContext)
         com.kilon.agentvscreen.host.UserAsk.screenGone(appContext, reason)
     }
 
@@ -482,7 +482,8 @@ object BackgroundOperation {
         synchronized(lock) { tasks.remove(sessionId); turns.remove(sessionId) }
         TaskLog.onTurnEnd(sessionId, _state.value.userStopped)
         appContext?.let { c -> com.kilon.agentvscreen.host.UserAsk.withdrawSession(c, sessionId) }
-        if (com.kilon.agentvscreen.cmd.Teach.prep.value != null && _state.value.ownerSessionId == sessionId) com.kilon.agentvscreen.cmd.Teach.cancelPrep()
+        // 1.4.0-beta10: a lesson the user took is theirs to finish; the agent's turn ending does not end it (withdraw
+        // above leaves the question the lesson answers alone).
         // A finger the agent left down (run … --keep without a release) never outlives the turn.
         if (_state.value.ownerSessionId == sessionId) display?.let { d ->
             Thread { runCatching { VScreenShell.finger(d.displayId, "cancel", 0, -1, -1) } }.apply { isDaemon = true }.start()

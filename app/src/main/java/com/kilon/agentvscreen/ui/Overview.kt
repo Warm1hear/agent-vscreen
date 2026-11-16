@@ -161,6 +161,24 @@ fun OverviewTab(bottom: Dp) {
             exit = slideOutHorizontally(tween(280)) { it } + fadeOut(tween(220)) + shrinkVertically(tween(320, delayMillis = 160))) {
             waiting.firstOrNull()?.let { a -> Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) { HomeAskCard(a, waiting.size) } }
         }
+        // 1.4.0-beta10: a lesson recorded and not saved yet waits here until the user saves or discards it.
+        val review by com.kilon.agentvscreen.cmd.Teach.reviewing.collectAsState()
+        review?.let { r ->
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp).fillMaxWidth(), insideMargin = androidx.compose.foundation.layout.PaddingValues(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AskMark(22f)
+                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                        Text(ReviewWords.title(r), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(ReviewWords.who(r), fontSize = 12.5.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1)
+                    }
+                }
+                Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PrimaryButton(onClick = { ReviewWords.open(ctx) }, modifier = Modifier.weight(1f)) { Text(tr("去保存", "Review and save")) }
+                    SoftButton(onClick = { ReviewWords.discard(ctx, r) }) { Text(tr("丢弃", "Discard")) }
+                }
+            }
+        }
 
         val stage = @Composable { m: Modifier ->
             AnimatedContent(home, modifier = m, transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(200)) }, label = "stage") { h ->
@@ -174,6 +192,17 @@ fun OverviewTab(bottom: Dp) {
             }
         }
         val rest = @Composable {
+            // 1.4.0-beta10: after the first call the guide is not over until some agent saved the note; one line of
+            // what is left, until then.
+            val agentsNow by com.kilon.agentvscreen.api.AgentLedger.agents.collectAsState()
+            if (home != Home.FIRST && agentsNow.values.any { it.lastCallAt > 0 } && agentsNow.values.none { it.remembered }) {
+                Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp).fillMaxWidth().clickable { nav.tab(TAB_CONNECT) }, insideMargin = PaddingValues(16.dp)) {
+                    Text(tr("下一步：让 agent 记下说明", "Next: have the agent save the note"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(tr("它连上了，但还没说把说明存在哪。不存的话，新对话里它可能不知道自己能用手机。点这里看是哪个 agent。",
+                        "It connected but has not said where it saved the note; without it, new conversations may not know they can use the phone. Tap to see which agent."),
+                        fontSize = 13.sp, lineHeight = 19.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+            }
             if (home != Home.FIRST) {
                 NextUp(beat, app.tick)
                 if (tasks.isNotEmpty()) {
@@ -372,12 +401,18 @@ private fun FirstUse(setupLeft: Boolean) {
             Text(tr("把你的 agent 接上这台手机", "Connect your agent to this phone"), fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
             Text(tr("接上之后，agent 在后台的副屏里操作应用，不占你正在用的屏幕。", "Once connected, the agent works in apps on a background screen, not on the one you are using."),
                 fontSize = 14.sp, lineHeight = 21.sp, color = c.onSurfaceVariantSummary)
+            // 1.4.0-beta10 (rainbow: is there a guide for new users?): the steps follow what has really happened, read
+            // from the phone: permissions, an agent connected (its first call), the agent saved the note (remembered).
+            val agents by com.kilon.agentvscreen.api.AgentLedger.agents.collectAsState()
+            val connected = agents.values.any { it.lastCallAt > 0 }
+            val saved = agents.values.any { it.remembered }
             val steps = listOf(
-                tr("授权", "Permissions") to tr("Shizuku 和无障碍", "Shizuku and accessibility"),
-                tr("把说明发给 agent", "Give your agent the note") to tr("复制一段说明，粘贴给它", "Copy a note and paste it to the agent"),
-                tr("等它第一次连上", "Wait for its first call") to tr("连上后这里会变成副屏画面", "Then this turns into the screen"),
+                tr("授权", "Permissions") to tr("Shizuku 和无障碍：让它能在后台开一块副屏", "Shizuku and accessibility: so it can open a background screen"),
+                tr("接入一个 agent", "Connect an agent") to tr("起个名字，复制给它的话，发给它", "Name it, copy its message, send it"),
+                tr("它第一次连上", "Its first call") to tr("agent 照着那段话装好后会自己连上", "The agent sets itself up from the message and calls in"),
+                tr("它记下了说明", "It saved the note") to tr("以后的新对话里它也知道自己能用手机", "New conversations will know they can use the phone"),
             )
-            val cur = if (setupLeft) 0 else 1
+            val cur = when { setupLeft -> 0; !connected -> 1; !saved -> 3; else -> 4 }
             steps.forEachIndexed { i, (t, sub) ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(28.dp).clip(CircleShape).background(when { i < cur -> Palette.takeover; i == cur -> c.primary; else -> c.surfaceContainerHigh }),
@@ -388,8 +423,8 @@ private fun FirstUse(setupLeft: Boolean) {
                     Column { Text(t, fontSize = 15.sp, fontWeight = FontWeight.SemiBold); Text(sub, fontSize = 13.sp, color = c.onSurfaceVariantSummary) }
                 }
             }
-            PrimaryButton(onClick = { nav.go(if (setupLeft) Route.Setup else Route.Connect) }, modifier = Modifier.fillMaxWidth()) {
-                Text(if (setupLeft) tr("去授权", "Grant permissions") else tr("接入 agent", "Connect an agent"))
+            PrimaryButton(onClick = { nav.go(if (setupLeft) Route.Setup else Route.NewAgent) }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (setupLeft) tr("去授权", "Grant permissions") else tr("接入新的 agent", "Connect a new agent"))
             }
         }
     }

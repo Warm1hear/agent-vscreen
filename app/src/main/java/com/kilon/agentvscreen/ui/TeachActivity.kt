@@ -68,10 +68,9 @@ class TeachActivity : PageActivity() {
         if (MainDisplay.moved(this)) return
         val r = Teach.result
         if (r == null) { back(); return }
-        // Left without saving or discarding (back, swipe away): the steps are dropped and the question shows again.
-        lifecycle.addObserver(androidx.lifecycle.LifecycleEventObserver { _, e ->
-            if (e == androidx.lifecycle.Lifecycle.Event.ON_DESTROY && isFinishing && Teach.result === r) Teach.clearResult()
-        })
+        // 1.4.0-beta10: leaving without saving or discarding keeps the lesson: it waits to be saved ("录好了，等你保存"
+        // on the floating window and the home page brings this page back). Before, leaving dropped it and the agent's
+        // question came back as if nothing had been shown.
         setContent { AvsTheme { Surface(Modifier.fillMaxSize(), color = Color.Transparent) {
             Box(Modifier.fillMaxSize().backdrop()) { Review(r) }
         } } }
@@ -165,9 +164,9 @@ class TeachActivity : PageActivity() {
         VScreenMap.saveSegment(app, name, steps, r.start, com.kilon.agentvscreen.api.Agents.ofSession(r.session))
         // 1.3.0: the lesson's contact sheet, kept with the segment (before the answer: the agent's reply attaches it).
         Teach.sheet(r, keep)?.let { VScreenMap.savePicture(app, name, it); it.recycle() } ?: VScreenMap.pictureFile(app, name)?.delete()
-        r.askId?.let { id ->
+        if (r.askId != null) {
             val lines = JSONArray(r.lines.withIndex().filter { it.index in keep }.map { it.value.why })
-            UserAsk.answer(this, id, true, JSONObject().put("kind", "teach").put("name", name).put("app", app).put("steps", steps)
+            Teach.deliver(this, r, JSONObject().put("kind", "teach").put("name", name).put("app", app).put("steps", steps)
                 .put("params", params).put("described", lines))
         }
         Toast.makeText(this, tr("已存成「$name」", "Saved as \"$name\""), Toast.LENGTH_SHORT).show()

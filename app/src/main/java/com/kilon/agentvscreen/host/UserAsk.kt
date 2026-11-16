@@ -50,7 +50,8 @@ object UserAsk {
         @Volatile var reply: JSONObject? = null
         @Volatile var answeredAt = 0L
         @Volatile var used = false
-        val live: Boolean get() = answer == null && System.currentTimeMillis() - at < validMs
+        /** Open: not answered, and within its time, or taken by a lesson under way (which has no time limit). */
+        val live: Boolean get() = answer == null && (System.currentTimeMillis() - at < validMs || id == heldId)
     }
 
     internal val lock = Object()
@@ -65,12 +66,22 @@ object UserAsk {
      * for the agent, but no card shows it: the user already took it. Released when that work ends without an answer.
      */
     @Volatile var heldId: Int = -1; private set
-    fun hold(id: Int?) = synchronized(lock) { heldId = id ?: -1; publish() }
+    /**
+     * 1.4.0-beta10 (rainbow: the card came back after a lesson; the lesson was lost): the question a lesson is
+     * answering right now. Set only by [com.kilon.agentvscreen.cmd.Teach.sync], from the lesson's own state (getting
+     * ready, recording, waiting to be saved), so it can never be left over. While bound, the question is the lesson's:
+     * no card shows it, and the agent's turn ending, its command going away or the time running out do not end it.
+     * Only the user ends it: saved (answered), discarded or skipped (declined).
+     */
+    internal fun bind(id: Int?) = synchronized(lock) { heldId = id ?: -1; publish() }
+    private fun bound(a: Ask) = a.id == heldId && a.answer == null
+    /** The user has taken this question into a lesson (getting ready, recording or saving). */
+    fun taken(a: Ask) = bound(a)
 
     private fun publish() { _open.value = asks.filter { it.live && it.id != heldId } }
 
     private fun prune(now: Long) {
-        val gone = asks.filter { now - it.at > it.validMs && (it.answer == null || now - it.answeredAt > it.validMs) }
+        val gone = asks.filter { !bound(it) && now - it.at > it.validMs && (it.answer == null || now - it.answeredAt > it.validMs) }
         gone.forEach { a -> a.picture?.delete() }
         asks.removeAll(gone.toSet())
     }
@@ -138,9 +149,11 @@ object UserAsk {
     fun screenGone(ctx: Context?, reason: String) {
         val ended = synchronized(lock) {
             val now = System.currentTimeMillis()
-            asks.filter { it.answer == null && it.kind in setOf(Kind.POINT, Kind.AREA, Kind.TEACH) }.onEach {
+            // The lesson's own question is left to the lesson (Teach.screenClosed: recording becomes a lesson to save,
+            // getting ready ends as not shown): what was recorded does not need the screen to be saved.
+            asks.filter { it.answer == null && it.kind in setOf(Kind.POINT, Kind.AREA, Kind.TEACH) && !bound(it) }.onEach {
                 it.reply = JSONObject().put("ended", reason); it.answer = false; it.answeredAt = now
-            }.also { if (it.isNotEmpty()) { if (it.any { a -> a.id == heldId }) heldId = -1; publish(); lock.notifyAll() } }
+            }.also { if (it.isNotEmpty()) { publish(); lock.notifyAll() } }
         }
         ended.forEach { a ->
             Audit.consent(a.tokenName, a.session, "${a.title} — ${a.detail}", "ended: $reason")
@@ -165,7 +178,8 @@ object UserAsk {
 
     /** The caller went away before an answer: take the question off the phone. */
     fun withdraw(ctx: Context, a: Ask) {
-        synchronized(lock) { if (a.answer == null) { asks.remove(a); a.picture?.delete(); publish() } }
+        // The user is answering it right now (a lesson under way or waiting to be saved): it stays.
+        synchronized(lock) { if (bound(a)) return; if (a.answer == null) { asks.remove(a); a.picture?.delete(); publish() } }
         com.kilon.agentvscreen.cmd.Teach.askGone(a.id)
         quiet("ask-withdraw") { ctx.getSystemService(NotificationManager::class.java)?.cancel(noteId(a.id)) }
     }
@@ -230,6 +244,24 @@ object UserAsk {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         else Intent(ctx, com.kilon.agentvscreen.ui.AskActivity::class.java)
             .putExtra("id", id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    }
+
+    /**
+     * 1.4.0-beta10: a lesson's answer reaches the agent even when its question is no longer there (answered by a
+     * decline elsewhere, or gone with an older build's rules): it is kept under the same key, so the agent's same
+     * `teach` sent again gets it.
+     */
+    fun deliver(ctx: Context, id: Int?, key: String?, token: String?, tokenName: String?, session: String?, title: String, reply: JSONObject) {
+        val open = synchronized(lock) { asks.firstOrNull { it.id == id && it.answer == null } }
+        if (open != null) { answer(ctx, open.id, true, reply); return }
+        if (key == null || token == null) return
+        val a = synchronized(lock) {
+            Ask(++seq, Kind.TEACH, key, token, tokenName ?: token, session ?: "default", title, "", System.currentTimeMillis(), false, validMs = 15 * 60_000L).also {
+                it.reply = reply; it.answer = true; it.answeredAt = System.currentTimeMillis(); asks += it; publish(); lock.notifyAll()
+            }
+        }
+        Audit.consent(a.tokenName, a.session, a.title, "answered teach")
+        told(ctx, a, tr("用户存好了示教：把同一条 teach 再发一次取结果", "The user saved the lesson: send the same teach again for the result"))
     }
 
     /** For tests. */

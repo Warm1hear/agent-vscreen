@@ -201,3 +201,37 @@ internal fun OptionRow(i: Int, text: String, selected: Boolean = false, onClick:
     }
 }
 
+
+/**
+ * 1.4.0-beta10: a lesson recorded and not yet saved. It waits for the user (leaving the review page does not drop it);
+ * this card brings the review page back, or discards it (the agent then hears "not shown").
+ */
+internal object ReviewWords {
+    fun title(r: com.kilon.agentvscreen.cmd.Teach.Result) = tr("录好了 ${r.lines.size} 步，等你保存", "${r.lines.size} steps recorded, waiting to be saved")
+    fun who(r: com.kilon.agentvscreen.cmd.Teach.Result) = r.ask?.let { tr("「${it.tokenName}」请你演示：${it.title}", "\"${it.tokenName}\" asked: ${it.title}") }
+        ?: tr("你自己录的示教", "A lesson of your own")
+    fun open(ctx: Context) = MainDisplay.start(ctx, android.content.Intent(ctx, TeachActivity::class.java))
+    fun discard(ctx: Context, r: com.kilon.agentvscreen.cmd.Teach.Result) {
+        r.askId?.let { UserAsk.answer(ctx, it, false) }
+        com.kilon.agentvscreen.cmd.Teach.clearResult()
+    }
+}
+
+@Composable
+internal fun ReviewQuick(r: com.kilon.agentvscreen.cmd.Teach.Result, k: Float, modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    Column(modifier.eatTouches().glassDark(RoundedCornerShape((18 * k).dp)).padding(horizontal = (12 * k).dp, vertical = (11 * k).dp),
+        verticalArrangement = Arrangement.spacedBy((8 * k).dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AskMark(16 * k)
+            Spacer(Modifier.width((6 * k).dp))
+            Text(ReviewWords.who(r), color = Color(0xCCFFFFFF), fontSize = (10.5f * k).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text(ReviewWords.title(r), color = Color.White, fontSize = (13.5f * k).sp, fontWeight = FontWeight.SemiBold)
+        Column(verticalArrangement = Arrangement.spacedBy((4 * k).dp)) {
+            GlassPill(tr("去保存", "Review and save"), true, k, Modifier.fillMaxWidth()) { ReviewWords.open(ctx) }
+            Text(tr("丢弃", "Discard"), color = Color(0x99FFFFFF), fontSize = (11 * k).sp,
+                modifier = Modifier.align(Alignment.End).clip(RoundedCornerShape(50)).clickable { ReviewWords.discard(ctx, r) }.padding(horizontal = (8 * k).dp, vertical = (3 * k).dp))
+        }
+    }
+}

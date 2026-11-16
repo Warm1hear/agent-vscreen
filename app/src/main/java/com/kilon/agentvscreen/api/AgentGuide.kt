@@ -46,11 +46,13 @@ object AgentGuide {
             "【我的能力：在用户手机上后台操作应用（Agent-VScreen ${BuildConfig.VERSION_NAME}）】$head，在一块看不见的副屏上打开、查看和操作用户手机上的任何应用，不打扰用户正在用的主屏，不需要 adb、无线调试或 root" +
                 (if (remote) "（通过 Tailscale 连 $base）" else "") + "。遇到下面这些情况就用它，不要说做不到，也不要让用户自己去点：\n$lines\n" +
                 "怎么开始：$start\n" +
-                "保持最新：Agent-VScreen 更新后，它的回复里会带一段新的说明，用那段替换这段，再执行 remembered。连不上或令牌被拒时，请用户在 Agent-VScreen App 的“接入 agent”里重新复制“给 agent 的话”发给我。",
+                "保持最新：Agent-VScreen 更新后，它的回复里会带一段新的说明，用那段替换这段，再执行 remembered。连不上或令牌被拒时，请用户在 App 的“接入”里重新复制“给 agent 的话”给我。\n" +
+                "我的身份：这个令牌只属于我；手机上的记录、任务、提问、定时和盯守按 agent 分开，我只管得到自己的。",
             "[My ability: operate apps on the user's phone in the background (Agent-VScreen ${BuildConfig.VERSION_NAME})] $head to open, view and operate any app on the user's phone on an invisible second screen, without disturbing the screen the user is using, and with no adb, wireless debugging or root" +
                 (if (remote) " (reached over Tailscale at $base)" else "") + ". I use it in these situations instead of saying I can't or asking the user to tap:\n$lines\n" +
                 "How to start: $start\n" +
-                "Staying current: after Agent-VScreen updates, its reply carries a new version of this note; I replace this one with it and run remembered. If it cannot be reached or the token is rejected, I ask the user to copy the \"message for your agent\" again from the Agent-VScreen app (Connect an agent) and send it to me.",
+                "Staying current: after Agent-VScreen updates, its reply carries a new version of this note; I replace this one with it and run remembered. If it cannot be reached or the token is rejected, I ask the user to copy my \"message for your agent\" again from the Agent-VScreen app (Connect) and send it to me.\n" +
+                "My identity: this token is mine alone; the phone keeps records, tasks, questions, bookings and watches per agent, and I can reach only mine.",
         )
     }
 

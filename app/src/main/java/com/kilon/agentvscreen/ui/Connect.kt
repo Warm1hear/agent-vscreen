@@ -76,7 +76,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 private fun rememberRemoteBase(mode: Tailnet.Mode): String? {
     val ts by Tailnet.status.collectAsState()
     var sysAddr by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { while (true) { HostService.server?.tailAddress?.let { sysAddr = it }; delay(3_000) } }
+    LaunchedEffect(Unit) { while (true) { sysAddr = HostService.server?.tailAddress; delay(1_000) } }
     val live = when (mode) {
         Tailnet.Mode.BUILTIN -> ts.ip?.takeIf { ts.loggedIn }
         Tailnet.Mode.SYSTEM -> sysAddr
@@ -143,7 +143,12 @@ fun NewAgentPage() {
         return text
     }
     val ts by Tailnet.status.collectAsState()
-    val remoteBase = rememberRemoteBase(ApiConfig.tailnetMode)
+    // 1.4.0-beta10 (rainbow: logged in to Tailscale from here, came back, the step still said not connected until the
+    // page was left and opened again): the way in is read live, not once when this page was made; the user changes
+    // it on the remote page that opens on top of this one.
+    var mode by remember { mutableStateOf(ApiConfig.tailnetMode) }
+    LaunchedEffect(Unit) { while (true) { mode = ApiConfig.tailnetMode; delay(1_000) } }
+    val remoteBase = rememberRemoteBase(mode)
     val remoteReady = where == 1 && remoteBase != null
     val base = if (remoteReady) remoteBase!! else ApiConfig.baseUrl
     val canCopy = where == 0 || remoteReady
@@ -180,7 +185,7 @@ fun NewAgentPage() {
                         fontSize = 14.sp, fontFamily = if (remoteBase != null) FontFamily.Monospace else null, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Dot(if (remoteReady) Palette.takeover else Palette.stopped, 7.dp)
-                        Text("  " + remember(ts) { Tailnet.line(ctx) }, fontSize = 13.sp, color = if (remoteReady) Palette.takeover else Palette.stopped, maxLines = 1,
+                        Text("  " + remember(ts, mode, remoteBase) { Tailnet.line(ctx) }, fontSize = 13.sp, color = if (remoteReady) Palette.takeover else Palette.stopped, maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     }
                 }
@@ -240,7 +245,7 @@ fun AgentPage(id: String) {
         Group { AgentCard(id, l) {} }
         val k = keptOf(l)
         InfoCard(if (k == Kept.CAME_BACK) Palette.takeover else if (k == Kept.CONNECTED) Palette.stopped else Palette.standby,
-            when (k) { Kept.CAME_BACK -> tr("记住了", "Remembers"); Kept.SAVED -> tr("说已记下", "Says it saved it"); Kept.CONNECTED -> tr("还没说记在哪", "Has not said where it saved it"); Kept.NONE -> tr("还没连上过", "Not connected yet") },
+            when (k) { Kept.CAME_BACK -> tr("已记下，后来也在用", "Saved, and still using it"); Kept.SAVED -> tr("已记下说明", "Note saved"); Kept.CONNECTED -> tr("还没说记在哪", "Has not said where it saved it"); Kept.NONE -> tr("还没连上过", "Not connected yet") },
             remember(l, id) { keptText(id, l) })
         Group(tr("名字", "Name")) {
             TextField(value = n, onValueChange = { n = it.take(24) }, label = tr("名字", "Name"), useLabelAsPlaceholder = true, singleLine = true,
@@ -316,9 +321,9 @@ private val agentFmt get() = java.text.SimpleDateFormat(tr("M月d日 HH:mm", "MM
 internal fun keptText(id: String, l: AgentLedger.Snapshot): String {
     fun at(t: Long) = agentFmt.format(java.util.Date(t))
     val main = when (keptOf(l)) {
-        Kept.CAME_BACK -> tr("它在后来的新对话里自己用了 ${l.comebacks} 次（最近 ${at(l.lastComebackAt)}），说明记住了。", "It came back on its own in later conversations ${l.comebacks} times (last ${at(l.lastComebackAt)}): it remembers.") +
+        Kept.CAME_BACK -> tr("它记下了说明，而且隔了半小时以上又来用了 ${l.comebacks} 次（最近 ${at(l.lastComebackAt)}），说明新对话里也想得起来。", "It saved the note and came back after a break of half an hour or more ${l.comebacks} times (last ${at(l.lastComebackAt)}): new conversations remember it.") +
             (l.rememberedWhere?.let { tr("存在「$it」。", " Saved in \"$it\".") } ?: "")
-        Kept.SAVED -> tr("它说存在「${l.rememberedWhere}」（${at(l.rememberedAt)}）。等它在新对话里自己用一次，就算记住了。", "It says it saved it in \"${l.rememberedWhere}\" (${at(l.rememberedAt)}). Once it uses vscreen on its own in a new conversation, it counts as remembered.")
+        Kept.SAVED -> tr("它说把说明存在了「${l.rememberedWhere}」（${at(l.rememberedAt)}），新对话里应该也知道有这个能力。", "It says it saved the note in \"${l.rememberedWhere}\" (${at(l.rememberedAt)}), so new conversations should know about it.")
         Kept.CONNECTED -> tr("${at(l.installAt)} 连上了，但它没说把说明存在哪。新对话里它可能不知道有这个能力：再发一次给它的话，或把能力说明放进它的自定义指令。", "Connected ${at(l.installAt)}, but it has not said where it saved the note. New conversations may not know about it: send its message again, or put the ability note in its custom instructions.")
         Kept.NONE -> tr("还没连上过。把给它的话发给它。", "Not connected yet. Send it its message.")
     }
@@ -347,7 +352,9 @@ private fun AgentCard(id: String, l: AgentLedger.Snapshot, edit: () -> Unit) {
             Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(Kept.CONNECTED to tr("连上", "Connected"), Kept.SAVED to tr("记下", "Saved"), Kept.CAME_BACK to tr("自己再用", "Came back")).forEach { (step, label) ->
+            // 1.4.0-beta10 (rainbow: "自己再用" meant nothing and never lit): two facts the user can check, connected and
+            // the note saved. Whether it later came back on its own is said in words on the agent's page, with when.
+            listOf(Kept.CONNECTED to tr("已连上", "Connected"), Kept.SAVED to tr("已记下说明", "Note saved")).forEach { (step, label) ->
                 val done = k.ordinal >= step.ordinal
                 val c = if (done) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
                 Row(Modifier.clip(RoundedCornerShape(50)).background(c.copy(alpha = if (done) 0.14f else 0.06f)).padding(horizontal = 10.dp, vertical = 4.dp),
@@ -389,7 +396,7 @@ fun RemotePage() {
             }
         }
         when (mode) {
-            Tailnet.Mode.BUILTIN -> Group(tr("状态", "State")) { BuiltinState(ts, host, ::open) }
+            Tailnet.Mode.BUILTIN -> Group(tr("状态", "State")) { BuiltinState(ts, host, ::open) { m -> mode = m; ApiConfig.tailnetMode = m; HostService.server?.start(ApiConfig.port); Tailnet.sync(ctx.applicationContext) } }
             Tailnet.Mode.SYSTEM -> Group(tr("状态", "State")) {
                 if (remoteBase == null) InfoCard(Palette.stopped, tr("还没找到 Tailscale 地址", "No Tailscale address yet"),
                     tr("在这台手机上装好并登录 Tailscale App，打开连接后 20 秒内自动生效。不想装 App 就选“内置”。", "Install and log in to the Tailscale app on this phone; once it is connected this takes effect within 20 seconds. To skip the app, choose \"Built-in\"."))
@@ -425,12 +432,52 @@ fun RemotePage() {
     }
 }
 
+/** 1.4.0-beta10: another VPN is on: what it means and the three ways out, the easiest first. */
+@Composable
+private fun VpnGuide(host: AppHost, switchTo: (Tailnet.Mode) -> Unit) {
+    val ctx = LocalContext.current
+    val hasApp = remember { runCatching { ctx.packageManager.getPackageInfo("com.tailscale.ipn", 0); true }.getOrDefault(false) }
+    var how by remember { mutableStateOf(false) }
+    InfoCard(Palette.standby, tr("手机开着另一个 VPN", "Another VPN is on"),
+        tr("内置 Tailscale 要自己连网，别的 VPN（代理、加速器或 Tailscale App）会把它的连接截走，所以连不上或连上又断。选一个办法：",
+            "The built-in Tailscale needs its own connection; another VPN (a proxy, an accelerator or the Tailscale app) takes it over, so it does not connect or keeps dropping. Pick one:"))
+    if (hasApp) ArrowPreference(title = tr("① 改用手机上的 Tailscale App", "① Use the Tailscale app on this phone"),
+        summary = tr("你已经装了它。打开它并连上，这里切到“外部 Tailscale App”", "It is installed. Open it and connect; this switches to \"External Tailscale app\""),
+        endActions = { Value(tr("切换", "Switch")) }, onClick = { switchTo(Tailnet.Mode.SYSTEM) })
+    ArrowPreference(title = tr("${if (hasApp) "②" else "①"} 让 VPN 放过本应用", "${if (hasApp) "②" else "①"} Let the VPN skip this app"),
+        summary = tr("在你的 VPN / 代理 App 里把 Agent-VScreen 设为不走 VPN", "In your VPN / proxy app, set Agent-VScreen to bypass it"),
+        endActions = { Value(if (how) tr("收起", "Hide") else tr("怎么做", "How")) }, onClick = { how = !how })
+    if (how) Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf(tr("打开你的 VPN 或代理 App", "Open your VPN or proxy app"),
+            tr("找“分应用代理”“应用分流”或“绕过的应用”", "Find \"per-app proxy\", \"app routing\" or \"bypassed apps\""),
+            tr("把 Agent-VScreen 设为直连 / 不代理", "Set Agent-VScreen to direct / not proxied"),
+            tr("回到这里，几秒内会自己连上", "Come back here; it connects by itself within seconds")).forEachIndexed { i, t ->
+            Text("${i + 1}. $t", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        }
+        Text(tr("复制包名", "Copy package name"), fontSize = 13.sp, color = MiuixTheme.colorScheme.primary,
+            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { host.copy(tr("包名", "Package name"), ctx.packageName) }.padding(vertical = 4.dp))
+    }
+    BasicComponent(title = tr("${if (hasApp) "③" else "②"} 暂时关掉那个 VPN", "${if (hasApp) "③" else "②"} Turn that VPN off for now"),
+        summary = tr("关掉后这里自己连上；之后再开，可能又会断", "It connects by itself; turning the VPN on again may break it again"))
+}
+
 /** The built-in node: one phase decides the card (Tailnet.phase), the same word the settings row and agents see. */
 @Composable
-private fun BuiltinState(ts: Tailnet.Status, host: AppHost, open: (String) -> Unit) {
+private fun BuiltinState(ts: Tailnet.Status, host: AppHost, open: (String) -> Unit, switchTo: (Tailnet.Mode) -> Unit) {
     val ctx = LocalContext.current
     if (!Tailnet.available(ctx)) { InfoCard(Palette.stopped, tr("这个安装包里没有内置 Tailscale", "This package has no built-in Tailscale"), tr("只支持 arm64 手机。", "Only arm64 phones are supported.")); return }
     val phase = Tailnet.phase(ctx)
+    // 1.4.0-beta10 (rainbow: with a VPN on, a one-line hint at the bottom and a block of red errors at the top, not
+    // friendly at all): another VPN on the phone is the cause, so it is the first and only thing said, in plain words,
+    // with what the user can do; the node's own messages are behind 详情.
+    var vpnOn by remember { mutableStateOf(Tailnet.throughVpn(ctx)) }
+    LaunchedEffect(Unit) { while (true) { vpnOn = Tailnet.throughVpn(ctx); delay(2_000) } }
+    if (vpnOn && phase != TsPhase.CONNECTED && phase != TsPhase.SERVICE_OFF) {
+        VpnGuide(host, switchTo)
+        var more by remember { mutableStateOf(false) }
+        ArrowPreference(title = tr("详情", "Details"), endActions = { Value(if (more) tr("收起", "Hide") else tr("查看", "Show")) }, onClick = { more = !more })
+        if (!more) return
+    }
     val known = remember(ts.loggedIn, phase) { Tailnet.known(ctx) }
     var wasOut by remember { mutableStateOf(false) }
     LaunchedEffect(phase) {
@@ -494,7 +541,6 @@ private fun BuiltinState(ts: Tailnet.Status, host: AppHost, open: (String) -> Un
                         ((ts.loginError ?: ts.health)?.let { "：${it.take(160)}" } ?: "") else ""))
         }
     }
-    if (Tailnet.vpnTrouble(ctx)) Footnote(Tailnet.vpnAdvice())
     val appVpn = remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { while (true) { appVpn.value = withContext(Dispatchers.IO) { com.kilon.agentvscreen.api.ApiServer.tailnetAddress()?.hostAddress }; delay(5_000) } }
     if (appVpn.value != null) Footnote(tr("这台手机上的 Tailscale App 已经连着（${appVpn.value}）。手机要靠它的出口节点上网的话，App 得一直开着，这时直接选“外部 Tailscale App”更省事。",

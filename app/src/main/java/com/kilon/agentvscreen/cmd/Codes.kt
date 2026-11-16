@@ -68,6 +68,7 @@ internal object Codes {
         Code("INPUT_FAILED", Next.LOOK, "系统没有接受这次输入注入。", "The system did not accept the injected input."),
         // launch / handoff / stop
         Code("APP_NOT_FOUND", Next.FIX, "找不到这个包的启动入口。", "No launch entry for this package."),
+        Code("APP_NOT_SUPPORTED", Next.FIX, "这个应用不能在副屏上打开（例如 Agent-VScreen 自己）。", "This app cannot open on the background screen (e.g. Agent-VScreen itself)."),
         Code("LAUNCH_FAILED", Next.LOOK, "应用没启动起来。", "The app did not start."),
         Code("LAUNCH_RESOLVER", Next.FIX, "启动后停在系统的“打开方式”选择器：这个包没有桌面入口。", "It stopped on the system's \"Open with\" chooser: the package has no launcher entry."),
         Code("LAUNCHED_ON_MAIN_SCREEN", Next.USER, "系统把应用开到了主屏而不是副屏。不要在主屏上继续，告诉用户。", "The system opened the app on the main screen instead. Don't go on there; tell the user."),

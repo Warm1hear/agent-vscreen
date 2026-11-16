@@ -768,9 +768,11 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
     val owner = s.ownerSessionId ?: return
     val mode = modeOf(s)
     val waiting = pendingAsks()
+    // 1.4.0-beta10: a lesson waiting to be saved is a card too (it replaces the question it answers).
+    val review by com.kilon.agentvscreen.cmd.Teach.reviewing.collectAsState()
     // Known before any placement, docked or not, so opening from the tab already counts the card.
-    androidx.compose.runtime.SideEffect { Overlay.cardShown.value = waiting.isNotEmpty() }
-    if (Overlay.docked.value) { DockTab(mode, Overlay.dockRight.value, waiting.size); return }
+    androidx.compose.runtime.SideEffect { Overlay.cardShown.value = waiting.isNotEmpty() || review != null }
+    if (Overlay.docked.value) { DockTab(mode, Overlay.dockRight.value, waiting.size + if (review != null) 1 else 0); return }
     val density = LocalDensity.current
     val landscape = Overlay.aspect() > 1f
     LaunchedEffect(landscape) { Overlay.orientationChanged(landscape) }
@@ -874,10 +876,13 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
             }
         }
         val ease = androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntSize>(Overlay.CARD_MS.toInt(), easing = androidx.compose.animation.core.LinearOutSlowInEasing)
-        AnimatedVisibility(asking != null,
+        AnimatedVisibility(asking != null || review != null,
             enter = androidx.compose.animation.expandVertically(ease, expandFrom = Alignment.Top) + fadeIn(androidx.compose.animation.core.tween(Overlay.CARD_MS.toInt())),
             exit = androidx.compose.animation.shrinkVertically(ease, shrinkTowards = Alignment.Top) + fadeOut(androidx.compose.animation.core.tween(160))) {
-            shownAsk?.let { a ->
+            val rv = review
+            if (asking == null && rv != null) ReviewQuick(rv, k, Modifier.fillMaxWidth()
+                .onSizeChanged { sz -> if (sz.height.toFloat() != Overlay.cardH.floatValue) { Overlay.cardH.floatValue = sz.height.toFloat() }; Overlay.fitGroup() })
+            else shownAsk?.let { a ->
                 // Measured at its full size from the first frame (the expansion only clips it), so the window starts
                 // its glide up at the same moment and lands as the card finishes growing.
                 AskQuick(a, waiting.size.coerceAtLeast(1), k, inOverlay = true, modifier = Modifier.fillMaxWidth()
