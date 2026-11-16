@@ -60,7 +60,7 @@ This list and the notes agents receive come from the same ability table (`Abilit
 - **a flow is hard to describe, keeps failing, or the user knows better how to do it**: `vscreen teach "what to show"` asks the user to do it once on the screen; it is saved as a segment, then `act "use <name> <values>"` replays it
 - **the same app comes up again and again: a fixed way in, a popup every visit, a picture to pause first, or it is sensitive to machine-like timing**: `vscreen note` keeps what I learned about the app, saved steps (`note save`), before/after steps and human pacing; the next launch lists them
 - **a step only the user can do (password, code, face, scanning), or the app I need is the one the user is using**: `vscreen handoff out` puts the app on the user's screen with what to do; `vscreen handoff in` takes the app from the user's screen
-- **the text is too small or an icon, or there is no text at all (games, canvas, charts), or I need to see what just happened**: `vscreen zoom` enlarges a region, `vscreen spots` finds tappable color patches, `vscreen frames` replays the recording
+- **the text is too small or an icon, or there is no text at all (games, canvas, charts), or I need to see what just happened**: `vscreen look` asks for pictures: the screen now, a region up close, or the recording; `vscreen spots` finds tappable color patches
 - **the phone cannot be reached, commands keep failing, or something odd happens**: `vscreen status` shows the state, `vscreen fix` repairs, `vscreen diag` exports diagnostics
 <!-- abilities:end -->
 

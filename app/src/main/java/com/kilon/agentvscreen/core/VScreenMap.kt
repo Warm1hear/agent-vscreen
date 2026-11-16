@@ -161,7 +161,7 @@ internal object VScreenMap {
     fun savePicture(pkg: String, name: String, bmp: android.graphics.Bitmap): File? = runCatching {
         val f = pictureFile(pkg, name) ?: return null
         f.parentFile?.mkdirs()
-        java.io.FileOutputStream(f).use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, it) }
+        Pictures.write(bmp, f, Pictures.Use.LESSON)
         f
     }.getOrNull()
     fun picture(pkg: String, name: String): File? = pictureFile(pkg, name)?.takeIf { it.isFile }

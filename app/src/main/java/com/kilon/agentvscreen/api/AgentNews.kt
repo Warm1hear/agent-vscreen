@@ -160,12 +160,14 @@ object AgentNews {
             "用户正在主屏用的应用，launch 会返回 APP_IN_USE：先问用户，同意后加 --asked 或用 handoff in。",
             "用户在主屏打开了你正在用的应用时，它交给用户：动作返回 APP_WITH_USER，事件 handover；用户交回时有 handback 事件，先看画面再继续。",
             "文字识别失败时回执会写 OCR_DOWN：那时元素只来自无障碍，以截图为准。",
-            "MCP 和直接读图的接入方式只在画面变了或出错时附图（压缩版）；画面没变时写“没附图”，要看就 act（不带步骤）。",
+            "MCP 和直接读图的接入方式只在画面变了或出错时附图（压缩版）；画面没变时写“没附图”，要看就 look。",
+            "新命令 look：主动要图（现在的画面、放大一块、回看录像），可选 --detail low|normal|high、--layout、--marks off、--page；每次最多 8 张、约 3 MB。zoom 和 frames 还能用，是它的旧写法。",
         ), listOf(
             "For an app the user is using on the main screen, launch returns APP_IN_USE: ask the user, then add --asked or use handoff in.",
             "When the user opens the app you are using on the main screen, it is theirs: actions return APP_WITH_USER and a handover event comes; a handback event comes when they hand it back: look before going on.",
             "When text recognition fails the reply says OCR_DOWN: elements then come from accessibility only; trust the screenshot.",
-            "Over MCP and clients that read images directly, a picture (compact) comes only when the screen changed or something failed; otherwise the reply says no picture was attached: act with no steps to see it.",
+            "Over MCP and clients that read images directly, a picture (compact) comes only when the screen changed or something failed; otherwise the reply says no picture was attached: use look to see it.",
+            "New command look asks for pictures (the screen now, a region, the recording), with --detail low|normal|high, --layout, --marks off, --page; at most 8 pictures, about 3 MB a reply. zoom and frames still work as old forms of it.",
         )),
     )
 

@@ -175,24 +175,45 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 
 权限范围: `look` · 在副屏队列里执行
 
-### `frames [--last <时长>] [--from <时间>] [--to <时间>] [--count <张数>] [--every <间隔>] [--big]`
+### `look [x1,y1,x2,y2] [--last <时长>] [--from <时间>] [--to <时间>] [--count <张数>] [--every <间隔>] [--page <页>] [--detail <清晰度>] [--layout <排法>] [--marks <on|off>]`
 
-回看录像：默认是上一次返回的【这段时间】，每个动作前一张、圈出它点的位置，帧多时分成几张图。可以要更长、更密或指定的时间段。
+主动要图：不带参数是现在的画面；带区域是放大那一块；带 --last/--from/--count 是回看录像（每个动作前一张、圈出点的位置）。可以要更清楚、换排法、关掉标注、翻页。每次最多 8 张图、合计约 3 MB，多的用 --page 翻。
 
 - `--last <时长>` 最近这么久（如 30s、2m）
 - `--from <时间>` 从多久以前（20s）或钟点（14:03:10）开始
 - `--to <时间>` 到多久以前或钟点为止（默认现在）
-- `--count <张数>` 最多几张（默认 12，最多 36；每张图 12 张，--big 时 6 张）
+- `--count <张数>` 最多几帧（默认 12，最多 96）
 - `--every <间隔>` 按固定间隔取（如 0.5s），和上一张一样的不重复
-- `--big` 每张画面放大
+- `--page <页>` 超过 8 张图时看第几页
+- `--detail <清晰度>` low、normal（默认）或 high
+- `--layout <排法>` auto（默认）、single（一帧一张）、strip（一行 6 帧）或 grid 3x4
+- `--marks <on|off>` 图上的标尺和点击圈（默认 on）
 
 权限范围: `look` · 在副屏队列里执行
 
-### `zoom x1,y1,x2,y2 [--scale <倍数>]`
+### `frames [--last <时长>] [--from <时间>] [--to <时间>] [--count <张数>] [--every <间隔>] [--page <页>] [--detail <清晰度>] [--layout <排法>] [--marks <on|off>]`
 
-放大看一块区域（图边上标着副屏坐标）。
+look --last … 的旧写法：回看录像，默认是上一次返回的【这段时间】。
+
+- `--last <时长>` 最近这么久（如 30s、2m）
+- `--from <时间>` 从多久以前（20s）或钟点（14:03:10）开始
+- `--to <时间>` 到多久以前或钟点为止（默认现在）
+- `--count <张数>` 最多几帧（默认 12，最多 96）
+- `--every <间隔>` 按固定间隔取（如 0.5s），和上一张一样的不重复
+- `--page <页>` 超过 8 张图时看第几页
+- `--detail <清晰度>` low、normal（默认）或 high
+- `--layout <排法>` auto（默认）、single（一帧一张）、strip（一行 6 帧）或 grid 3x4
+- `--marks <on|off>` 图上的标尺和点击圈（默认 on）
+
+权限范围: `look` · 在副屏队列里执行
+
+### `zoom x1,y1,x2,y2 [--scale <倍数>] [--detail <清晰度>] [--marks <on|off>]`
+
+look x1,y1,x2,y2 的旧写法：放大看一块区域（图边上标着副屏坐标）。
 
 - `--scale <倍数>` 放大倍数（默认按区域大小定）
+- `--detail <清晰度>` low、normal（默认）或 high
+- `--marks <on|off>` 图上的标尺和点击圈（默认 on）
 
 权限范围: `look` · 在副屏队列里执行
 
@@ -479,24 +500,45 @@ find color spots locally (no model), listing centers and a marked picture.
 
 scope: `look` · runs in the screen queue
 
-### `frames [--last <duration>] [--from <time>] [--to <time>] [--count <count>] [--every <interval>] [--big]`
+### `look [x1,y1,x2,y2] [--last <duration>] [--from <time>] [--to <time>] [--count <count>] [--every <interval>] [--page <page>] [--detail <detail>] [--layout <layout>] [--marks <on|off>]`
 
-look back at the recording: by default the [Meanwhile] of the last reply, one frame before each action with where it touched circled, split over several pictures when there are many. Ask for a longer, denser or given stretch.
+ask for pictures: no argument is the screen now; a region zooms into it; --last/--from/--count looks back at the recording (one frame before each action, touches circled). Ask for more detail, another layout, no marks, or the next page. At most 8 pictures, about 3 MB a reply; --page for more.
 
 - `--last <duration>` this long up to now (e.g. 30s, 2m)
 - `--from <time>` start this long ago (20s) or at a clock time (14:03:10)
 - `--to <time>` end this long ago or at a clock time (default now)
-- `--count <count>` at most this many frames (default 12, at most 36; 12 per picture, 6 with --big)
+- `--count <count>` at most this many frames (default 12, at most 96)
 - `--every <interval>` take one every interval (e.g. 0.5s), repeats left out
-- `--big` larger frames
+- `--page <page>` which page when there are more than 8 pictures
+- `--detail <detail>` low, normal (default) or high
+- `--layout <layout>` auto (default), single (one frame each), strip (6 in a row) or grid 3x4
+- `--marks <on|off>` ruler and touch circles on the picture (default on)
 
 scope: `look` · runs in the screen queue
 
-### `zoom x1,y1,x2,y2 [--scale <factor>]`
+### `frames [--last <duration>] [--from <time>] [--to <time>] [--count <count>] [--every <interval>] [--page <page>] [--detail <detail>] [--layout <layout>] [--marks <on|off>]`
 
-zoom into a region (screen coordinates on the picture's edges).
+old form of look --last …: look back at the recording, by default the [Meanwhile] of the last reply.
+
+- `--last <duration>` this long up to now (e.g. 30s, 2m)
+- `--from <time>` start this long ago (20s) or at a clock time (14:03:10)
+- `--to <time>` end this long ago or at a clock time (default now)
+- `--count <count>` at most this many frames (default 12, at most 96)
+- `--every <interval>` take one every interval (e.g. 0.5s), repeats left out
+- `--page <page>` which page when there are more than 8 pictures
+- `--detail <detail>` low, normal (default) or high
+- `--layout <layout>` auto (default), single (one frame each), strip (6 in a row) or grid 3x4
+- `--marks <on|off>` ruler and touch circles on the picture (default on)
+
+scope: `look` · runs in the screen queue
+
+### `zoom x1,y1,x2,y2 [--scale <factor>] [--detail <detail>] [--marks <on|off>]`
+
+old form of look x1,y1,x2,y2: zoom into a region (screen coordinates on the picture's edges).
 
 - `--scale <factor>` zoom factor (default follows the region size)
+- `--detail <detail>` low, normal (default) or high
+- `--marks <on|off>` ruler and touch circles on the picture (default on)
 
 scope: `look` · runs in the screen queue
 

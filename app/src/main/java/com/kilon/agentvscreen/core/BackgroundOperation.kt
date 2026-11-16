@@ -925,8 +925,8 @@ object BackgroundOperation {
         // on the background screen now is not what the agent planned for: refuse, never act on it.
         if (!isRead && !freshPage) VScreenOwnership.blocking(sid)?.let { g ->
             val app = appContext?.let { VScreenOwnership.label(it, g.pkg) } ?: g.pkg
-            throw ActionError("APP_WITH_USER", tr("$app 现在在用户手上（${if (g.why == "user") "用户在主屏打开了它" else "你把它交给了用户"}），副屏上已经没有它，动作没有执行。等用户交回（vscreen events --wait 收 handback），或 launch 别的应用去做别的事",
-                "$app is with the user now (${if (g.why == "user") "the user opened it on the main screen" else "you handed it to the user"}); it is no longer on the background screen and the action was not done. Wait for the hand-back (vscreen events --wait for handback), or launch another app to do something else"))
+            throw ActionError("APP_WITH_USER", tr("$app 现在在用户手上（${when (g.why) { "user" -> "用户在主屏打开了它"; "ours" -> "你的上一步让它跑到了主屏，handoff in 可以拿回"; else -> "你把它交给了用户" }}），副屏上已经没有它，动作没有执行。等用户交回（vscreen events --wait 收 handback），或 launch 别的应用去做别的事",
+                "$app is with the user now (${when (g.why) { "user" -> "the user opened it on the main screen"; "ours" -> "your last step moved it to the main screen; handoff in takes it back"; else -> "you handed it to the user" }}); it is no longer on the background screen and the action was not done. Wait for the hand-back (vscreen events --wait for handback), or launch another app to do something else"))
         }
         val d = acquire(sid, create = false)
         val startedMs = System.currentTimeMillis()

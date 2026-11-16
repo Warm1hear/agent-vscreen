@@ -81,7 +81,7 @@ object VScreenRecorder {
             val k = MAX_SIDE.toDouble() / maxOf(frame.width, frame.height)
             val small = if (k >= 1.0) frame else Bitmap.createScaledBitmap(frame, maxOf(1, (frame.width * k).roundToInt()), maxOf(1, (frame.height * k).roundToInt()), true)
             val f = File(t.dir, "$now.jpg")
-            FileOutputStream(f).use { small.compress(Bitmap.CompressFormat.JPEG, 60, it) }
+            Pictures.write(small, f, Pictures.Use.RECORDING, fit = false)
             if (small !== frame) small.recycle()
             synchronized(t) {
                 t.frames.addLast(Frame(now, f, f.length())); t.bytes += f.length()

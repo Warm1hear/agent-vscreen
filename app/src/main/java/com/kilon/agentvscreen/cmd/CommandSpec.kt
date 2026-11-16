@@ -215,18 +215,18 @@ internal object CommandSpec {
         Cmd("spots", "[x1,y1,x2,y2]", "[x1,y1,x2,y2]",
             listOf("本地按颜色找色块（不调模型），列出中心坐标和标注图。"), listOf("find color spots locally (no model), listing centers and a marked picture."),
             listOf(Opt("color", Kind.VALUE, "#RRGGBB", "#RRGGBB", "只找这种颜色", "only this color")), scope = Scope.LOOK),
+        Cmd("look", "[x1,y1,x2,y2]", "[x1,y1,x2,y2]",
+            listOf("主动要图：不带参数是现在的画面；带区域是放大那一块；带 --last/--from/--count 是回看录像（每个动作前一张、圈出点的位置）。可以要更清楚、换排法、关掉标注、翻页。每次最多 8 张图、合计约 3 MB，多的用 --page 翻。"),
+            listOf("ask for pictures: no argument is the screen now; a region zooms into it; --last/--from/--count looks back at the recording (one frame before each action, touches circled). Ask for more detail, another layout, no marks, or the next page. At most 8 pictures, about 3 MB a reply; --page for more."),
+            lookOpts(), scope = Scope.LOOK),
         Cmd("frames", "", "",
-            listOf("回看录像：默认是上一次返回的【这段时间】，每个动作前一张、圈出它点的位置，帧多时分成几张图。可以要更长、更密或指定的时间段。"),
-            listOf("look back at the recording: by default the [Meanwhile] of the last reply, one frame before each action with where it touched circled, split over several pictures when there are many. Ask for a longer, denser or given stretch."),
-            listOf(Opt("last", Kind.DURATION, "时长", "duration", "最近这么久（如 30s、2m）", "this long up to now (e.g. 30s, 2m)"),
-                Opt("from", Kind.VALUE, "时间", "time", "从多久以前（20s）或钟点（14:03:10）开始", "start this long ago (20s) or at a clock time (14:03:10)"),
-                Opt("to", Kind.VALUE, "时间", "time", "到多久以前或钟点为止（默认现在）", "end this long ago or at a clock time (default now)"),
-                Opt("count", Kind.VALUE, "张数", "count", "最多几张（默认 12，最多 36；每张图 12 张，--big 时 6 张）", "at most this many frames (default 12, at most 36; 12 per picture, 6 with --big)"),
-                Opt("every", Kind.DURATION, "间隔", "interval", "按固定间隔取（如 0.5s），和上一张一样的不重复", "take one every interval (e.g. 0.5s), repeats left out"),
-                Opt("big", Kind.SWITCH, null, null, "每张画面放大", "larger frames")), scope = Scope.LOOK),
+            listOf("look --last … 的旧写法：回看录像，默认是上一次返回的【这段时间】。"),
+            listOf("old form of look --last …: look back at the recording, by default the [Meanwhile] of the last reply."),
+            lookOpts(), scope = Scope.LOOK),
         Cmd("zoom", "x1,y1,x2,y2", "x1,y1,x2,y2",
-            listOf("放大看一块区域（图边上标着副屏坐标）。"), listOf("zoom into a region (screen coordinates on the picture's edges)."),
-            listOf(Opt("scale", Kind.VALUE, "倍数", "factor", "放大倍数（默认按区域大小定）", "zoom factor (default follows the region size)")), scope = Scope.LOOK),
+            listOf("look x1,y1,x2,y2 的旧写法：放大看一块区域（图边上标着副屏坐标）。"), listOf("old form of look x1,y1,x2,y2: zoom into a region (screen coordinates on the picture's edges)."),
+            listOf(Opt("scale", Kind.VALUE, "倍数", "factor", "放大倍数（默认按区域大小定）", "zoom factor (default follows the region size)"),
+                detailOpt, marksOpt), scope = Scope.LOOK),
         Cmd("collect", "", "",
             listOf("从当前位置往下一页页滚，收集每一条（一张卡片或一行列表算一条，去重）。上面还有内容时会说；--from-top 先回到顶部。"), listOf("scroll down page by page from here and collect every item (a card or list row is one item, deduplicated). Says when there is more above; --from-top goes to the top first."),
             listOf(Opt("pages", Kind.VALUE, "页数", "count", "最多翻几页（默认 8，最多 40）", "pages to go through at most (default 8, at most 40)"),
@@ -333,7 +333,7 @@ internal object CommandSpec {
             "  teach \"要演示什么\" [--name 名字]  请用户在副屏上亲手做一遍，存成段，之后 use 名字 照做\n" +
             "  schedule \"07:00\" | schedule off 名字  预约定时任务要用手机的时间（到点前拉起并检查）\n" +
             "  title 文字 | done         告诉用户你在做什么（悬浮窗上显示）| 这一轮做完了（副屏让出，页面保留）\n" +
-            "  frames [--last 30s | --from 14:03:10] [--every 0.5s]  回看录像：每个动作前一张，圈出点的位置\n" +
+            "  look [区域 | --last 30s] [--detail high]  要图：现在的画面 / 放大一块 / 回看录像（每次最多 8 张，旧写法 zoom、frames）\n" +
             "  stop | release | handoff in|out | status | apps 关键词 | spots | zoom 区域 | collect | fix | diag\n" +
             "成功与否看退出码 / ok：0 整段按预期做完；1 停在某一步或被拒绝（【注意】里的代码说明原因，help codes 查怎么办）；2 命令写错。\n" +
             "一步没达到预期（until 没等到、字没输进去、找不到或有歧义）这段就停在那一步，后面的不做，【注意】里写明现在的画面。\n" +
@@ -352,7 +352,7 @@ internal object CommandSpec {
             "  teach \"what to show\" [--name name]  the user does it once on the screen; saved as a segment you run with use <name>\n" +
             "  schedule \"07:00\" | schedule off <name>  book when a timed task will use the phone (started and checked before)\n" +
             "  title <text> | done       tell the user what you are doing (shown on the floating window) | this turn is finished (screen freed, page kept)\n" +
-            "  frames [--last 30s | --from 14:03:10] [--every 0.5s]  look back at the recording: a frame before each action, where it touched circled\n" +
+            "  look [region | --last 30s] [--detail high]  pictures: the screen now / a region / the recording (at most 8 a reply; old forms zoom, frames)\n" +
             "  stop | release | handoff in|out | status | apps <keyword> | spots | zoom <region> | collect | fix | diag\n" +
             "Success is in the exit code / ok: 0 the whole stretch went as expected; 1 it stopped at a step or was refused (the code in [Notes] says why, help codes says what to do); 2 the command was written wrong.\n" +
             "If a step does not reach what it expects (until never came, text was not typed in, not found or ambiguous), the stretch stops at that step, skips the rest, and [Notes] describes the screen now.\n" +
@@ -401,3 +401,18 @@ internal object CommandSpec {
         return out
     }
 }
+
+
+private val detailOpt = CommandSpec.Opt("detail", CommandSpec.Kind.VALUE, "清晰度", "detail", "low、normal（默认）或 high", "low, normal (default) or high")
+private val marksOpt = CommandSpec.Opt("marks", CommandSpec.Kind.VALUE, "on|off", "on|off", "图上的标尺和点击圈（默认 on）", "ruler and touch circles on the picture (default on)")
+private fun lookOpts() = listOf(
+    CommandSpec.Opt("last", CommandSpec.Kind.DURATION, "时长", "duration", "最近这么久（如 30s、2m）", "this long up to now (e.g. 30s, 2m)"),
+    CommandSpec.Opt("from", CommandSpec.Kind.VALUE, "时间", "time", "从多久以前（20s）或钟点（14:03:10）开始", "start this long ago (20s) or at a clock time (14:03:10)"),
+    CommandSpec.Opt("to", CommandSpec.Kind.VALUE, "时间", "time", "到多久以前或钟点为止（默认现在）", "end this long ago or at a clock time (default now)"),
+    CommandSpec.Opt("count", CommandSpec.Kind.VALUE, "张数", "count", "最多几帧（默认 12，最多 96）", "at most this many frames (default 12, at most 96)"),
+    CommandSpec.Opt("every", CommandSpec.Kind.DURATION, "间隔", "interval", "按固定间隔取（如 0.5s），和上一张一样的不重复", "take one every interval (e.g. 0.5s), repeats left out"),
+    CommandSpec.Opt("page", CommandSpec.Kind.VALUE, "页", "page", "超过 8 张图时看第几页", "which page when there are more than 8 pictures"),
+    detailOpt,
+    CommandSpec.Opt("layout", CommandSpec.Kind.VALUE, "排法", "layout", "auto（默认）、single（一帧一张）、strip（一行 6 帧）或 grid 3x4", "auto (default), single (one frame each), strip (6 in a row) or grid 3x4"),
+    marksOpt,
+    CommandSpec.Opt("big", CommandSpec.Kind.SWITCH, null, null, "同 --detail high", "same as --detail high", deprecated = true))

@@ -98,7 +98,7 @@ private fun clock(t: Long) = SimpleDateFormat("HH:mm:ss.S", Locale.ROOT).format(
  * Draw [cells] in a grid of [cols] from ([x0],[y0]); every cell [cw]×[ch] plus two caption lines. Marks are in track
  * frame pixels ([fw]×[fh]). Times are said relative to [to].
  */
-internal fun drawCells(c: Canvas, x0: Int, y0: Int, cells: List<Cell>, cols: Int, cw: Int, ch: Int, fw: Int, fh: Int, to: Long, first: Int = 1) {
+internal fun drawCells(c: Canvas, x0: Int, y0: Int, cells: List<Cell>, cols: Int, cw: Int, ch: Int, fw: Int, fh: Int, to: Long, first: Int = 1, marks: Boolean = true) {
     val pad = CELL_PAD
     val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 15f; color = Color.BLACK; isFakeBoldText = true }
     val sp = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 13f; color = Color.rgb(70, 70, 90) }
@@ -114,7 +114,7 @@ internal fun drawCells(c: Canvas, x0: Int, y0: Int, cells: List<Cell>, cols: Int
         c.drawBitmap(b, null, Rect(x, y, x + b.width, y + b.height), Paint(Paint.FILTER_BITMAP_FLAG))
         c.drawRect(x.toFloat(), y.toFloat(), (x + b.width).toFloat(), (y + b.height).toFloat(), frameLine)
         val kx = b.width.toFloat() / maxOf(1, fw); val ky = b.height.toFloat() / maxOf(1, fh)
-        cell.marks.forEachIndexed { mi, m ->
+        if (marks) cell.marks.forEachIndexed { mi, m ->
             val pts = m.pts.map { (x + it[0] * kx) to (y + it[1] * ky) }
             if (pts.isEmpty()) return@forEachIndexed
             if (pts.size == 1) {
@@ -155,8 +155,11 @@ internal fun VScreenOffloadHandler.framesCmd(sid: String?, args: OffloadArgs): N
         }
         return now - parseDuration(v.removePrefix("-"), 0L).also { if (it <= 0L) throw ActionError("INVALID_ARGS", tr("--$name 写成多久以前（30s、2m）或钟点（14:03:10）", "write --$name as how long ago (30s, 2m) or a clock time (14:03:10)")) }
     }
-    val big = args.hasFlag("big")
-    val count = bounded("count", args.getInt("count") ?: 12, 1, 36)
+    val detail = Detail.of(args)
+    val layout = Layout.of(args)
+    val marks = args.marks()
+    val page = bounded("page", args.getInt("page") ?: 1, 1, 20)
+    val count = bounded("count", args.getInt("count") ?: 12, 1, 96)
     val every = args.get("every")?.let { parseDuration(it, 0L).coerceAtLeast(100L) }
     val win = synchronized(lastWindows) { lastWindows[s] }
     val (from, to, said) = when {
@@ -171,7 +174,7 @@ internal fun VScreenOffloadHandler.framesCmd(sid: String?, args: OffloadArgs): N
         val sb = StringBuilder()
         if (kept.isEmpty()) return@agentAction text(tr("这块副屏还没有录像（画面变了才录；设置里的“后台录制”关着时只留最近 15 秒）", "This screen has no recording yet (frames are kept when the picture changes; with \"Background recording\" off only the last 15 s are kept)"))
         val oldest = kept.first().atMs
-        val side = if (big) 560 else 360
+        val side = detail.cellSide
         val picked = pickCells(d.displayId, maxOf(from, oldest), to, count, side, every)
         if (picked.cells.isEmpty()) return@agentAction text(tr("这段时间里没有录像", "No recording in that stretch"))
         sb.append(tr("回看 $said：${clock(from)} → ${clock(to)}（${s1(to - from)}，最后一刻是 ${Report.ago(to, now)}）\n", "Looking back at $said: ${clock(from)} → ${clock(to)} (${s1(to - from)}, ending ${Report.ago(to, now)})\n"))
@@ -183,17 +186,26 @@ internal fun VScreenOffloadHandler.framesCmd(sid: String?, args: OffloadArgs): N
         sb.append(tr("。圈和编号是动作的位置，画在动作之前的那张上；它带来的变化看下一张\n", ". Rings and numbers are where actions touched, drawn on the frame just before each; what it led to is the next frame\n"))
         val (fw, fh) = VScreenRecorder.frameSize(d.displayId) ?: (d.width to d.height)
         val landscape = fw > fh
-        val per = if (big) 6 else 12
-        val cols = if (landscape) (if (big) 2 else 3) else (if (big) 3 else 4)
+        val big = detail == Detail.HIGH
+        val per = layout.per ?: if (big) 6 else 12
+        val cols0 = layout.cols ?: if (landscape) (if (big) 2 else 3) else (if (big) 3 else 4)
         val data = org.json.JSONArray()
-        picked.cells.chunked(per).forEachIndexed { pi, page ->
+        // 1.4.0-beta2: one look carries at most LookBudget.MAX_PICS pictures / MAX_BYTES; --page N picks up after that.
+        val pages = picked.cells.chunked(per)
+        val first = (page - 1) * LookBudget.MAX_PICS
+        var bytes = 0L; var shown = 0
+        if (first >= pages.size) { picked.cells.forEach { it.bmp.recycle() }; throw ActionError("INVALID_ARGS", tr("这段只有 ${(pages.size + LookBudget.MAX_PICS - 1) / LookBudget.MAX_PICS} 页（--page）", "This stretch has only ${(pages.size + LookBudget.MAX_PICS - 1) / LookBudget.MAX_PICS} page(s) (--page)")) }
+        pages.forEachIndexed { pi, page ->
+            if (pi < first || shown >= LookBudget.MAX_PICS || bytes >= LookBudget.MAX_BYTES) return@forEachIndexed
+            val cols = minOf(cols0, page.size)
             val cw = page.maxOf { it.bmp.width }; val ch = page.maxOf { it.bmp.height }
             val rows = (page.size + cols - 1) / cols
-            val usedCols = minOf(cols, page.size)
+            val usedCols = cols
             val out = Bitmap.createBitmap(usedCols * (cw + CELL_PAD) + CELL_PAD, rows * (ch + CAPTION + CELL_PAD) + CELL_PAD, Bitmap.Config.ARGB_8888)
             val c = Canvas(out); c.drawColor(Color.WHITE)
-            drawCells(c, 0, 0, page, usedCols, cw, ch, fw, fh, now, first = pi * per + 1)
-            val ref = savePic(s, out, "frames"); out.recycle()
+            drawCells(c, 0, 0, page, usedCols, cw, ch, fw, fh, now, first = pi * per + 1, marks = marks)
+            val ref = savePic(s, out, "frames", detail.use); out.recycle()
+            shown++; bytes += ref?.let { r -> ShotStore.refs(r).firstOrNull()?.let { ShotStore.file(context, it)?.length() } } ?: 0L
             sb.append(tr("第 ${pi + 1} 张图 ", "picture ${pi + 1} ")).append(ref ?: tr("（没存下来）", "(not saved)")).append('\n')
             page.forEachIndexed { k, cell ->
                 val n = pi * per + k + 1
@@ -203,8 +215,11 @@ internal fun VScreenOffloadHandler.framesCmd(sid: String?, args: OffloadArgs): N
             }
         }
         picked.cells.forEach { it.bmp.recycle() }
-        sb.append(tr("录像保留：最近 3 分钟每张都留，3–10 分钟前每秒一张；现在最早一张是 ${Report.ago(oldest, now)}。更密：--every 0.3s；更长：--last 2m；某一段：--from 14:03:10 --to 14:03:30；看得更清楚：--big",
-            "Kept: every frame of the last 3 minutes, one a second for 3–10 minutes ago; the oldest now is ${Report.ago(oldest, now)}. Denser: --every 0.3s; longer: --last 2m; a given stretch: --from 14:03:10 --to 14:03:30; larger: --big"))
+        val rest = pages.size - first - shown
+        if (rest > 0) sb.append(tr("还有 $rest 张图没给（每次最多 ${LookBudget.MAX_PICS} 张、约 ${LookBudget.MAX_BYTES / 1_000_000} MB）：同样的参数加 --page ${page + 1} 取下一批，或 --detail low 让每张更小\n",
+            "$rest more pictures not sent (at most ${LookBudget.MAX_PICS} pictures, about ${LookBudget.MAX_BYTES / 1_000_000} MB, at a time): the same options with --page ${page + 1} for the next ones, or --detail low for smaller ones\n"))
+        sb.append(tr("录像保留：最近 3 分钟每张都留，3–10 分钟前每秒一张；现在最早一张是 ${Report.ago(oldest, now)}。更密：--every 0.3s；更长：--last 2m；某一段：--from 14:03:10 --to 14:03:30；看得更清楚：--detail high；排法：--layout single|strip|grid 3x4",
+            "Kept: every frame of the last 3 minutes, one a second for 3–10 minutes ago; the oldest now is ${Report.ago(oldest, now)}. Denser: --every 0.3s; longer: --last 2m; a given stretch: --from 14:03:10 --to 14:03:30; clearer: --detail high; layout: --layout single|strip|grid 3x4"))
         NativeOffloadResult(0, sb.toString() + "\n", null, org.json.JSONObject().put("from_ms", from).put("to_ms", to).put("frames", data))
     }
 }

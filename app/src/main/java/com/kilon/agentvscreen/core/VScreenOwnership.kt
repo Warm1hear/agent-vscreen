@@ -25,7 +25,7 @@ object VScreenOwnership {
 
     data class Given(
         val pkg: String, val taskId: Int, val session: String, val at: Long,
-        /** "agent" (handoff out) or "user" (the user opened it on the main screen). */
+        /** "agent" (handoff out), "user" (the user opened it on the main screen) or "ours" (our action moved it there). */
         val why: String,
         /** The activity the app was on when it left the background screen. */
         val page: String?,
@@ -44,7 +44,7 @@ object VScreenOwnership {
 
     @Volatile private var thread: Thread? = null
     /** Tasks seen on the background screen at the last tick: task id → package. */
-    private var lastOnScreen: Map<Int, String> = emptyMap()
+    @Volatile private var lastOnScreen: Map<Int, String> = emptyMap()
 
     fun label(ctx: Context, pkg: String): String =
         runCatching { ctx.packageManager.getApplicationLabel(ctx.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
@@ -68,7 +68,7 @@ object VScreenOwnership {
         _given.update { it + (g.pkg to g) }
         AppLogger.info(TAG, "${g.pkg} (task ${g.taskId}) is with the user on the main screen (${g.why})")
         val app = label(ctx, g.pkg)
-        com.kilon.agentvscreen.host.quiet("handover-event") {
+        if (g.why != "ours") com.kilon.agentvscreen.host.quiet("handover-event") {
             com.kilon.agentvscreen.api.EventHub.post(ctx, g.session, "handover", g.pkg,
                 if (g.why == "user") tr("用户在主屏打开了 $app，它已经交给用户（副屏上没有它了）。在用户交回之前不要操作 $app；用 vscreen events --wait 等 handback，或去做别的应用。",
                     "The user opened $app on the main screen; it is with the user now (no longer on the background screen). Don't operate $app until the user hands it back; wait for handback with vscreen events --wait, or work on another app.")
@@ -98,6 +98,7 @@ object VScreenOwnership {
         }
         if (!moved && vs != null && onMain) return line // nothing changed: it stays with the user
         _given.update { it - pkg }
+        runCatching { ctx.getSystemService(android.app.NotificationManager::class.java)?.cancel(nudgeId(pkg)) }
         if (moved) runCatching { BackgroundOperation.currentDisplay()?.requestFreshFrame() }
         val now = if (moved && vs != null) runCatching { VScreenShell.topActivity(vs) }.getOrNull() else null
         AppLogger.info(TAG, "$pkg handed back by $by (moved=$moved)")
@@ -111,10 +112,63 @@ object VScreenOwnership {
         return line
     }
 
+    // ── stretches: the one place that decides who moved an app between the screens ─────────────────────────────
+
+    /** An agent command that may move things (launch, act, stop, release): moves seen while it runs are ours. */
+    private class Stretch(val session: String, val pkgs: Set<String>, val at: Long = System.currentTimeMillis())
+    private val open = HashMap<Long, Stretch>()
+    private var nextToken = 1L
+    /** The last stretch that ended and when: an app that opens a page a moment after the last tap is still ours. */
+    private var lastEnded: Pair<Stretch, Long>? = null
+    private const val GRACE_MS = 1_500L
+    /** Lines with code MAIN_SCREEN_CHANGED for the session's current reply. */
+    private val leaks = HashMap<String, MutableList<String>>()
+
+    /** A command of [session] that may touch apps [pkgs] starts. Returns the token for [stretchEnd]. */
+    fun stretchBegin(ctx: Context, session: String, pkgs: Collection<String?>): Long {
+        val known = pkgs.filterNotNull().filter { it != ctx.packageName }.toSet()
+        runCatching { tick(ctx) } // the baseline: what moved before this stretch is not ours
+        // A session runs one command at a time: a stretch of it still open was left by a command that threw.
+        return synchronized(this) { open.values.removeAll { it.session == session }; val t = nextToken++; open[t] = Stretch(session, known); t }
+    }
+
+    /** The stretch ends: one last look, then what of ours reached the main screen during it (null when nothing). */
+    fun stretchEnd(ctx: Context, token: Long): String? {
+        val st = synchronized(this) { open.remove(token)?.also { lastEnded = it to System.currentTimeMillis() } } ?: return null
+        runCatching { tick(ctx) }
+        return synchronized(leaks) { leaks.remove(st.session) }?.distinct()?.joinToString(tr("；", "; "))
+    }
+
+    /** The stretch a move seen now belongs to: one running, or one that ended within [GRACE_MS]. */
+    @Synchronized private fun stretchNow(): Stretch? = open.values.also { v -> v.removeAll { System.currentTimeMillis() - it.at > 10 * 60_000L } }.lastOrNull()
+        ?: lastEnded?.takeIf { System.currentTimeMillis() - it.second < GRACE_MS }?.first
+
+    private fun leak(session: String, ctx: Context, pkg: String, frontBefore: String?, frontNow: String?) {
+        val app = label(ctx, pkg)
+        synchronized(leaks) { leaks.getOrPut(session) { ArrayList() } += tr("副屏这边的 $app 跑到了主屏（主屏前台 ${frontBefore ?: "?"} → ${frontNow ?: "?"}）：用户正在用的主屏被我们打扰了。停下，告诉用户；要继续，handoff in 把它拿回副屏",
+            "$app from our screen came to the main screen (front app ${frontBefore ?: "?"} → ${frontNow ?: "?"}): the screen the user is using was disturbed by us. Stop and tell the user; to go on, take it back with handoff in") }
+    }
+
+    /** The screen is gone: nothing is with the user any more, no hand-back to ask for. */
+    fun clear(ctx: Context, why: String) {
+        val had = _given.value
+        if (had.isEmpty() && lastOnScreen.isEmpty()) return
+        _given.value = emptyMap()
+        synchronized(this) { lastOnScreen = emptyMap() }
+        synchronized(bothSaid) { bothSaid.clear() }
+        val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
+        for (g in had.values) runCatching { nm?.cancel(nudgeId(g.pkg)) }
+        if (had.isNotEmpty()) AppLogger.info(TAG, "cleared ${had.keys} ($why)")
+        com.kilon.agentvscreen.ui.Overlay.refresh()
+    }
+
+    private fun nudgeId(pkg: String) = 7300 + (pkg.hashCode() and 0xff)
+
     /** Start watching (idempotent). Runs while the service runs; ticks only do work while there is a screen. */
     fun start(ctx: Context) {
         if (thread?.isAlive == true) return
         val app = ctx.applicationContext
+        BackgroundOperation.onScreenReleased { clear(app, "screen released") }
         thread = Thread({
             while (true) {
                 try { Thread.sleep(1_000); tick(app) } catch (_: InterruptedException) { break } catch (t: Throwable) { com.kilon.agentvscreen.host.Swallowed.note("ownership", t) }
@@ -122,33 +176,72 @@ object VScreenOwnership {
         }, "vscreen-ownership").apply { isDaemon = true; start() }
     }
 
-    private fun tick(ctx: Context) {
+    /** Main-screen tasks at the last tick (null before the first one: nothing is "new" then). */
+    private var lastMain: Map<Int, String>? = null
+    private var lastFront: String? = null
+
+    /**
+     * One look at both screens. Every "an app of ours is on the main screen now" goes through here, once:
+     *  - a task of ours moved to the main screen: during a stretch our action did it (MAIN_SCREEN_CHANGED in that reply,
+     *    and the app counts as with the user until handoff in); otherwise the user pulled it (handover);
+     *  - a new task of an app of ours came to the front of the main screen: during a stretch our action opened it
+     *    there; otherwise the user opened their own copy (a note, once).
+     * When either screen's task list cannot be read the round is skipped: unknown is not "gone".
+     */
+    @Synchronized private fun tick(ctx: Context) {
         val st = BackgroundOperation.state.value
         val vs = st.displayId
-        val owner = st.ownerSessionId
-        if (vs == null || owner == null) { lastOnScreen = emptyMap(); if (_given.value.isNotEmpty() && vs == null) checkLeft(ctx); return }
-        val onScreen = VScreenHandoff.tasksOn(vs).associate { it.taskId to it.pkg }
-        val main = VScreenHandoff.tasksOn(0)
+        val stretch = stretchNow()
+        val session = st.ownerSessionId ?: stretch?.session
+        val main = VScreenHandoff.tasksOrNull(0) ?: return
+        val onScreen = if (vs == null) emptyMap() else (VScreenHandoff.tasksOrNull(vs) ?: return).associate { it.taskId to it.pkg }
         val mainIds = main.associate { it.taskId to it.pkg }
-        // A task of ours that is now on the main screen: the user pulled it there (handoff out records itself first).
-        for ((id, pkg) in lastOnScreen) if (id !in onScreen && mainIds[id] == pkg && _given.value[pkg] == null) {
-            record(ctx, Given(pkg, id, owner, System.currentTimeMillis(), "user", runCatching { synchronized(com.kilon.agentvscreen.cmd.VScreenOffloadHandler.lastActivity) { com.kilon.agentvscreen.cmd.VScreenOffloadHandler.lastActivity[vs] } }.getOrNull()))
-        }
-        // The same app in front on the main screen as a separate copy (multi-instance): only a note for the agent.
-        val mainTop = main.firstOrNull { it.visible }
-        if (mainTop != null && mainTop.taskId !in onScreen && onScreen.values.contains(mainTop.pkg) && _given.value[mainTop.pkg] == null) {
-            val first = synchronized(bothSaid) { bothSaid.getOrPut(owner) { HashSet() }.add(mainTop.pkg) }
-            if (first) synchronized(pendingNotes) { pendingNotes.getOrPut(owner) { ArrayList() } += tr("用户也在主屏上用 ${label(ctx, mainTop.pkg)}（另一份，和副屏这份互不影响）：不要做会影响用户那份的事（退出登录、清数据、改账号设置）。",
-                "The user is also using ${label(ctx, mainTop.pkg)} on the main screen (a separate copy; the two don't affect each other): don't do things that would affect theirs (log out, clear data, change account settings).") }
+        val front = main.firstOrNull { it.visible }
+        val frontBefore = lastFront
+        if (session != null) {
+            val seen = see(lastOnScreen, onScreen, mainIds, lastMain, front, stretch?.pkgs.orEmpty(), _given.value.keys)
+            for ((id, pkg) in seen.moved) {
+                if (stretch != null) leak(session, ctx, pkg, frontBefore, front?.pkg)
+                record(ctx, Given(pkg, id, session, System.currentTimeMillis(), if (stretch != null) "ours" else "user",
+                    runCatching { synchronized(com.kilon.agentvscreen.cmd.VScreenOffloadHandler.lastActivity) { vs?.let { com.kilon.agentvscreen.cmd.VScreenOffloadHandler.lastActivity[it] } } }.getOrNull()))
+            }
+            if (front != null && seen.came) {
+                if (stretch != null) leak(session, ctx, front.pkg, frontBefore, front.pkg)
+                else if (front.pkg in onScreen.values) {
+                    val first = synchronized(bothSaid) { bothSaid.getOrPut(session) { HashSet() }.add(front.pkg) }
+                    if (first) synchronized(pendingNotes) { pendingNotes.getOrPut(session) { ArrayList() } += tr("用户也在主屏上用 ${label(ctx, front.pkg)}（另一份，和副屏这份互不影响）：不要做会影响用户那份的事（退出登录、清数据、改账号设置）。",
+                        "The user is also using ${label(ctx, front.pkg)} on the main screen (a separate copy; the two don't affect each other): don't do things that would affect theirs (log out, clear data, change account settings).") }
+                }
+            }
         }
         // A handed-over task back on our screen by another way (the agent's handoff in, recents): it is the agent's again.
-        for (g in _given.value.values) if (g.taskId in onScreen) { _given.update { it - g.pkg }; com.kilon.agentvscreen.ui.Overlay.refresh() }
+        for (g in _given.value.values) if (g.taskId in onScreen) {
+            _given.update { it - g.pkg }
+            runCatching { ctx.getSystemService(android.app.NotificationManager::class.java)?.cancel(nudgeId(g.pkg)) }
+            com.kilon.agentvscreen.ui.Overlay.refresh()
+        }
         lastOnScreen = onScreen
+        lastMain = mainIds
+        lastFront = front?.pkg
         checkLeft(ctx)
+    }
+
+    /** What one look found: tasks of ours now on the main screen, and whether the main screen's new front task is an app of ours. */
+    internal data class Seen(val moved: List<Pair<Int, String>>, val came: Boolean)
+
+    /** Pure: compare two looks. [stretchPkgs]: apps the running command works on; [given]: apps already with the user. */
+    internal fun see(lastOnScreen: Map<Int, String>, onScreen: Map<Int, String>, mainIds: Map<Int, String>, prevMain: Map<Int, String>?,
+            front: VScreenHandoff.TaskRef?, stretchPkgs: Set<String>, given: Set<String>): Seen {
+        val moved = lastOnScreen.filter { (id, pkg) -> id !in onScreen && mainIds[id] == pkg && pkg !in given }.map { it.key to it.value }
+        val ours = onScreen.values.toSet() + lastOnScreen.values + stretchPkgs
+        val came = front != null && prevMain != null && front.taskId !in prevMain && front.taskId !in onScreen &&
+            front.pkg in ours && front.pkg !in given && moved.none { it.first == front.taskId }
+        return Seen(moved, came)
     }
 
     /** The user left a handed-over app: after [NUDGE_MS] one notification asks whether to hand it back. Never automatic. */
     private fun checkLeft(ctx: Context) {
+        if (_given.value.isEmpty()) return
         val top = runCatching { VScreenShell.topPackage(0) }.getOrNull()
         val now = System.currentTimeMillis()
         for (g in _given.value.values) {
@@ -159,10 +252,10 @@ object VScreenOwnership {
                 away && !g.nudged && now - g.leftAt >= NUDGE_MS -> {
                     _given.update { it + (g.pkg to g.copy(nudged = true)) }
                     val app = label(ctx, g.pkg)
-                    val pi = android.app.PendingIntent.getService(ctx, 7300 + (g.pkg.hashCode() and 0xff),
+                    val pi = android.app.PendingIntent.getService(ctx, nudgeId(g.pkg),
                         android.content.Intent(ctx, com.kilon.agentvscreen.host.HostService::class.java).setAction(com.kilon.agentvscreen.host.HostService.ACTION_HAND_BACK).putExtra("pkg", g.pkg),
                         android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
-                    VScreenHandoff.alert(ctx, 7300 + (g.pkg.hashCode() and 0xff), tr("$app 用完了吗？", "Done with $app?"),
+                    VScreenHandoff.alert(ctx, nudgeId(g.pkg), tr("$app 用完了吗？", "Done with $app?"),
                         tr("agent 在等你把 $app 交回去。用完了就点“交回”，它会从你离开的页面接着做。", "The agent is waiting for $app. When you are done, tap Hand back and it carries on from where you left it."),
                         actions = listOf(tr("交回", "Hand back") to pi))
                 }

@@ -100,10 +100,5 @@ internal fun VScreenOffloadHandler.askCmd(sid: String?, args: OffloadArgs): Nati
 private fun VScreenOffloadHandler.savePicture(src: Bitmap): File {
     val dir = File(context.cacheDir, "ask").apply { mkdirs() }
     dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 30 * 60_000L }?.forEach { it.delete() }
-    val long = maxOf(src.width, src.height)
-    val b = if (long > 1600) Bitmap.createScaledBitmap(src, src.width * 1600 / long, src.height * 1600 / long, true) else src
-    val f = File(dir, "ask_${System.currentTimeMillis()}.jpg")
-    FileOutputStream(f).use { b.compress(Bitmap.CompressFormat.JPEG, 85, it) }
-    if (b !== src) b.recycle()
-    return f
+    return com.kilon.agentvscreen.core.Pictures.write(src, File(dir, "ask_${System.currentTimeMillis()}.jpg"), com.kilon.agentvscreen.core.Pictures.Use.ASK)
 }

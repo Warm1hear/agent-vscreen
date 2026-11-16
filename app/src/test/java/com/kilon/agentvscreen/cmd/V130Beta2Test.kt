@@ -65,13 +65,23 @@ class V130Beta2Test {
     }
 
     @Test fun mainScreenIsReportedOnlyWhenWeCausedIt() {
-        val w = MainWatch("com.user.chat/.Main", setOf(10, 11), setOf(50), setOf("com.shop"))
+        // 1.4.0-beta2: one classifier (VScreenOwnership.see) for every "an app of ours is on the main screen".
+        val O = com.kilon.agentvscreen.core.VScreenOwnership
+        fun t(id: Int, p: String) = com.kilon.agentvscreen.core.VScreenHandoff.TaskRef(id, p, true)
+        val ours = mapOf(50 to "com.shop"); val main0 = mapOf(10 to "com.user.chat", 11 to "com.x")
         // The user switched apps on the main screen: not news.
-        assertNull(mainCaused(w, "com.user.music/.Player", listOf(12 to "com.user.music", 10 to "com.user.chat"), setOf("com.shop")))
+        val a = O.see(ours, ours, main0 + (12 to "com.user.music"), main0, t(12, "com.user.music"), setOf("com.shop"), emptySet())
+        assertTrue(a.moved.isEmpty()); assertFalse(a.came)
         // Our task came to the main screen.
-        assertNotNull(mainCaused(w, "com.shop/.Item", listOf(50 to "com.shop", 10 to "com.user.chat"), emptySet()))
+        val b = O.see(ours, emptyMap(), main0 + (50 to "com.shop"), main0, t(50, "com.shop"), emptySet(), emptySet())
+        assertEquals(listOf(50 to "com.shop"), b.moved); assertFalse(b.came)
         // A page of the app we drive opened on the main screen as a new task.
-        assertNotNull(mainCaused(w, "com.shop/.Pay", listOf(60 to "com.shop", 10 to "com.user.chat"), setOf("com.shop")))
+        val c = O.see(ours, ours, main0 + (60 to "com.shop"), main0, t(60, "com.shop"), setOf("com.shop"), emptySet())
+        assertTrue(c.came)
+        // Already with the user: said once, not again.
+        assertTrue(O.see(ours, emptyMap(), main0 + (50 to "com.shop"), main0, t(50, "com.shop"), emptySet(), setOf("com.shop")).moved.isEmpty())
+        // The first look has nothing to compare with.
+        assertFalse(O.see(ours, ours, main0 + (60 to "com.shop"), null, t(60, "com.shop"), setOf("com.shop"), emptySet()).came)
     }
 
     @Test fun collectTakesCardsNotLines() {

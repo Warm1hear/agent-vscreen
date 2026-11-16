@@ -918,30 +918,15 @@ private fun drag(d: VScreenDisplay, pts: List<Pair<Int, Int>>, ms: Int) {
 }
 
 /**
- * 1.3: what the main screen looked like when a command began, and which tasks / apps were ours (on this session's
- * screen, or being launched by it). The user goes on using the main screen while the agent works: that is the point
- * of the product, so a change there is not news. Only a change WE caused is: one of our tasks or apps came to the
- * main screen (an app opened its page on the default display, a task was pulled over).
+ * 1.3 → 1.4.0-beta2: a command that may move apps between the screens is a "stretch" of VScreenOwnership, which is
+ * the one place that decides who moved what (our action → MAIN_SCREEN_CHANGED in this reply; the user → handover).
+ * The user going on using the main screen is not news.
  */
-internal class MainWatch(val top: String?, val mainTasks: Set<Int>, val ourTasks: Set<Int>, val ourPkgs: Set<String>)
+internal class MainWatch(val token: Long)
 
 internal fun VScreenOffloadHandler.mainWatch(sid: String?, vararg extra: String?): MainWatch {
-    val main = runCatching { VScreenHandoff.tasksOn(0) }.getOrDefault(emptyList())
-    val ours = sid?.let { s -> runCatching { BackgroundOperation.previewDisplayFor(s)?.let { VScreenHandoff.tasksOn(it.displayId) } }.getOrNull() }.orEmpty()
-    val pkgs = (ours.map { it.pkg } + extra.filterNotNull() + listOfNotNull(sid?.let { VScreenKnowledge.journey(it) })).filter { it != context.packageName }.toSet()
-    return MainWatch(mainTop(), main.map { it.taskId }.toSet(), ours.map { it.taskId }.toSet(), pkgs)
-}
-
-/** Pure: the main-screen fact for the notes, or null when nothing of ours reached the main screen. */
-internal fun mainCaused(w: MainWatch, topNow: String?, mainNow: List<Pair<Int, String>>, oursNow: Set<String>): String? {
-    val moved = mainNow.filter { it.first in w.ourTasks }.map { it.second }.distinct()
-    val pkgs = w.ourPkgs + oursNow
-    val nowPkg = topNow?.substringBefore('/')
-    val came = nowPkg?.takeIf { it != w.top?.substringBefore('/') && it in pkgs && mainNow.firstOrNull()?.let { t -> t.first !in w.mainTasks } != false }
-    val who = (moved + listOfNotNull(came)).distinct()
-    if (who.isEmpty()) return null
-    return tr("副屏这边的 ${who.joinToString("、")} 跑到了主屏（主屏前台 ${w.top ?: "?"} → ${topNow ?: "?"}）：用户正在用的主屏被我们打扰了。停下，告诉用户；要继续，handoff in 把它拿回副屏",
-        "${who.joinToString(", ")} from our screen came to the main screen (front app ${w.top ?: "?"} → ${topNow ?: "?"}): the screen the user is using was disturbed by us. Stop and tell the user; to go on, take it back with handoff in")
+    val s = sid ?: return MainWatch(0L)
+    return MainWatch(com.kilon.agentvscreen.core.VScreenOwnership.stretchBegin(context, s, extra.toList() + listOfNotNull(VScreenKnowledge.journey(s))))
 }
 
 /** 1.3: silence what is on the background screen (VScreenMute); a line for the notes when an app was just muted. */
@@ -952,11 +937,9 @@ internal fun VScreenOffloadHandler.muteNote(d: VScreenDisplay): String? = runCat
 }.getOrNull()
 
 /** Main-screen facts for the notes: only when the stretch's own apps reached the main screen (see [MainWatch]). */
-internal fun VScreenOffloadHandler.mainCheckLines(w: MainWatch, sid: String? = null): String? {
-    val main = runCatching { VScreenHandoff.tasksOn(0) }.getOrDefault(emptyList())
-    val ours = sid?.let { s -> runCatching { BackgroundOperation.previewDisplayFor(s)?.let { VScreenHandoff.tasksOn(it.displayId) } }.getOrNull() }.orEmpty()
-    return mainCaused(w, mainTop(), main.map { it.taskId to it.pkg }, ours.map { it.pkg }.toSet())
-}
+@Suppress("UNUSED_PARAMETER")
+internal fun VScreenOffloadHandler.mainCheckLines(w: MainWatch, sid: String? = null): String? =
+    if (w.token == 0L) null else com.kilon.agentvscreen.core.VScreenOwnership.stretchEnd(context, w.token)
 
 // ── the command ──────────────────────────────────────────────────────
 

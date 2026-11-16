@@ -29,15 +29,18 @@ internal object VScreenHandoff {
     data class TaskRef(val taskId: Int, val pkg: String, val visible: Boolean)
 
     /** Standard (app) tasks on [displayId], top first. Home/recents/assistant tasks are left out. */
-    fun tasksOn(displayId: Int): List<TaskRef> {
+    fun tasksOn(displayId: Int): List<TaskRef> = tasksOrNull(displayId).orEmpty()
+
+    /** [tasksOn], but null when the system's list could not be read (unknown, not "no tasks"). */
+    fun tasksOrNull(displayId: Int): List<TaskRef>? {
         // The system's own per-display list (through the display service).
         VScreenShell.taskSource(displayId)?.let { list ->
             return list.filter { it.isAppTask }.mapNotNull { t -> t.pkg?.let { TaskRef(t.taskId, it, t.visible) } }
                 .distinctBy { it.taskId }
         }
         // 1.2: no dumpsys fallback. Text scraped from dumpsys differs per maker and Android version and mixed up
-        // displays; when the system's own list cannot be read the answer is "unknown" (empty), never a guess.
-        return emptyList()
+        // displays; when the system's own list cannot be read the answer is "unknown" (null), never a guess.
+        return null
     }
 
     /** The launcher (home) packages, which are never handed over. */

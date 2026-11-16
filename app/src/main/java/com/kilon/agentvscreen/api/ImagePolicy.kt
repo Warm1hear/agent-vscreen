@@ -1,13 +1,11 @@
 package com.kilon.agentvscreen.api
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.kilon.agentvscreen.cmd.NativeOffloadResult
 import com.kilon.agentvscreen.cmd.ShotStore
 import com.kilon.agentvscreen.tr
 import java.io.File
-import java.io.FileOutputStream
 
 /**
  * 1.4.0-beta2: how many picture bytes go into an agent's model context.
@@ -19,47 +17,59 @@ import java.io.FileOutputStream
  *  - a picture is attached when the command failed (the agent has to look), when the picture changed during the
  *    stretch, or when the command exists to show one (act with no steps, launch, zoom, frames, spots…);
  *  - an unchanged picture after a successful stretch is left out and the text says so and how to get it;
- *  - attached pictures are a compact copy (long side [SIDE], JPEG [QUALITY]); the full one stays on the phone
- *    (images[].full_url, or the CLI's local file), and at most [MAX] per reply ([MAX_ASKED] for a command that asked for pictures).
+ *  - attached pictures are a compact copy (Pictures.Use.SENT, written when the picture was saved); the full one stays
+ *    on the phone (images[].full_url, or the CLI's local file), and at most [MAX] per reply ([MAX_ASKED] for a command
+ *    that asked for pictures).
  * The CLI only prints paths (nothing enters the model unless the agent opens a file), so it gets every picture.
  */
 object ImagePolicy {
-    const val SIDE = 1024
-    const val QUALITY = 60
-    /** Per reply: pictures that come by themselves, and pictures a command asked for (frames, zoom…). */
+    /** Per reply: pictures that come by themselves, and pictures a command asked for (look, zoom, frames, spots…). */
     const val MAX = 1
     const val MAX_ASKED = 8
 
-    /** Pictures of [res] to put into the model context, by name (compact copies made on demand). */
-    fun pick(res: NativeOffloadResult, shots: List<String>): List<String> {
+    /** Content signature of the last picture each session's model got (ShotStore.sig). */
+    private val lastSent = HashMap<String, Long>()
+
+    /** A command that exists to show pictures (look, zoom, frames, spots…): its pictures were already sized as asked
+     *  (look's --detail, within LookBudget), so they go as they are; only pictures that come by themselves are compacted. */
+    fun asked(res: NativeOffloadResult): Boolean = res.data?.has("picture_changed") != true
+
+    /** The name to send for picture [name] of [res]. */
+    fun sendName(ctx: Context, res: NativeOffloadResult, name: String): String = if (asked(res)) name else compact(ctx, name)
+
+    /**
+     * Pictures of [res] to put into [session]'s model context. A picture that comes by itself is left out only when
+     * what it shows is the same as the last picture this session's model got (compared by content, Pictures.sig):
+     * then "same as your last picture" is true. A failed stretch and act with no steps always get theirs.
+     */
+    fun pick(session: String?, res: NativeOffloadResult, shots: List<String>): List<String> {
         if (shots.isEmpty()) return emptyList()
         val d = res.data
-        // A command that exists to show pictures (no four-block data): what it asked for, up to MAX_ASKED.
-        if (d == null || !d.has("picture_changed")) return shots.take(MAX_ASKED)
-        val looks = (d.optJSONArray("steps")?.length() ?: 0) == 0 || d.optBoolean("picture_changed")
-        return if (res.exitCode != 0 || looks) shots.take(MAX) else emptyList()
+        val out = if (d == null || asked(res)) shots.take(MAX_ASKED) else {
+            val first = shots.take(MAX)
+            val sig = first.firstOrNull()?.let { ShotStore.sig(it) }
+            val prev = session?.let { synchronized(lastSent) { lastSent[it] } }
+            val must = res.exitCode != 0 || (d.optJSONArray("steps")?.length() ?: 0) == 0
+            val same = if (sig != null && prev != null) sig == prev else !d.optBoolean("picture_changed")
+            if (must || !same) first else emptyList()
+        }
+        out.lastOrNull()?.let { ShotStore.sig(it) }?.let { sg -> session?.let { synchronized(lastSent) { lastSent[it] = sg } } }
+        return out
     }
 
     /** The line that stands where a left-out picture was. */
-    fun leftOut(): String = tr("[没附图：这段画面没有变化，和你上一张图一样；要再看用 act（不带步骤）]", "[no picture attached: the screen did not change in this stretch, same as your last picture; act with no steps shows it again]")
+    fun leftOut(): String = tr("[没附图：画面和你上一张收到的图内容一样；要再看用 look]", "[no picture attached: the screen shows the same as the last picture you got; look shows it again]")
 
-    /** A smaller copy of picture [name] for a model context: its name (made once, kept beside the original). */
+    /** The compact copy of picture [name] (written beside it when it was saved; made here only for an older picture). */
     fun compact(ctx: Context, name: String): String {
+        if (name.startsWith("vscreen_c_")) return name
         val src = ShotStore.file(ctx, name) ?: return name
         val cname = "vscreen_c" + name.removePrefix("vscreen")
-        if (name.startsWith("vscreen_c_")) return name
         val out = File(src.parentFile, cname)
         if (out.isFile) return cname
         return runCatching {
-            val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(src.path, o)
-            val long = maxOf(o.outWidth, o.outHeight)
-            var sample = 1
-            while (long / (sample * 2) >= SIDE) sample *= 2
-            val b0 = BitmapFactory.decodeFile(src.path, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return name
-            val k = SIDE.toFloat() / maxOf(b0.width, b0.height)
-            val b = if (k < 1f) Bitmap.createScaledBitmap(b0, (b0.width * k).toInt().coerceAtLeast(1), (b0.height * k).toInt().coerceAtLeast(1), true).also { if (it !== b0) b0.recycle() } else b0
-            FileOutputStream(out).use { b.compress(Bitmap.CompressFormat.JPEG, QUALITY, it) }
+            val b = BitmapFactory.decodeFile(src.path) ?: return name
+            com.kilon.agentvscreen.core.Pictures.write(b, out, com.kilon.agentvscreen.core.Pictures.Use.SENT)
             b.recycle()
             if (out.length() >= src.length()) { out.delete(); name } else cname
         }.getOrDefault(name)

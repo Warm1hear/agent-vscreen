@@ -113,11 +113,21 @@ object ShotStore {
 
     fun dir(ctx: Context): File = File(ctx.filesDir, "shots").apply { mkdirs() }
 
-    fun save(ctx: Context, bmp: Bitmap, tag: String): String? = runCatching {
+    /** Content signatures of recent pictures (Pictures.sig), by name: what ImagePolicy compares. */
+    private val sigs = object : LinkedHashMap<String, Long>() { override fun removeEldestEntry(e: MutableMap.MutableEntry<String, Long>?) = size > KEEP }
+    fun sig(name: String): Long? = synchronized(sigs) { sigs[name] }
+
+    /**
+     * Keep [bmp] (already sized by the caller) as a picture for [use]. [sent]: it may go into a model context by
+     * itself, so its compact copy (Pictures.Use.SENT) is written now from the same pixels, not re-encoded later.
+     */
+    fun save(ctx: Context, bmp: Bitmap, tag: String, use: com.kilon.agentvscreen.core.Pictures.Use = com.kilon.agentvscreen.core.Pictures.Use.LOOK, sent: Boolean = false): String? = runCatching {
         val d = dir(ctx)
         val safeTag = tag.replace(Regex("[^A-Za-z0-9_-]"), "").take(24).ifEmpty { "shot" }
         val name = "vscreen_${safeTag}_${System.currentTimeMillis()}_${(Math.random() * 1e6).toInt()}.jpg"
-        FileOutputStream(File(d, name)).use { bmp.compress(Bitmap.CompressFormat.JPEG, 72, it) }
+        com.kilon.agentvscreen.core.Pictures.write(bmp, File(d, name), use, fit = false)
+        runCatching { com.kilon.agentvscreen.core.Pictures.sig(bmp) }.getOrNull()?.let { sg -> synchronized(sigs) { sigs[name] = sg } }
+        if (sent) runCatching { com.kilon.agentvscreen.core.Pictures.write(bmp, File(d, "vscreen_c" + name.removePrefix("vscreen")), com.kilon.agentvscreen.core.Pictures.Use.SENT) }
         d.listFiles()?.filter { it.name.startsWith("vscreen_") }?.sortedBy { it.lastModified() }
             ?.let { fs -> if (fs.size > KEEP) fs.take(fs.size - KEEP).forEach { it.delete() } }
         REF + name

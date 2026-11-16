@@ -24,7 +24,7 @@ import kotlin.math.roundToInt
 // picture of an area), collect (scroll a list and gather its lines). They answer questions; they do not act on
 // the app beyond collect's scrolling. Their numbers (#N, S1…) are screen points the act steps take.
 
-private fun VScreenOffloadHandler.freshFrameOf(d: VScreenDisplay): Bitmap {
+internal fun VScreenOffloadHandler.freshFrameOf(d: VScreenDisplay): Bitmap {
     val t0 = SystemClock.elapsedRealtime()
     d.requestFreshFrame()
     d.awaitFrameAfter(t0, 600)
@@ -65,7 +65,8 @@ internal fun VScreenOffloadHandler.zoomCmd(sid: String?, args: OffloadArgs): Nat
         val frame = freshFrameOf(d)
         val r = Rect(r0.left.coerceIn(0, frame.width - 1), r0.top.coerceIn(0, frame.height - 1), r0.right.coerceIn(1, frame.width), r0.bottom.coerceIn(1, frame.height))
         if (r.width() < 4 || r.height() < 4) throw ActionError("INVALID_ARGS", tr("区域太小或在副屏外（副屏 ${d.width}x${d.height}）", "region too small or outside the screen (screen ${d.width}x${d.height})"))
-        val maxK = 1280.0 / maxOf(r.width(), r.height())
+        val detail = Detail.of(args)
+        val maxK = detail.zoomSide.toDouble() / maxOf(r.width(), r.height())
         val k = (args.getDouble("scale") ?: minOf(4.0, maxK)).coerceIn(0.5, maxOf(1.0, maxK))
         val w = (r.width() * k).roundToInt(); val h = (r.height() * k).roundToInt()
         val m = 34
@@ -78,7 +79,7 @@ internal fun VScreenOffloadHandler.zoomCmd(sid: String?, args: OffloadArgs): Nat
         while (v < r.right) { val x = m + ((v - r.left) * k).toFloat(); c.drawLine(x, (m - 6).toFloat(), x, m.toFloat(), tick); c.drawText("$v", x + 2, (m - 8).toFloat(), tick); v += step }
         v = (r.top / step + 1) * step
         while (v < r.bottom) { val y = m + ((v - r.top) * k).toFloat(); c.drawLine((m - 6).toFloat(), y, m.toFloat(), y, tick); c.drawText("$v", 1f, y - 2, tick); v += step }
-        val path = savePic(s, out, "zoom"); out.recycle()
+        val path = savePic(s, out, "zoom", detail.use); out.recycle()
         val inside = synchronized(VScreenOffloadHandler.lastElements) { VScreenOffloadHandler.lastElements[s] }
             ?.takeIf { it.generation == d.generation }?.list?.filter { Rect.intersects(it.box, r) }.orEmpty()
         val sb = StringBuilder(run { val x = "%.1f".format(k); tr("区域 ${Report.box(r)} 放大 $x 倍", "Region ${Report.box(r)} zoomed ×$x") } + (path?.let { tr("：$it", ": $it") } ?: tr("（图没存下来）", " (picture not saved)")) + tr("（边上是副屏坐标）\n", " (screen coordinates on the edges)\n"))

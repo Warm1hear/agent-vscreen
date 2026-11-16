@@ -417,8 +417,8 @@ private fun list(ws: List<String>, max: Int): String =
  * ago, the actions done before it drawn as a red dot / line). Saved in the chat's attachments and offered inline.
  */
 internal fun VScreenOffloadHandler.picture(sid: String, d: VScreenDisplay, frame: Bitmap, since: Since?, tag: String,
-                                           cells0: List<Cell>? = null): String? = runCatching {
-    val k = minOf(1.0, Report.NOW_SIDE.toDouble() / maxOf(frame.width, frame.height))
+                                           cells0: List<Cell>? = null, detail: Detail = Detail.NORMAL, marks: Boolean = true): String? = runCatching {
+    val k = minOf(1.0, detail.nowSide.toDouble() / maxOf(frame.width, frame.height))
     val nw = (frame.width * k).roundToInt().coerceAtLeast(1); val nh = (frame.height * k).roundToInt().coerceAtLeast(1)
     val margin = 30; val title = 26
     // The sheet.
@@ -440,9 +440,22 @@ internal fun VScreenOffloadHandler.picture(sid: String, d: VScreenDisplay, frame
     val tick = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 15f; color = Color.rgb(30, 30, 160) }
     val line = Paint().apply { color = Color.rgb(30, 30, 160); strokeWidth = 1f }
     val faint = Paint().apply { color = Color.argb(70, 30, 30, 160); strokeWidth = 1f }
-    c.drawText(tr("现在（边上是副屏坐标）", "Now (screen coordinates on the edges)"), margin.toFloat(), 20f, head)
+    c.drawText(if (marks) tr("现在（边上是副屏坐标）", "Now (screen coordinates on the edges)") else tr("现在", "Now"), margin.toFloat(), 20f, head)
     val ox = margin; val oy = title + margin
     c.drawBitmap(frame, null, Rect(ox, oy, ox + nw, oy + nh), Paint(Paint.FILTER_BITMAP_FLAG))
+    if (marks) drawRuler(c, d, ox, oy, nw, nh, k, tick, line, faint)
+    if (cells.isNotEmpty()) {
+        val sx = if (landscape) 0 else nowW; val sy = if (landscape) nowH else 0
+
+        c.drawText(tr("这段时间（${Report.ago(since!!.from, since.to)} 到现在；圈=动作的位置，画在动作前那张上）", "Meanwhile (${Report.ago(since!!.from, since.to)} to now; ring = where an action touched, on the frame before it)"), (sx + pad).toFloat(), (sy + 20).toFloat(), head)
+        drawCells(c, sx, sy + title, cells, cols, cw, ch, fw, fh, since.to)
+    }
+    cells.forEach { it.bmp.recycle() }
+    savePic(sid, out, tag, detail.use, sent = true).also { out.recycle() }
+}.getOrNull()
+
+/** The coordinate ruler on a picture of the whole screen: ticks every 100 screen px, numbers and faint lines every 200 (500 on big screens). */
+private fun drawRuler(c: Canvas, d: VScreenDisplay, ox: Int, oy: Int, nw: Int, nh: Int, k: Double, tick: Paint, line: Paint, faint: Paint) {
     // Ticks every 100 screen px, numbers every 200 (every 500 on big screens), faint lines across every 200/500.
     val stepLabel = if (maxOf(d.width, d.height) > 2600) 500 else 200
     var v = 0
@@ -462,17 +475,10 @@ internal fun VScreenOffloadHandler.picture(sid: String, d: VScreenDisplay, frame
         }
         v += 100
     }
-    if (cells.isNotEmpty()) {
-        val sx = if (landscape) 0 else nowW; val sy = if (landscape) nowH else 0
-        c.drawText(tr("这段时间（${Report.ago(since!!.from, since.to)} 到现在；圈=动作的位置，画在动作前那张上）", "Meanwhile (${Report.ago(since!!.from, since.to)} to now; ring = where an action touched, on the frame before it)"), (sx + pad).toFloat(), (sy + 20).toFloat(), head)
-        drawCells(c, sx, sy + title, cells, cols, cw, ch, fw, fh, since.to)
-    }
-    cells.forEach { it.bmp.recycle() }
-    savePic(sid, out, tag).also { out.recycle() }
-}.getOrNull()
+}
 
 /** Save [bmp] as a JPEG in the shot store and return its reference (the API layer turns it into a URL, a local file or an inline image). */
-internal fun VScreenOffloadHandler.savePic(sid: String, bmp: Bitmap, tag: String): String? = ShotStore.save(context, bmp, tag)
+internal fun VScreenOffloadHandler.savePic(sid: String, bmp: Bitmap, tag: String, use: com.kilon.agentvscreen.core.Pictures.Use = Detail.NORMAL.use, sent: Boolean = false): String? = ShotStore.save(context, bmp, tag, use, sent)
 
 // ── the four blocks ──────────────────────────────────────────────────
 
