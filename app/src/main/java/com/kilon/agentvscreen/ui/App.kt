@@ -99,6 +99,8 @@ sealed interface Route : NavKey {
     @Serializable data object Main : Route
     @Serializable data object Setup : Route
     @Serializable data object Connect : Route
+    @Serializable data object NewAgent : Route
+    @Serializable data class Agent(val id: String) : Route
     @Serializable data object Remote : Route
     @Serializable data object Tokens : Route
     @Serializable data object Rules : Route
@@ -175,6 +177,8 @@ fun AppRoot(host: AppHost, firstPage: Route?, snack: SnackbarHostState, firstTab
                 entry<Route.Setup>(swipeDismiss = swipe) { SetupFlowPage() }
                 entry<Route.Connect>(swipeDismiss = swipe) { ConnectPage() }
                 entry<Route.Remote>(swipeDismiss = swipe) { RemotePage() }
+                entry<Route.NewAgent>(swipeDismiss = swipe) { NewAgentPage() }
+                entry<Route.Agent>(swipeDismiss = swipe) { r -> AgentPage(r.id) }
                 entry<Route.Tokens>(swipeDismiss = swipe) { TokensPage() }
                 entry<Route.Rules>(swipeDismiss = swipe) { RulesPage() }
                 entry<Route.Schedules>(swipeDismiss = swipe) { SchedulesPage() }

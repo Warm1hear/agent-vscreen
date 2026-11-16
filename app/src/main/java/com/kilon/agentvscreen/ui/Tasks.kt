@@ -1,5 +1,6 @@
 package com.kilon.agentvscreen.ui
 
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.runtime.mutableStateOf
 
 import androidx.compose.runtime.setValue
@@ -112,6 +113,17 @@ fun TaskFrame(name: String?, modifier: Modifier, corner: Dp = 8.dp) {
 }
 
 /** A picture file no larger than about [side] px (thumbnails do not decode full-size frames). */
+/** A frame at its own proportions: as wide as the space for a wide picture, narrower for a tall one. */
+@Composable
+private fun NaturalFrame(name: String, modifier: Modifier) {
+    val img by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, name) {
+        value = withContext(Dispatchers.IO) { TaskLog.frameFile(name)?.let { f -> decodeFit(f.path, 1280)?.asImageBitmap() } }
+    }
+    val b = img ?: run { Box(modifier.fillMaxWidth(0.6f).aspectRatio(0.45f).clip(RoundedCornerShape(14.dp)).background(MiuixTheme.colorScheme.surfaceContainer)); return }
+    val r = b.width.toFloat() / b.height.coerceAtLeast(1)
+    Image(b, null, modifier.fillMaxWidth(if (r < 0.8f) 0.6f else 1f).aspectRatio(r).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Fit)
+}
+
 private fun decodeFit(path: String, side: Int): android.graphics.Bitmap? = runCatching {
     val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeFile(path, o)
@@ -123,7 +135,9 @@ private fun decodeFit(path: String, side: Int): android.graphics.Bitmap? = runCa
 @Composable
 fun AppBadge(icon: ImageBitmap?, size: Dp = 36.dp) {
     Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.3f)).background(MiuixTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+        // 1.4.0-beta9: a task with no app (it never launched one) shows the agent mark, not an empty tile.
         if (icon != null) Image(icon, null, Modifier.fillMaxSize())
+        else top.yukonga.miuix.kmp.basic.Icon(androidx.compose.material.icons.Icons.Filled.SmartToy, null, Modifier.size(size * 0.6f), tint = MiuixTheme.colorScheme.primary)
     }
 }
 
@@ -252,7 +266,8 @@ private fun StepSheet(o: JSONObject?, open: (String) -> Unit, close: () -> Unit)
                 Text(o.optString("cmd"), fontSize = 15.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                 Text(hhmmss(o.optLong("at")) + (if (o.has("ms")) " · ${o.optLong("ms")} ms" else "") + " · " + o.optString("code"), fontSize = 13.sp, color = if (ok) c.onSurfaceVariantSummary else Palette.stopped)
                 com.kilon.agentvscreen.cmd.Codes.of(o.optString("code"))?.takeIf { !ok }?.let { Text(it.text, fontSize = 13.sp, lineHeight = 19.sp, color = c.onSurfaceVariantSummary) }
-                frame?.let { f -> TaskFrame(f, Modifier.fillMaxWidth(0.6f).aspectRatio(0.45f).align(Alignment.CenterHorizontally).clickable { open(f) }, 14.dp) }
+                // 1.4.0-beta9 (rainbow: the preview was cut to a phone shape; a reply picture can be wide): its own proportions.
+                frame?.let { f -> NaturalFrame(f, Modifier.align(Alignment.CenterHorizontally).clickable { open(f) }) }
                 Text(o.optString("text").ifEmpty { tr("（这一步没有存下回执文字）", "(no reply text was kept for this step)") }, fontSize = 12.sp, lineHeight = 17.sp,
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = c.onSurface)
             }

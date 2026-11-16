@@ -115,18 +115,33 @@ fun RecordsTab(bottom: Dp) {
             (tasks + asks).sortedByDescending { it.at }
         }
     }
-    MiuixPage(tr("记录", "Records"), back = false, bottom = bottom) {
+    fun agentOf(l: Line) = com.kilon.agentvscreen.api.Agents.ofSession(when (l) { is Line.T -> l.t.session; is Line.A -> l.o.optString("session") })
+    val whoList = lines.map(::agentOf).distinct()
+    var picking by remember { mutableStateOf(false) }
+    // 1.4.0-beta9 (rainbow: the page was flat, two rows of chips stacked): one row of kinds; whose records is a
+    // choice in the top bar, shown only when more than one agent left any.
+    MiuixPage(tr("记录", "Records"), back = false, bottom = bottom, actions = {
+        if (whoList.size > 1) Row(Modifier.padding(end = 12.dp).clip(RoundedCornerShape(50)).background(if (who != null) MiuixTheme.colorScheme.primary.copy(alpha = 0.14f) else MiuixTheme.colorScheme.surfaceContainer)
+            .clickable { picking = true }.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(who?.let { com.kilon.agentvscreen.api.Agents.name(it) } ?: tr("所有 agent", "Every agent"), fontSize = 13.sp,
+                color = if (who != null) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface, maxLines = 1)
+            Text(" ▾", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        }
+    }) {
+        if (picking) GlassDialog(onDismissRequest = { picking = false }, title = { Text(tr("看谁的记录", "Whose records")) }, text = {
+            Column {
+                (listOf<String?>(null) + whoList).forEach { id ->
+                    Text((if (who == id) "✓  " else "    ") + (id?.let { com.kilon.agentvscreen.api.Agents.name(it) } ?: tr("所有 agent", "Every agent")), fontSize = 15.sp,
+                        color = if (who == id) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { who = id; picking = false }.padding(vertical = 10.dp))
+                }
+            }
+        }, confirmButton = {}, dismissButton = {})
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(Filter.ALL to tr("全部", "All"), Filter.TASKS to tr("任务", "Tasks"), Filter.ASKS to tr("提问", "Questions"),
                 Filter.PLANS to tr("预约与盯守", "Plans"), Filter.LESSONS to tr("示教", "Lessons")).forEach { (f, label) ->
                 FilterChip(label, filter == f) { filter = f }
             }
-        }
-        fun agentOf(l: Line) = com.kilon.agentvscreen.api.Agents.ofSession(when (l) { is Line.T -> l.t.session; is Line.A -> l.o.optString("session") })
-        val whoList = lines.map(::agentOf).distinct()
-        if (whoList.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(tr("所有 agent", "Every agent"), who == null) { who = null }
-            whoList.forEach { id -> FilterChip(com.kilon.agentvscreen.api.Agents.name(id), who == id) { who = id } }
         }
         AnimatedContent(filter, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) }, label = "filter") { f ->
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -141,8 +156,14 @@ fun RecordsTab(bottom: Dp) {
                             else EmptyState(androidx.compose.material.icons.Icons.Outlined.History, tr("还没有任务", "No tasks yet"),
                                 tr("agent 每次用副屏做了什么，会按时间排在这里", "What an agent did on the screen each time appears here, newest first"))
                         }
+                        // 1.4.0-beta9: what is under way now stands apart, above the days.
+                        val now = shown.filter { it is Line.T && it.t.running }
+                        if (now.isNotEmpty()) {
+                            Text(tr("进行中", "Under way"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MiuixTheme.colorScheme.primary, modifier = Modifier.padding(start = 6.dp, top = 8.dp))
+                            now.forEach { l -> l as Line.T; TaskCard(l.t) { nav.go(Route.Task(l.t.id)) } }
+                        }
                         var day = ""
-                        shown.forEach { l ->
+                        (shown - now.toSet()).forEach { l ->
                             val d = dayOf(l.at)
                             if (d != day) { day = d; Text(d, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(start = 6.dp, top = 8.dp)) }
                             when (l) {

@@ -1,5 +1,7 @@
 package com.kilon.agentvscreen.ui
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.outlined.AddLink
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.layout.size
 import top.yukonga.miuix.kmp.basic.Text
@@ -87,6 +89,35 @@ private fun rememberRemoteBase(mode: Tailnet.Mode): String? {
 
 @Composable
 fun ConnectPage(tab: Boolean = false, bottom: androidx.compose.ui.unit.Dp = 0.dp) {
+    // 1.4.0-beta9 (rainbow: flat, no order): the tab is the agents already connected, one row each, and one way to add
+    // another. Adding is its own page, one step at a time; an agent's detail is its own page.
+    val nav = LocalNav.current
+    val agents by AgentLedger.agents.collectAsState()
+    val tokens by com.kilon.agentvscreen.api.Tokens.list.collectAsState()
+    val ctx = LocalContext.current
+    val ts by Tailnet.status.collectAsState()
+    MiuixPage(tr("接入", "Connect"), back = !tab, bottom = bottom) {
+        val shown = tokens.filter { t -> agents[t.id]?.used == true || t.id != com.kilon.agentvscreen.api.Tokens.MAIN }
+        if (shown.isEmpty()) EmptyState(androidx.compose.material.icons.Icons.Outlined.AddLink, tr("还没有接入 agent", "No agent connected yet"),
+            tr("接入后，每个 agent 的记录、任务和提问各归各的", "Once connected, each agent's records, tasks and questions stay apart"))
+        else Group(tr("已经接入的 · ${shown.size}", "Connected · ${shown.size}")) {
+            shown.forEach { t -> AgentCard(t.id, agents[t.id] ?: AgentLedger.Snapshot()) { nav.go(Route.Agent(t.id)) } }
+        }
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 14.dp)) {
+            PrimaryButton(onClick = { nav.go(Route.NewAgent) }, modifier = Modifier.fillMaxWidth(), color = MiuixTheme.colorScheme.primary) {
+                Text(tr("接入新的 agent", "Connect a new agent"), color = MiuixTheme.colorScheme.onPrimary)
+            }
+        }
+        Group {
+            ArrowPreference(title = tr("远程连接", "Remote access"), summary = remember(ts) { Tailnet.line(ctx) }, onClick = { nav.go(Route.Remote) })
+            ArrowPreference(title = tr("令牌", "Tokens"), onClick = { nav.go(Route.Tokens) })
+        }
+    }
+}
+
+/** 1.4.0-beta9: connecting one agent, one step a screen: its name, where it runs, how it connects, then the message. */
+@Composable
+fun NewAgentPage() {
     val host = LocalHost.current
     val nav = LocalNav.current
     val ctx = LocalContext.current
@@ -100,8 +131,9 @@ fun ConnectPage(tab: Boolean = false, bottom: androidx.compose.ui.unit.Dp = 0.dp
     var name by rememberSaveable { mutableStateOf("") }
     var made by rememberSaveable { mutableStateOf<String?>(null) }
     var madeFor by rememberSaveable { mutableStateOf<String?>(null) }
-    var editing by remember { mutableStateOf<String?>(null) }
-    val suggested = tr("agent ${tokens.size + 1}", "agent ${tokens.size + 1}")
+    // 1.4.0-beta9 (rainbow): an unnamed agent is "默认 Agent N", N the smallest number no agent uses yet, from 1.
+    val suggested = remember(tokens) { val used = tokens.map { it.name }.toSet(); val base = tr("默认 Agent", "Default Agent")
+        "$base ${generateSequence(1) { it + 1 }.first { "$base $it" !in used }}" }
     fun tokenText(): String {
         val want = name.trim().ifEmpty { suggested }
         made?.takeIf { madeFor == want }?.let { return it }
@@ -116,17 +148,26 @@ fun ConnectPage(tab: Boolean = false, bottom: androidx.compose.ui.unit.Dp = 0.dp
     val base = if (remoteReady) remoteBase!! else ApiConfig.baseUrl
     val canCopy = where == 0 || remoteReady
 
-    MiuixPage(tr("接入", "Connect"), back = !tab, bottom = bottom) {
-        val shown = tokens.filter { t -> agents[t.id]?.used == true || t.id != com.kilon.agentvscreen.api.Tokens.MAIN }
-        if (shown.isNotEmpty()) Group(tr("已经接入的", "Connected agents")) {
-            shown.forEach { t -> AgentCard(t.id, agents[t.id] ?: AgentLedger.Snapshot()) { editing = t.id } }
+    var step by rememberSaveable { mutableIntStateOf(0) }
+    val steps = listOf(tr("起名", "Name"), tr("在哪", "Where"), tr("怎么连", "How"), tr("发给它", "Send"))
+    MiuixPage(tr("接入新的 agent", "Connect a new agent")) {
+        // Where we are: four steps, the done ones lit; tap a done one to go back to it.
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            steps.forEachIndexed { i, label ->
+                val on = i <= step
+                Column(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable(enabled = i < step) { step = i }.padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)).background(if (on) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surfaceContainerHigh))
+                    Text("${i + 1} · $label", fontSize = 12.sp, fontWeight = if (i == step) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (on) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+            }
         }
-        SmallTitle(tr("接入新的 agent", "Connect a new agent"))
-        Group(tr("它叫什么", "Its name")) {
-            TextField(value = name, onValueChange = { name = it.take(24) }, label = tr("例如 Minis、电脑上的助手（不填就叫 $suggested）", "e.g. Minis, desktop assistant (blank: $suggested)"),
+        if (step == 0) Group(tr("它叫什么", "Its name")) {
+            TextField(value = name, onValueChange = { name = it.take(24) }, label = tr("例如：通用助手（$suggested）", "e.g. General assistant ($suggested)"),
                 useLabelAsPlaceholder = true, singleLine = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp))
         }
-        Group(tr("1 · agent 在哪", "1 · Where the agent runs")) {
+        if (step == 1) Group(tr("agent 在哪", "Where the agent runs")) {
             RadioButtonPreference(title = tr("这台手机上", "On this phone"), summary = tr("Termux、Operit 等，直接连 127.0.0.1:${ApiConfig.port}", "Termux, Operit…, straight to 127.0.0.1:${ApiConfig.port}"),
                 selected = where == 0, onClick = { where = 0 })
             RadioButtonPreference(title = tr("其它设备上", "Another device"), summary = tr("电脑、云端或另一台手机，经 Tailscale", "A computer, the cloud or another phone, through Tailscale"),
@@ -146,14 +187,23 @@ fun ConnectPage(tab: Boolean = false, bottom: androidx.compose.ui.unit.Dp = 0.dp
                 Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
         }
-        Group(tr("2 · 怎么连", "2 · How it connects")) {
+        if (step == 2) Group(tr("怎么连", "How it connects")) {
             listOf(
                 Triple(tr("命令行", "Shell"), tr("带终端的 agent：装好 vscreen，并记住这个能力", "Agents with a terminal: installs vscreen and remembers it"), 0),
                 Triple("MCP", tr("支持 MCP 的 agent：MCP 配置和能力说明", "Agents with MCP: the MCP config and the ability note"), 1),
                 Triple("HTTP", tr("自己写调用的 agent：地址、令牌和说明", "Apps that write their own calls: address, token and notes"), 2),
             ).forEach { (t, sub, i) -> RadioButtonPreference(title = t, summary = sub, selected = how == i, onClick = { how = i; raw = false }) }
         }
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
+        if (step < 3) Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
+            PrimaryButton(onClick = { step++ }, enabled = step != 1 || canCopy, modifier = Modifier.fillMaxWidth(), color = MiuixTheme.colorScheme.primary) {
+                Text(tr("下一步", "Next"), color = MiuixTheme.colorScheme.onPrimary)
+            }
+        }
+        if (step == 3) Group(tr("发给 ${name.trim().ifEmpty { suggested }}", "Send to ${name.trim().ifEmpty { suggested }}")) {
+            BasicComponent(title = tr("在哪", "Where"), summary = if (where == 0) tr("这台手机上 · 127.0.0.1:${ApiConfig.port}", "This phone · 127.0.0.1:${ApiConfig.port}") else tr("其它设备上 · $base", "Another device · $base"))
+            BasicComponent(title = tr("怎么连", "How"), summary = listOf(tr("命令行", "Shell"), "MCP", "HTTP")[how])
+        }
+        if (step == 3) Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
             PrimaryButton(onClick = {
                 val tok = tokenText()
                 host.copy(tr("给 agent 的话", "Message for your agent"), when (how) { 1 -> AgentGuide.onboardMcp(base, tok); 2 -> AgentGuide.onboardHttp(base, tok); else -> AgentGuide.onboard(base, tok) })
@@ -161,8 +211,8 @@ fun ConnectPage(tab: Boolean = false, bottom: androidx.compose.ui.unit.Dp = 0.dp
                 Text(tr("复制给 agent 的话", "Copy message for your agent"), color = MiuixTheme.colorScheme.onPrimary)
             }
         }
-        Footnote(tr("每个 agent 发它自己的一段话：记录、任务和提问各归各的。", "One message per agent: their records, tasks and questions stay apart."))
-        Group(tr("单独的部分", "The pieces")) {
+        if (step == 3) Footnote(tr("每个 agent 发它自己的一段话：记录、任务和提问各归各的。", "One message per agent: their records, tasks and questions stay apart."))
+        if (step == 3) Group(tr("单独的部分", "The pieces")) {
             if (how != 2) ArrowPreference(title = if (how == 0) tr("安装命令", "Install command") else tr("MCP 配置", "MCP config"),
                 endActions = { Value(if (raw) tr("收起", "Hide") else tr("查看", "Show")) }, enabled = canCopy, onClick = { raw = !raw })
             AnimatedVisibility(raw && canCopy && how != 2) {
@@ -173,38 +223,44 @@ fun ConnectPage(tab: Boolean = false, bottom: androidx.compose.ui.unit.Dp = 0.dp
                 endActions = { IconButton(onClick = { host.copy(tr("能力说明", "Ability note"), when (how) { 1 -> AgentGuide.memoryMcp(); 2 -> AgentGuide.memoryHttp(base); else -> AgentGuide.memory(base) }) }, enabled = canCopy) {
                     Icon(MiuixIcons.Copy, tr("复制", "Copy"))
                 } })
-            ArrowPreference(title = tr("令牌", "Token"), onClick = { nav.go(Route.Tokens) })
         }
     }
-    editing?.let { id -> AgentEdit(id) { editing = null } }
 }
 
-/** 1.4.0-beta7: rename an agent, or forget it (its token stops working; its past tasks keep its name). */
+/** 1.4.0-beta9: an agent's own page: where it stands (the remember steps explained), its name, forgetting it. */
 @Composable
-private fun AgentEdit(id: String, close: () -> Unit) {
+fun AgentPage(id: String) {
+    val nav = LocalNav.current
     val main = id == com.kilon.agentvscreen.api.Tokens.MAIN
+    val agents by AgentLedger.agents.collectAsState()
+    val l = agents[id] ?: AgentLedger.Snapshot()
     var n by remember { mutableStateOf(com.kilon.agentvscreen.api.Agents.name(id)) }
     var sure by remember { mutableStateOf(false) }
-    GlassDialog(onDismissRequest = close, title = { Text(com.kilon.agentvscreen.api.Agents.name(id)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                val l by AgentLedger.agents.collectAsState()
-                Text(remember(l, id) { keptText(id, l[id] ?: AgentLedger.Snapshot()) }, fontSize = 13.sp, lineHeight = 19.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                TextField(value = n, onValueChange = { n = it.take(24) }, label = tr("名字", "Name"), useLabelAsPlaceholder = true, singleLine = true, modifier = Modifier.fillMaxWidth())
-                if (!main) {
-                    Text(if (sure) tr("再点一次：它的令牌作废，这个 agent 连不上了；它做过的任务还留在记录里。", "Tap again: its token stops working and this agent can no longer connect; its past tasks stay in the records.")
-                        else tr("忘掉这个 agent", "Forget this agent"), fontSize = 14.sp, color = MiuixTheme.colorScheme.error,
-                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable {
-                            if (!sure) sure = true else {
-                                com.kilon.agentvscreen.api.Tokens.revoke(id); AgentLedger.forget(id)
-                                com.kilon.agentvscreen.host.Audit.security("revoke", n); close()
-                            }
-                        }.padding(vertical = 6.dp))
+    MiuixPage(com.kilon.agentvscreen.api.Agents.name(id)) {
+        Group { AgentCard(id, l) {} }
+        val k = keptOf(l)
+        InfoCard(if (k == Kept.CAME_BACK) Palette.takeover else if (k == Kept.CONNECTED) Palette.stopped else Palette.standby,
+            when (k) { Kept.CAME_BACK -> tr("记住了", "Remembers"); Kept.SAVED -> tr("说已记下", "Says it saved it"); Kept.CONNECTED -> tr("还没说记在哪", "Has not said where it saved it"); Kept.NONE -> tr("还没连上过", "Not connected yet") },
+            remember(l, id) { keptText(id, l) })
+        Group(tr("名字", "Name")) {
+            TextField(value = n, onValueChange = { n = it.take(24) }, label = tr("名字", "Name"), useLabelAsPlaceholder = true, singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp))
+            val can = n.isNotBlank() && n.trim() != com.kilon.agentvscreen.api.Agents.name(id)
+            Text(tr("保存名字", "Save name"), fontSize = 15.sp, color = if (can) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.fillMaxWidth().clickable(enabled = can) { com.kilon.agentvscreen.api.Tokens.rename(id, n.trim()) }.padding(horizontal = 16.dp, vertical = 14.dp))
+        }
+        if (!main) Group {
+            Column(Modifier.fillMaxWidth().clickable {
+                if (!sure) sure = true else {
+                    com.kilon.agentvscreen.api.Tokens.revoke(id); AgentLedger.forget(id)
+                    com.kilon.agentvscreen.host.Audit.security("revoke", n); nav.back()
                 }
+            }.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(if (sure) tr("再点一次确认", "Tap again to confirm") else tr("忘掉这个 agent", "Forget this agent"), fontSize = 15.sp, color = MiuixTheme.colorScheme.error)
+                Text(tr("它的令牌作废，连不上了；做过的任务还留在记录里", "Its token stops working; its past tasks stay in the records"), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
-        },
-        confirmButton = { LinkButton(onClick = { com.kilon.agentvscreen.api.Tokens.rename(id, n); close() }) { Text(tr("保存", "Save")) } },
-        dismissButton = { LinkButton(onClick = close) { Text(tr("取消", "Cancel")) } })
+        }
+    }
 }
 
 /** Code in a dark monospace box with its own copy button. */
