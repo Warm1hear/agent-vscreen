@@ -11,6 +11,8 @@ import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import top.yukonga.miuix.kmp.blur.layerBackdrop
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.ui.draw.rotate
@@ -53,6 +55,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
@@ -62,19 +65,9 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.Circle
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import top.yukonga.miuix.kmp.basic.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -232,48 +225,77 @@ class MainActivity : ComponentActivity() {
         androidx.activity.compose.BackHandler(enabled = page != null) { page = null }
         val allOk = items.isNotEmpty() && items.filter { it.key != "accessibility" }.all { it.ok }
 
-        Box(Modifier.fillMaxSize().backdrop()) {
-            androidx.compose.animation.AnimatedContent(
-                page, label = "page",
-                transitionSpec = {
-                    if (targetState != null) (androidx.compose.animation.slideInHorizontally { it / 4 } + androidx.compose.animation.fadeIn()) togetherWith androidx.compose.animation.fadeOut()
-                    else androidx.compose.animation.fadeIn() togetherWith (androidx.compose.animation.slideOutHorizontally { it / 4 } + androidx.compose.animation.fadeOut())
+        val backdrop = top.yukonga.miuix.kmp.blur.rememberLayerBackdrop()
+        val (title, help) = pageTitle(page)
+        val bar = top.yukonga.miuix.kmp.basic.MiuixScrollBehavior(top.yukonga.miuix.kmp.basic.rememberTopAppBarState())
+        val surface = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surface
+        androidx.compose.runtime.CompositionLocalProvider(LocalBackdrop provides backdrop.takeIf { Glass.blurOk }) {
+            top.yukonga.miuix.kmp.basic.Scaffold(
+                containerColor = Color.Transparent,
+                topBar = {
+                    top.yukonga.miuix.kmp.basic.TopAppBar(
+                        title = title, largeTitle = title, scrollBehavior = bar, color = Color.Transparent,
+                        modifier = Modifier.drawBackdropBar(backdrop, surface),
+                        navigationIcon = {
+                            if (page != null) IconButton(onClick = { page = null }, modifier = Modifier.padding(start = 12.dp)) {
+                                Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, tr("返回", "Back"))
+                            }
+                        },
+                        actions = { if (help != null) Box(Modifier.padding(end = 12.dp)) { Help(title, help) } },
+                    )
                 },
-            ) { p ->
-                Column(
-                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    when (p) {
-                        null -> Dashboard(s, serviceOn, { serviceOn = it }, items, allOk, liveProblem, { liveProblem = it }, tick, { tick++ }) { page = it }
-                        Page.CONNECT -> { PageHeader(tr("接入 agent", "Connect an agent")) { page = null }; Connect() }
-                        Page.PERMS -> {
-                            PageHeader(tr("权限", "Permissions")) { page = null }
-                            Section(tr("agent 能自己做多少", "How much the agent does on its own"), H.autonomy) { AutonomyPanel() }
-                            Section(tr("应用限制", "App rules"), H.rules) { VScreenAppRules() }
-                            Section(tr("令牌", "Tokens"), H.tokens) { TokensPanel(ApiConfig.baseUrl) { l, t -> copy(l, t) } }
+            ) { pad ->
+                Box(Modifier.fillMaxSize().backdrop().let { if (Glass.blurOk) it.layerBackdrop(backdrop) else it }) {
+                    androidx.compose.animation.AnimatedContent(
+                        page, label = "page",
+                        transitionSpec = {
+                            if (targetState != null) (androidx.compose.animation.slideInHorizontally { it / 4 } + androidx.compose.animation.fadeIn()) togetherWith androidx.compose.animation.fadeOut()
+                            else androidx.compose.animation.fadeIn() togetherWith (androidx.compose.animation.slideOutHorizontally { it / 4 } + androidx.compose.animation.fadeOut())
+                        },
+                    ) { p ->
+                        Column(
+                            Modifier.fillMaxSize().nestedScroll(bar.nestedScrollConnection).verticalScroll(rememberScrollState())
+                                .padding(top = pad.calculateTopPadding()).navigationBarsPadding()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            when (p) {
+                                null -> Dashboard(s, serviceOn, { serviceOn = it }, items, allOk, liveProblem, { liveProblem = it }, tick, { tick++ }) { page = it }
+                                Page.CONNECT -> Connect()
+                                Page.PERMS -> {
+                                    Section(tr("agent 能自己做多少", "How much the agent does on its own"), H.autonomy) { AutonomyPanel() }
+                                    Section(tr("应用限制", "App rules"), H.rules) { VScreenAppRules() }
+                                    Section(tr("令牌", "Tokens"), H.tokens) { TokensPanel(ApiConfig.baseUrl) { l, t -> copy(l, t) } }
+                                }
+                                Page.SCREEN -> ScreenPage(s)
+                                Page.SCHEDULE -> {
+                                    Section(tr("定时预约", "Schedules"), H.schedule) { SchedulesCards(tick) }
+                                    Section(tr("已保存的示教", "Saved lessons"), H.lessons) { LessonsList(tick) }
+                                }
+                                Page.LOG -> {
+                                    Section { AuditPanel { l, t -> copy(l, t) } }
+                                    Section(tr("事件广播", "Event broadcast"), H.events) { EventTargetRow() }
+                                }
+                                Page.SETUP -> SetupPage(items, sh, busy, setupLog, { busy = it }, { setupLog = it }, scope, { liveProblem = it }) { tick++ }
+                                Page.DIAG -> Diagnostics(items)
+                            }
                         }
-                        Page.SCREEN -> { PageHeader(tr("副屏与悬浮窗", "Screen and window")) { page = null }; ScreenPage(s) }
-                        Page.SCHEDULE -> {
-                            PageHeader(tr("定时与示教", "Schedules & lessons")) { page = null }
-                            Section(tr("定时预约", "Schedules"), H.schedule) { SchedulesCards(tick) }
-                            Section(tr("已保存的示教", "Saved lessons"), H.lessons) { LessonsList(tick) }
-                        }
-                        Page.LOG -> {
-                            PageHeader(tr("操作日志", "Activity log"), H.audit) { page = null }
-                            Section { AuditPanel { l, t -> copy(l, t) } }
-                            Section(tr("事件广播", "Event broadcast"), H.events) { EventTargetRow() }
-                        }
-                        Page.SETUP -> {
-                            PageHeader(tr("首次配置", "First-time setup"), H.setup) { page = null }
-                            SetupPage(items, sh, busy, setupLog, { busy = it }, { setupLog = it }, scope, { liveProblem = it }) { tick++ }
-                        }
-                        Page.DIAG -> { PageHeader(tr("诊断", "Diagnostics"), H.diag) { page = null }; Diagnostics(items) }
                     }
                 }
             }
         }
+    }
+
+    /** Each page's name in the top bar, and its "?" when the page as a whole needs words. */
+    private fun pageTitle(p: Page?): Pair<String, String?> = when (p) {
+        null -> "Agent-VScreen" to null
+        Page.CONNECT -> tr("接入 agent", "Connect an agent") to null
+        Page.PERMS -> tr("权限", "Permissions") to null
+        Page.SCREEN -> tr("副屏与悬浮窗", "Screen and window") to null
+        Page.SCHEDULE -> tr("定时与示教", "Schedules & lessons") to null
+        Page.LOG -> tr("操作日志", "Activity log") to H.audit
+        Page.SETUP -> tr("首次配置", "First-time setup") to H.setup
+        Page.DIAG -> tr("诊断", "Diagnostics") to H.diag
     }
 
     private var lastFlip = 0L
@@ -368,7 +390,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         updateAnswer?.let { u -> UpdateDialog(u) { updateAnswer = null } }
-        if (lang) androidx.compose.material3.AlertDialog(
+        if (lang) AlertDialog(
             onDismissRequest = { lang = false }, title = { Text("语言 / Language") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -396,7 +418,7 @@ class MainActivity : ComponentActivity() {
     private fun UpdateDialog(u: com.kilon.agentvscreen.host.Updates.Outcome, close: () -> Unit) {
         fun view(url: String) { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }; close() }
         when (u) {
-            is com.kilon.agentvscreen.host.Updates.Outcome.Newer -> androidx.compose.material3.AlertDialog(
+            is com.kilon.agentvscreen.host.Updates.Outcome.Newer -> AlertDialog(
                 onDismissRequest = close,
                 title = { Text(tr("新版本 ${u.r.version}", "New version ${u.r.version}")) },
                 text = {
@@ -408,13 +430,13 @@ class MainActivity : ComponentActivity() {
                 confirmButton = { TextButton(onClick = { view(u.r.apk ?: u.r.page) }) { Text(if (u.r.apk != null) tr("下载 APK", "Download APK") else tr("打开发布页", "Open the release")) } },
                 dismissButton = { TextButton(onClick = close) { Text(tr("稍后", "Later")) } },
             )
-            is com.kilon.agentvscreen.host.Updates.Outcome.Latest -> androidx.compose.material3.AlertDialog(
+            is com.kilon.agentvscreen.host.Updates.Outcome.Latest -> AlertDialog(
                 onDismissRequest = close,
                 title = { Text(tr("已是最新", "Up to date")) },
                 text = { Text(tr("现在是 ${BuildConfig.VERSION_NAME}", "You have ${BuildConfig.VERSION_NAME}") + (u.newest?.let { tr("，GitHub 上最新的发布是 $it", "; the newest release on GitHub is $it") } ?: "")) },
                 confirmButton = { TextButton(onClick = close) { Text(tr("好", "OK")) } },
             )
-            is com.kilon.agentvscreen.host.Updates.Outcome.Failed -> androidx.compose.material3.AlertDialog(
+            is com.kilon.agentvscreen.host.Updates.Outcome.Failed -> AlertDialog(
                 onDismissRequest = close,
                 title = { Text(tr("没查到", "Could not check")) },
                 text = { Text(u.why) },
@@ -494,7 +516,7 @@ class MainActivity : ComponentActivity() {
                     Image(painterResource(R.drawable.ic_logo), null, Modifier.size(52.dp).clip(RoundedCornerShape(14.dp)))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Agent-VScreen", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                        Text(tr("常驻服务", "Always on"), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                         Text(tr("给任何手机 agent 用的后台副屏", "A background screen for any phone agent"), color = Color(0xB3FFFFFF), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Switch(checked = serviceOn, onCheckedChange = setOn)
@@ -599,22 +621,11 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun SubTitle(t: String) = Text(t, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
 
+    /** A small choice of 2–5 (miuix tab row with contour); labels shrink rather than being cut. */
     @Composable
     private fun Segments(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            labels.forEachIndexed { i, t ->
-                SegmentedButton(selected = selected == i, onClick = { onSelect(i) }, shape = SegmentedButtonDefaults.itemShape(i, labels.size), icon = {}) {
-                    // Labels shrink to fit instead of being cut ("10 min" lost its "min", "Tailscale" became "Tailsc…").
-                    androidx.compose.foundation.text.BasicText(
-                        t, maxLines = 1,
-                        style = androidx.compose.material3.LocalTextStyle.current.copy(
-                            color = androidx.compose.material3.LocalContentColor.current, fontSize = 13.sp,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center),
-                        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = 13.sp, stepSize = 0.5.sp),
-                    )
-                }
-            }
-        }
+        top.yukonga.miuix.kmp.basic.TabRowWithContour(tabs = labels, selectedTabIndex = selected.coerceAtLeast(0), onTabSelected = onSelect,
+            modifier = Modifier.fillMaxWidth(), minWidth = 40.dp)
     }
 
     /**
@@ -912,7 +923,7 @@ class MainActivity : ComponentActivity() {
                 Text(title, fontWeight = FontWeight.SemiBold, color = color)
                 Text(body, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Button(onClick = onAction, colors = ButtonDefaults.buttonColors(containerColor = color)) { Text(action) }
+            Button(onClick = onAction, color = color) { Text(action, color = Color.White) }
         }
     }
 

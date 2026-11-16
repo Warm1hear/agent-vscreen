@@ -29,7 +29,8 @@
         <package android:name="frb.axeron.manager" />
     </queries>
 
-    <uses-sdk tools:overrideLibrary="rikka.shizuku.api,rikka.shizuku.provider,rikka.shizuku.shared,rikka.shizuku.aidl" />
+    <uses-sdk tools:overrideLibrary="rikka.shizuku.api,rikka.shizuku.provider,rikka.shizuku.shared,rikka.shizuku.aidl,top.yukonga.miuix.kmp.blur,top.yukonga.miuix.kmp.shader" />
+    <!-- 1.4: miuix-blur declares minSdk 33 (RuntimeShader). It is only called behind Glass.blurOk (API 33+); below that the glass is a plain translucent fill. -->
 
     <application
         android:name=".host.VScreenApp"

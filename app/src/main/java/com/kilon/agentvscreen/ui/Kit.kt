@@ -22,13 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +55,9 @@ import com.kilon.agentvscreen.tr
  */
 
 object Glass {
+    /** Backdrop blur needs RuntimeShader (API 33) and hardware drawing; screenshot tests draw in software and turn it off. */
+    @Volatile var blurOk: Boolean = android.os.Build.VERSION.SDK_INT >= 33
+
     /** Over the live background screen (floating window, full screen): dark, translucent, a light edge on top. */
     // 1.3.0-beta17: nearly opaque. Cards now float over anything (the home screen, a list): at 76–87% the words
     // behind showed through and mixed with the card's own.
@@ -75,16 +72,16 @@ object Glass {
 /** Dark glass for things that float over the background screen. */
 fun Modifier.glassDark(shape: Shape): Modifier = this.clip(shape).background(Glass.darkFill).border(1.dp, Glass.darkEdge, shape)
 
-/** Light glass (dark glass in dark mode) for the app's own cards. */
+/** Light glass (dark glass in dark mode) for the app's own cards: the miuix card colour, translucent over the backdrop. */
 @Composable
 fun Modifier.glass(shape: Shape = RoundedCornerShape(24.dp), lift: Boolean = true): Modifier {
     val dark = isSystemInDarkTheme()
-    val fill = if (dark) Brush.verticalGradient(listOf(Color(0xB3232740), Color(0x99181B2C)))
-        else Brush.verticalGradient(listOf(Color(0xD9FFFFFF), Color(0xB8FFFFFF)))
-    val edge = if (dark) Brush.verticalGradient(listOf(Color(0x33FFFFFF), Color(0x0DFFFFFF)))
-        else Brush.verticalGradient(listOf(Color(0xFFFFFFFF), Color(0x66D9D4F5)))
+    val c = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
+    val fill = c.surfaceContainer.copy(alpha = if (dark) 0.78f else 0.86f)
+    val edge = if (dark) Brush.verticalGradient(listOf(Color(0x26FFFFFF), Color(0x08FFFFFF)))
+        else Brush.verticalGradient(listOf(Color(0xCCFFFFFF), Color(0x40C9C0F5)))
     return this
-        .then(if (lift) Modifier.shadow(if (dark) 0.dp else 10.dp, shape, ambientColor = Color(0x225B4BDB), spotColor = Color(0x225B4BDB)) else Modifier)
+        .then(if (lift && !dark) Modifier.shadow(8.dp, shape, ambientColor = Color(0x1A5B4BDB), spotColor = Color(0x1A5B4BDB)) else Modifier)
         .clip(shape).background(fill).border(1.dp, edge, shape)
 }
 
@@ -120,7 +117,7 @@ fun Modifier.eatTouches(): Modifier = this.pointerInput(Unit) {
 @Composable
 fun Modifier.backdrop(): Modifier {
     val dark = isSystemInDarkTheme()
-    val base = MaterialTheme.colorScheme.background
+    val base = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surface
     return this.background(base).drawBehind {
         val a = if (dark) 0.20f else 0.22f
         drawCircle(Brush.radialGradient(listOf(Color(0xFF7B6CFF).copy(alpha = a), Color.Transparent), center = Offset(size.width * 0.1f, size.height * 0.04f), radius = size.width * 0.9f),
@@ -134,61 +131,62 @@ fun Modifier.backdrop(): Modifier {
 
 /** A small "?" that opens the explanation: the long words live here, not under every setting. */
 @Composable
-fun Help(title: String, body: String, tint: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+fun Help(title: String, body: String, tint: Color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurfaceVariantActions) {
     var open by remember { mutableStateOf(false) }
     Box(Modifier.size(32.dp).clip(CircleShape).clickable { open = true }, contentAlignment = Alignment.Center) {
         Icon(Icons.AutoMirrored.Outlined.HelpOutline, tr("说明", "About this"), tint = tint, modifier = Modifier.size(18.dp))
     }
     if (open) AlertDialog(
         onDismissRequest = { open = false },
-        title = { Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) },
+        title = { DialogTitle(title) },
         text = { Text(body, fontSize = 14.sp, lineHeight = 21.sp) },
         confirmButton = { TextButton(onClick = { open = false }) { Text(tr("知道了", "Got it")) } },
     )
 }
 
-/** One glass card with an optional small header (and its "?"). */
+/**
+ * One group: a small title above a glass card (miuix SmallTitle + Card layout), the "?" beside the title. Groups are
+ * how a page is organised; nothing long is written inside them.
+ */
 @Composable
 fun Section(title: String? = null, help: String? = null, trailing: (@Composable () -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(22.dp)).padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (title != null) Row(Modifier.fillMaxWidth().heightIn(min = 28.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+    val c = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (title != null) Row(Modifier.fillMaxWidth().heightIn(min = 30.dp).padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.onBackgroundVariant, modifier = Modifier.weight(1f))
             trailing?.invoke()
             if (help != null) Help(title, help)
         }
-        content()
+        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(20.dp)).padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
     }
 }
 
-/** A row that opens something: title, a short value, a chevron. */
+/** A row that opens something (miuix arrow preference): icon, title, a short value, the arrow. */
 @Composable
 fun NavRow(title: String, value: String? = null, icon: ImageVector? = null, valueColor: Color? = null, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (icon != null) { IconBubble(icon, MaterialTheme.colorScheme.primary, 32); Spacer(Modifier.width(12.dp)) }
-        Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (value != null) Text(value, fontSize = 13.sp, color = valueColor ?: MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
+    val c = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
+    top.yukonga.miuix.kmp.preference.ArrowPreference(
+        title = title,
+        startAction = icon?.let { { Row { IconBubble(it, c.primary, 32); Spacer(Modifier.width(12.dp)) } } },
+        endActions = { if (value != null) Text(value, fontSize = 13.sp, color = valueColor ?: c.onSurfaceVariantActions, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 4.dp)) },
+        insideMargin = androidx.compose.foundation.layout.PaddingValues(vertical = 10.dp),
+        onClick = onClick,
+    )
 }
 
-/** A switch with a short line under it (a few words) and, when there is more to say, a "?". */
+/** A switch row (miuix switch preference): title, a few words under it, the "?" when there is more to say. */
 @Composable
 fun SwitchRow(title: String, sub: String? = null, checked: Boolean, help: String? = null, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onChange(!checked) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                if (help != null) Help(title, help)
-            }
-            if (sub != null) Text(sub, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Switch(checked = checked, onCheckedChange = onChange)
-    }
+    top.yukonga.miuix.kmp.preference.SwitchPreference(
+        checked = checked, onCheckedChange = onChange, title = title, summary = sub,
+        endActions = { if (help != null) Help(title, help) },
+        insideMargin = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
+    )
 }
 
 /** A short grey line. One line where it can be. */
 @Composable
-fun Note(t: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) =
+fun Note(t: String, color: Color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurfaceVariantSummary) =
     Text(t, fontSize = 12.sp, lineHeight = 17.sp, color = color, modifier = Modifier.fillMaxWidth())
 
 @Composable
@@ -198,22 +196,23 @@ fun IconBubble(icon: ImageVector, color: Color, size: Int = 36) {
     }
 }
 
-/** A square-ish tile on the home grid: an icon, a name, and the one fact worth seeing without opening it. */
+/** A tile on the home grid (miuix card, sinks when pressed): an icon, a name, and the one fact worth seeing. */
 @Composable
 fun Tile(icon: ImageVector, title: String, value: String, color: Color, modifier: Modifier = Modifier, alert: Boolean = false, onClick: () -> Unit) {
-    Column(
-        modifier.glass(RoundedCornerShape(22.dp)).clickable(onClick = onClick).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+    val c = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
+    top.yukonga.miuix.kmp.basic.Card(
+        modifier = modifier, cornerRadius = 20.dp, insideMargin = androidx.compose.foundation.layout.PaddingValues(14.dp),
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = c.surfaceContainer.copy(alpha = if (isSystemInDarkTheme()) 0.78f else 0.86f)),
+        pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink, onClick = onClick,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconBubble(icon, color)
             Spacer(Modifier.weight(1f))
             if (alert) Box(Modifier.size(9.dp).clip(CircleShape).background(Palette.stopped))
         }
-        Column {
-            Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(value, fontSize = 12.sp, color = if (alert) Palette.stopped else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
+        Spacer(Modifier.height(10.dp))
+        Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, fontSize = 12.sp, color = if (alert) Palette.stopped else c.onSurfaceVariantSummary, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -221,7 +220,7 @@ fun Tile(icon: ImageVector, title: String, value: String, color: Color, modifier
 @Composable
 fun PageHeader(title: String, help: String? = null, onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, tr("返回", "Back")) }
+        top.yukonga.miuix.kmp.basic.IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, tr("返回", "Back")) }
         Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f).padding(start = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (help != null) Help(title, help)
     }

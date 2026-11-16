@@ -14,9 +14,14 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * [vscreen] Accurate on-device OCR: PaddleOCR PP-OCRv6 small (detection + recognition),
- * run with ONNX Runtime inside the app. Official ONNX exports:
- * huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx and ..._rec_onnx (Apache-2.0).
+ * [vscreen] Accurate on-device OCR: PaddleOCR PP-OCRv6 (tiny detection + small recognition), run with ONNX Runtime
+ * inside the app. Official ONNX exports huggingface.co/PaddlePaddle/PP-OCRv6_tiny_det_onnx and PP-OCRv6_small_rec_onnx
+ * (Apache-2.0), weights stored as float16 (inputs and outputs stay float32; ONNX Runtime folds the casts at load).
+ *
+ * 1.4: chosen by tools/ocr-bench (rendered phone screens with known text, the same pipeline as here): tiny detection
+ * finds as much text as small and is faster; tiny recognition misses every character outside its 6.9k-character
+ * dictionary (names, rare words), so recognition stays small. Float16 storage reads the same as float32 on the bench.
+ * 11.5 MB instead of 31 MB, and reads slightly more exactly than 1.3's small + small.
  *
  * Pipeline (mirrors PaddleOCR's DBPostProcess + CTCLabelDecode, simplified for screens,
  * where text is axis-aligned):
@@ -35,7 +40,7 @@ import kotlin.math.roundToInt
  */
 internal object VScreenPaddleOcr {
     private const val TAG = "VScreenPaddleOcr"
-    const val ENGINE = "pp-ocrv6-small (on-device, onnxruntime)"
+    const val ENGINE = "pp-ocrv6 tiny-det + small-rec fp16 (on-device, onnxruntime)"
     private const val DIR = "vscreen-ocr"
     /** v41: 1280 (was 960) — small game text on a 2800-wide screen is lost at 960. */
     private const val DET_LONG = 1280

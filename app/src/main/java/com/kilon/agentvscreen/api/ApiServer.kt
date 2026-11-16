@@ -398,7 +398,7 @@ class ApiServer(private val ctx: Context) {
             "/v2/codes" -> return langOf(r) { Resp.json(JSONObject().put("codes", JSONArray(com.kilon.agentvscreen.cmd.Codes.all.map { JSONObject().put("code", it.name).put("next", it.next.key).put("text", it.text) }))) }
             "/cli" -> { if (r.q("via") == "install") AgentLedger.installed(); return Resp.text(cliScript()) }
             "/skill" -> return langOf(r) { Resp.text(AgentGuide.skill()) }
-            "/memory" -> return langOf(r) { Resp.text(AgentGuide.memory() + "\n") }
+            "/memory" -> return langOf(r) { Resp.text(AgentGuide.memoryFor(when (r.q("via")) { "mcp" -> Abilities.Via.MCP; "http" -> Abilities.Via.HTTP; else -> Abilities.Via.CLI }) + "\n") }
         }
         val auth = when (val a = authenticate(r)) { is Auth -> a; is Resp -> return a; else -> return Resp.err(401, "BAD_TOKEN", "?") }
         r.auth = auth
@@ -541,7 +541,7 @@ class ApiServer(private val ctx: Context) {
         try {
             val res0 = handler.handle(NativeOffloadRequest(listOf("vscreen") + argv, session))
             // 1.3 beta4: the agent's note is for an older version: what changed, and how to refresh it (AgentNews).
-            val notice = AgentNews.notice(com.kilon.agentvscreen.cmd.Call.current()?.tokenId ?: "main", fresh)
+            val notice = AgentNews.notice(com.kilon.agentvscreen.cmd.Call.current()?.tokenId ?: "main", fresh, com.kilon.agentvscreen.cmd.Call.current()?.via ?: Abilities.Via.CLI)
             val res = if (notice != null) res0.copy(output = notice + "\n" + res0.output) else res0
             if (notice != null) return res
             // First call after a long silence (likely a new conversation): one line pointing at the short usage.
@@ -558,7 +558,12 @@ class ApiServer(private val ctx: Context) {
     fun runFor(r: Req, argv: List<String>, session: String, requestId: String?, onStep: ((String) -> Unit)? = null): Pair<NativeOffloadResult, Boolean> {
         val auth = r.auth ?: return NativeOffloadResult(1, "", "BAD_TOKEN") to false
         val t = Tokens.byId(auth.token.id) ?: auth.token
-        val call = Call(session, t.id, t.name, t.scopes, r.peerName, requestId, com.kilon.agentvscreen.I18n.code, t.trustUntil)
+        val via = when {
+            r.path.startsWith("/mcp") -> Abilities.Via.MCP
+            r.headers["x-vscreen-client"] == "cli" -> Abilities.Via.CLI
+            else -> Abilities.Via.HTTP
+        }
+        val call = Call(session, t.id, t.name, t.scopes, r.peerName, requestId, com.kilon.agentvscreen.I18n.code, t.trustUntil, via)
         call.progress = onStep
         val key = requestId?.let { "${t.id}:$it" }
         var mine: Flight? = null

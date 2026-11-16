@@ -29,7 +29,9 @@ class Call(val session: String, val tokenId: String = "main", val tokenName: Str
            val scopes: Set<String> = setOf("look", "operate", "system"), val peer: String? = null,
            val requestId: String? = null, val lang: String? = null,
            /** The user gave this token a period without confirmations (epoch ms; 0 = none). */
-           val trustUntil: Long = 0L) {
+           val trustUntil: Long = 0L,
+           /** 1.4: how the caller reaches us (shell CLI, MCP, raw HTTP): texts for the agent name commands its way. */
+           val via: com.kilon.agentvscreen.api.Abilities.Via = com.kilon.agentvscreen.api.Abilities.Via.CLI) {
     /** Set when the caller went away or cancelled the task: the command stops before its next step. */
     @Volatile var cancelled = false
     /** 1.3: when the phone received the call (wall clock), to tell phone-side time from time outside the phone. */

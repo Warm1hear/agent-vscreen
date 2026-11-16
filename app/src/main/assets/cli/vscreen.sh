@@ -63,17 +63,17 @@ hex() { od -An -v -tx1 | tr -d ' \n'; }
 req() {
   m="$1"; t="$2"; bf="$3"; hf="$4"; of="$5"; shift 5
   if [ -n "$NOSIGN" ]; then
-    if [ "$m" = "GET" ]; then c -sS -D "$hf" -o "$of" -H "Authorization: Bearer $TOKEN" "$@" "$URL$t"
-    else c -sS -X "$m" -D "$hf" -o "$of" -H "Authorization: Bearer $TOKEN" --data-binary "@$bf" "$@" "$URL$t"; fi
+    if [ "$m" = "GET" ]; then c -sS -H "X-VScreen-Client: cli" -D "$hf" -o "$of" -H "Authorization: Bearer $TOKEN" "$@" "$URL$t"
+    else c -sS -H "X-VScreen-Client: cli" -X "$m" -D "$hf" -o "$of" -H "Authorization: Bearer $TOKEN" --data-binary "@$bf" "$@" "$URL$t"; fi
     return $?
   fi
   ts=$(date +%s); nonce=$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')
   bh=$(sha < "$bf")
   sig=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s' "$K" "$ts" "$nonce" "$m" "$t" "$bh" "$K" | sha)
   if [ "$m" = "GET" ]; then
-    c -sS -D "$hf" -o "$of" -H "X-VScreen-Key: $KID" -H "X-VScreen-Time: $ts" -H "X-VScreen-Nonce: $nonce" -H "X-VScreen-Sign: $sig" "$@" "$URL$t"
+    c -sS -H "X-VScreen-Client: cli" -D "$hf" -o "$of" -H "X-VScreen-Key: $KID" -H "X-VScreen-Time: $ts" -H "X-VScreen-Nonce: $nonce" -H "X-VScreen-Sign: $sig" "$@" "$URL$t"
   else
-    c -sS -X "$m" -D "$hf" -o "$of" -H "X-VScreen-Key: $KID" -H "X-VScreen-Time: $ts" -H "X-VScreen-Nonce: $nonce" -H "X-VScreen-Sign: $sig" --data-binary "@$bf" "$@" "$URL$t"
+    c -sS -H "X-VScreen-Client: cli" -X "$m" -D "$hf" -o "$of" -H "X-VScreen-Key: $KID" -H "X-VScreen-Time: $ts" -H "X-VScreen-Nonce: $nonce" -H "X-VScreen-Sign: $sig" --data-binary "@$bf" "$@" "$URL$t"
   fi
   rq=$?; [ $rq -ne 0 ] && return $rq
   got=$(tr -d '\r' < "$hf" | sed -n 's/^[Xx]-[Vv][Ss]creen-[Pp]roof: *//p' | head -n1)
