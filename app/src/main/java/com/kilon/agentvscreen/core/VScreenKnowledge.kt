@@ -46,8 +46,6 @@ object VScreenKnowledge {
         synchronized(lastApps) { lastApps[s] }?.takeIf { System.currentTimeMillis() - it.atMs <= withinMs }?.pkg
     }
 
-    private fun lastAppAny(sids: List<String?>, withinMs: Long): String? = sids.firstNotNullOfOrNull { lastApp(it, withinMs) }
-
     // ── names ────────────────────────────────────────────────────────
 
     fun label(pkg: String): String? = synchronized(labels) {

@@ -138,8 +138,6 @@ object VScreenRecorder {
         synchronized(t) { t.marks.filter { it.atMs in fromMs..toMs } }
     }.orEmpty()
 
-    fun actionMark(displayId: Int, n: Int): Mark? = existing(displayId)?.let { t -> synchronized(t) { t.marks.lastOrNull { (it.kind == "action" || it.kind == "read") && it.n == n } } }
-
     /** v44: the points of action [n] (known only once the command has finished: where it tapped / dragged). */
     fun setPoints(displayId: Int, n: Int, pts: List<IntArray>) {
         val t = existing(displayId) ?: return

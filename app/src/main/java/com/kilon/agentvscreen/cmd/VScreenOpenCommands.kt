@@ -220,13 +220,6 @@ internal fun VScreenOffloadHandler.mainTop(): String? = runCatching { VScreenShe
 internal fun VScreenOffloadHandler.mainTaskIds(): Set<Int>? =
     runCatching { VScreenHandoff.tasksOn(0).map { it.taskId }.toSet() }.getOrNull()?.takeIf { it.isNotEmpty() }
 
-/** Main-screen tasks listed in [before] that are gone now (empty when unknown). */
-internal fun VScreenOffloadHandler.mainTasksLost(before: Set<Int>?): Set<Int> {
-    if (before.isNullOrEmpty()) return emptySet()
-    val now = mainTaskIds() ?: return emptySet()
-    return before - now
-}
-
 // ── stop / release ───────────────────────────────────────────────────
 
 /** `stop [包名] [--force]`: close the app's task on the background screen (--force: kill the app, main screen too). */

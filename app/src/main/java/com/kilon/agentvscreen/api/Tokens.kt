@@ -69,9 +69,6 @@ object Tokens {
         prefs?.edit()?.putString("tokens", JSONArray(l.map { it.json() }).toString())?.apply()
     }
 
-    /** For tests: use [l] without storage. */
-    internal fun setForTest(l: List<Token>) { _list.value = l }
-
     private fun random(n: Int): String {
         val abc = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
         val r = SecureRandom()

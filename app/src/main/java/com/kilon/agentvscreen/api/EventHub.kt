@@ -117,15 +117,6 @@ object EventHub {
         out
     }
 
-    /** The reply carrying the last batch could not be written: the batch goes back to the front of the queue. */
-    fun undelivered(session: String) = lock.withLock {
-        val h = handed.remove(session) ?: return@withLock
-        handedAt.remove(session)
-        val q = queues.getOrPut(session) { ArrayDeque() }
-        h.asReversed().forEach { q.addFirst(it) }
-        persist(); arrived.signalAll()
-    }
-
     fun pending(session: String): Int = lock.withLock { queues[session]?.size ?: 0 }
 
     internal fun resetForTest() = lock.withLock { queues.clear(); handed.clear(); handedAt.clear(); seq = 0; file = null }

@@ -60,9 +60,9 @@ import android.view.Surface
  *                op 1 SET     in: ratio                      out: status, returnCode, readBack
  *                op 2 RESTORE in: hadEntry, entryBytes, ratio out: status, readBack, hasEntryNow, detail
  *
- * The service runs as a Shizuku daemon: when the Minis process dies (killed
+ * The service runs as a Shizuku daemon: when the app process dies (killed
  * in the background, or restarted) its displays survive with the apps on
- * them, and the next Minis process adopts them (LIST + SET_SURFACE with a
+ * them, and the next app process adopts them (LIST + SET_SURFACE with a
  * fresh ImageReader). Displays nobody touched for [ORPHAN_MS] are released.
  * Input is injected with the target display id set on every event, from
  * the shell uid (INJECT_EVENTS), the way scrcpy does it.
@@ -499,7 +499,7 @@ class VScreenDisplayService : Binder {
         return ok
     }
 
-    /** A finger nobody moved for [FINGER_MAX_IDLE_MS] is lifted, so a dead Minis never leaves a finger down. */
+    /** A finger nobody moved for [FINGER_MAX_IDLE_MS] is lifted, so a dead app never leaves a finger down. */
     private fun startFingerWatch() {
         if (fingerWatch) return
         fingerWatch = true
@@ -663,7 +663,7 @@ class VScreenDisplayService : Binder {
         const val INJECT_TEXT = FIRST_CALL_TRANSACTION + 17
         /** A held finger with no update for this long is lifted by the service. */
         const val FINGER_MAX_IDLE_MS = 30_000L
-        /** A display nobody touched for this long (Minis gone) is released. */
+        /** A display nobody touched for this long (app gone) is released. */
         const val ORPHAN_MS = 20 * 60_000L
         /** Bump when the protocol changes, so Shizuku restarts an old service process. */
         const val PROTOCOL = 10

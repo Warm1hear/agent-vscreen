@@ -80,13 +80,6 @@ object VScreenActivity {
         return Rect(x0 * w / cols, y0 * h / rows, (x1 + 1) * w / cols, (y1 + 1) * h / rows)
     }
 
-    /** Cells whose centre lies inside frame rect [r] of a [w]x[h] frame. */
-    fun cellsIn(r: Rect, cols: Int, rows: Int, w: Int, h: Int): BooleanArray = BooleanArray(cols * rows) { i ->
-        val cx = i % cols; val cy = i / cols
-        val x = (cx * w / cols + (cx + 1) * w / cols) / 2; val y = (cy * h / rows + (cy + 1) * h / rows) / 2
-        x >= r.left && x < r.right && y >= r.top && y < r.bottom
-    }
-
     /** A flat frame (all white / all black / one colour): a transition, not a page. */
     fun uniform(b: Bitmap?): Boolean {
         if (b == null || b.isRecycled || b.width < 4 || b.height < 4) return false

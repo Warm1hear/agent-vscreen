@@ -49,7 +49,7 @@ private val FIX_WHAT = mapOf(
 // ── status / state ────────────────────────────────────────────────────
 
 internal fun VScreenOffloadHandler.status(sid: String?, args: OffloadArgs): NativeOffloadResult {
-    // After a Minis restart the screen may still live in the Shizuku service: adopt it now.
+    // After an app restart the screen may still live in the Shizuku service: adopt it now.
     if (sid != null && BackgroundOperation.state.value.let { it.enabled && it.displayId == null && !it.needsExplicitReconnect }) {
         com.kilon.agentvscreen.host.quiet("VScreenScreenCommands:55") { BackgroundOperation.acquire(sid, create = false) }
     }

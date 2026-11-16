@@ -230,7 +230,7 @@ internal object VScreenShell {
     }
 
     /**
-     * Packages the background screen must never force-stop: Minis itself (the agent runs in it),
+     * Packages the background screen must never force-stop: this app itself,
      * the launcher and the system UI. Set from BackgroundOperation.init.
      */
     @Volatile var protectedPackages: Set<String> = setOf("com.android.systemui", "android")
@@ -291,8 +291,6 @@ internal object VScreenShell {
     @Volatile internal var mapper: ((Int, Float, Float) -> Pair<Float, Float>)? = null
     private fun mx(d: Int, x: Int, y: Int): Pair<Int, Int> =
         mapper?.invoke(d, x.toFloat(), y.toFloat())?.let { Math.round(it.first) to Math.round(it.second) } ?: (x to y)
-    /** Where a frame point lands in input space (for diagnostics). */
-    fun inputPoint(displayId: Int, x: Int, y: Int): Pair<Int, Int> = mx(displayId, x, y)
 
     /**
      * 1.2: the one way input reaches a display. The default goes to the Shizuku display service; tests replace it.

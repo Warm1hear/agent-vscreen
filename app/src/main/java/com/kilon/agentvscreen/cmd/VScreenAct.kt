@@ -103,9 +103,6 @@ internal class Probe(private val h: VScreenOffloadHandler, private val d: VScree
 
     fun close() { base?.recycle(); base = null; prev?.recycle(); prev = null }
 
-    /** Re-take the baseline (a kept watch starts from the moment the turn ended). */
-    fun rebase() { base?.recycle(); base = d.latestFrame()?.let { VScreenPerception.small(it) }; stillMs.clear(); motion.clear() }
-
     private fun scaled(c: Cond, b: Bitmap): Rect? = c.area?.let { r ->
         val k = b.width.toDouble() / maxOf(1, d.width)
         Rect((r.left * k).toInt(), (r.top * k).toInt(), maxOf((r.left * k).toInt() + 1, (r.right * k).toInt()), maxOf((r.top * k).toInt() + 1, (r.bottom * k).toInt()))

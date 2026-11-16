@@ -161,13 +161,6 @@ fun SwitchRow(title: String, sub: String? = null, checked: Boolean, help: String
 fun Note(t: String, color: Color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurfaceVariantSummary) =
     Text(t, fontSize = 12.sp, lineHeight = 17.sp, color = color, modifier = Modifier.fillMaxWidth())
 
-@Composable
-fun IconBubble(icon: ImageVector, color: Color, size: Int = 36) {
-    Box(Modifier.size(size.dp).clip(RoundedCornerShape((size * 0.32f).dp)).background(color.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
-        Icon(icon, null, tint = color, modifier = Modifier.size((size * 0.55f).dp))
-    }
-}
-
 /** A pill button for dark glass: the main one in the accent gradient, the rest as quiet glass chips. */
 @Composable
 fun GlassPill(label: String, primary: Boolean, k: Float = 1f, modifier: Modifier = Modifier, onClick: () -> Unit) {

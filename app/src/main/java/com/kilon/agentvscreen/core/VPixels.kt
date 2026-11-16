@@ -159,10 +159,4 @@ internal object VPixels {
         return t.toIntOrNull(16)?.let { 0xFF000000.toInt() or it }
     }
 
-    /** true when every one passed, false when any failed, null when some could not be judged. */
-    fun overall(list: List<Outcome>): Boolean? = when {
-        list.any { it.ok == false } -> false
-        list.all { it.ok == true } -> true
-        else -> null
-    }
 }

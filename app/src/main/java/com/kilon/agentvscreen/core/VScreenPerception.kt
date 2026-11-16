@@ -69,9 +69,6 @@ object VScreenPerception {
 
     fun running(displayId: Int): Boolean = watcher(displayId) != null
 
-    /** When the frame of the latest reading was taken (elapsedRealtime; 0 = none). */
-    fun readingTime(displayId: Int): Long = watcher(displayId)?.readingAt ?: 0L
-
     /**
      * The latest OCR reading of a frame taken at or after [notBefore] (elapsedRealtime); when the latest is older a
      * new one is asked for and awaited up to [waitMs]. null = none new enough (yet).

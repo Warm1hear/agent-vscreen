@@ -145,9 +145,6 @@ object Tailnet {
         }
     }
 
-    /** Needs the user's hand (a login, an approval); everything else sorts itself out. */
-    fun needsUser(ctx: Context): Boolean = phase(ctx).let { it == Phase.NEEDS_LOGIN || it == Phase.EXPIRED || it == Phase.NEEDS_APPROVAL }
-
     /** For status: the phase, what to do about it, and the last address that worked. */
     fun json(ctx: Context): JSONObject {
         val p = phase(ctx)
@@ -217,12 +214,6 @@ object Tailnet {
 
     fun binary(ctx: Context): File = File(ctx.applicationInfo.nativeLibraryDir, "libtsbridge.so")
     fun available(ctx: Context): Boolean = binary(ctx).canExecute()
-
-    /** Names the caller may use for this node in the Host header. */
-    fun hostNames(): Set<String> {
-        val s = _status.value
-        return setOfNotNull(s.ip, s.dnsName?.lowercase(), s.dnsName?.substringBefore('.')?.lowercase())
-    }
 
     /** Called from HostService start and whenever the setting changes. */
     @Synchronized fun sync(ctx: Context) {

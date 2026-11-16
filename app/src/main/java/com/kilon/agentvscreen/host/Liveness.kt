@@ -86,8 +86,6 @@ object Liveness {
         } == true
     }
 
-    /** The user went to the background settings: count afresh. */
-    fun resetNetBlocks() { netBlocksAway = 0 }
     private fun interactive(): Boolean = runCatching { pm?.isInteractive }.getOrNull() ?: true
     private var ticker: Thread? = null
 

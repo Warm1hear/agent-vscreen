@@ -296,14 +296,6 @@ internal object Teach {
         if (BackgroundOperation.state.value.takeoverSessionId != null) BackgroundOperation.userResume()
     }
 
-    /** For tests: stop and wait for the steps. */
-    internal fun stopNow(): Result? {
-        stop(null)
-        val t0 = System.currentTimeMillis()
-        while (result == null && System.currentTimeMillis() - t0 < 5_000) Thread.sleep(20)
-        return result
-    }
-
     /** The review page is done with the steps (saved, discarded or left): an unanswered question shows again. */
     fun clearResult() { result = null; if (rec == null) UserAsk.hold(null) }
 

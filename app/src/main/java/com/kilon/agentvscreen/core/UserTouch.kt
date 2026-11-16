@@ -89,6 +89,4 @@ object UserTouch {
 
     val active: Boolean get() = displayId != null
 
-    /** For tests: wait until everything queued was sent. */
-    internal fun drain() { val l = java.util.concurrent.CountDownLatch(1); handler.post { l.countDown() }; l.await(2, java.util.concurrent.TimeUnit.SECONDS) }
 }

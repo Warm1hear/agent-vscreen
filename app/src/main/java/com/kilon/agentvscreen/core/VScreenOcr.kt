@@ -103,7 +103,6 @@ internal object VScreenOcr {
     /** Average time of an accurate reading on this phone (0 = none yet). */
     @Volatile private var accurateMs = 0L
 
-
     /** Whether [recognize] with accurate = true will try PP-OCRv6 now. */
     fun accurateEnabled(): Boolean {
         val ctx = BackgroundOperation.appContextOrNull() ?: return false
@@ -222,18 +221,6 @@ internal object VScreenOcr {
         return (counts.maxByOrNull { it.value }?.key ?: 0xFFFFFF) or 0xFF000000.toInt()
     }
 
-    /** The first number in [items] read in order ("1,234", "-5", "3.5"), or null. */
-    fun firstNumber(items: List<Item>): Double? {
-        val txt = items.sortedWith(compareBy<Item>({ it.box.top / 8 }, { it.box.left })).joinToString(" ") { it.text }
-        val m = NUMBER.find(txt) ?: return null
-        // v48: a time (mm:ss, h:mm:ss, with hundredths) is one value, in seconds — not its leading "00".
-        if (m.groupValues[2].isNotEmpty()) {
-            val parts = listOf(m.groupValues[1], m.groupValues[2], m.groupValues[3]).filter { it.isNotEmpty() }.map { it.toDouble() }
-            val whole = parts.fold(0.0) { acc, p -> acc * 60 + p }
-            return whole + (m.groupValues[4].takeIf { it.isNotEmpty() }?.let { "0.$it".toDouble() } ?: 0.0)
-        }
-        return m.value.replace(",", "").replace("，", "").toDoubleOrNull()
-    }
     private val NUMBER = Regex("(\\d{1,3})[:：](\\d{2})(?:[:：](\\d{2}))?(?:[.](\\d{1,3}))?|[-+]?\\d[\\d,，]*(?:\\.\\d+)?")
 
     private fun recognizeFast(displayId: Int, frame: Bitmap, version: Long): Result {
@@ -339,11 +326,6 @@ internal object VScreenOcr {
             object : LinkedHashMap<String, Rect>(64, 0.75f, true) { override fun removeEldestEntry(e: MutableMap.MutableEntry<String, Rect>?) = size > 300 }
         }
         for (it in items) { val k = norm(it.text); if (k.isNotEmpty() && k.length <= 8) m[k] = Rect(it.box) }
-    }
-
-    fun lastBox(displayId: Int, q: String): Rect? = synchronized(seenBoxes) {
-        val k = norm(q); val m = seenBoxes[displayId] ?: return null
-        m[k] ?: m.entries.firstOrNull { k.isNotEmpty() && it.key.contains(k) }?.value
     }
 
     fun forget(displayId: Int) = synchronized(seenBoxes) { seenBoxes.remove(displayId) }
@@ -474,17 +456,6 @@ internal object VScreenOcr {
         return t.length == 1 && !t[0].isDigit() && t[0].code < 0x2E80 && item.box.height() < 18
     }
 
-    /** The item under (x, y): containing box (12 px slack) first, else the nearest centre within 80 px. */
-    fun hitTest(items: List<Item>, x: Int, y: Int): Pair<Item, Int>? {
-        val slack = 12
-        items.filter { x >= it.box.left - slack && x <= it.box.right + slack && y >= it.box.top - slack && y <= it.box.bottom + slack }
-            .minByOrNull { it.box.width() * it.box.height() }
-            ?.let { return it to 0 }
-        return items.map { it to hypot((it.cx - x).toDouble(), (it.cy - y).toDouble()).toInt() }
-            .filter { it.second <= 80 }
-            .minByOrNull { it.second }
-    }
-
     /** Group items into visual rows (vertical centres within half a row height). */
     fun rows(items: List<Item>): List<Row> {
         val sorted = items.sortedBy { it.cy }
@@ -500,18 +471,6 @@ internal object VScreenOcr {
             rows += mutableListOf(it)
         }
         return rows.map { r -> Row(r.sortedBy { it.box.left }) }
-    }
-
-    /**
-     * Title guess: in the top 18% of the screen, the text with the largest
-     * characters (ties: closest to the horizontal centre). A search box hint
-     * is usually smaller than a real title, but this stays a guess.
-     */
-    fun titleGuess(items: List<Item>, width: Int, height: Int, exclude: (Item) -> Boolean = { false }): Pair<String?, List<String>> {
-        val top = items.filter { it.box.bottom <= height * 0.18 && it.box.width() <= width / 2 && !exclude(it) && titleLike(it.text) }
-        val best = top.maxWithOrNull(compareBy<Item>({ (it.glyphs.map { g -> g.box.height() }.maxOrNull() ?: it.box.height()) / 4 },
-            { -abs(it.cx - width / 2) }))
-        return best?.text to top.take(6).map { it.text }
     }
 
     /**

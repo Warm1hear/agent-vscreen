@@ -252,6 +252,4 @@ object Prefs {
     /** 1.3 beta4: the user blocked agent access (really off; nothing wakes the service). */
     fun blocked(ctx: Context) = p(ctx).getBoolean("agents_blocked", false)
     fun setBlocked(ctx: Context, on: Boolean) { p(ctx).edit().putBoolean("agents_blocked", on).apply() }
-    fun resumeOnSchedule(ctx: Context) = p(ctx).getBoolean("resume_on_schedule", false)
-    fun setResumeOnSchedule(ctx: Context, on: Boolean) { p(ctx).edit().putBoolean("resume_on_schedule", on).apply() }
 }

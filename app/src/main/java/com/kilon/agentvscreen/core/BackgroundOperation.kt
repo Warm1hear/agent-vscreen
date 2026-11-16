@@ -405,9 +405,6 @@ object BackgroundOperation {
         }
     }
 
-    /** Was downscaling already turned off for [pkg] on this screen? */
-    fun isUnscaled(pkg: String): Boolean = unscaled.contains(pkg)
-
     fun currentDisplayId(): Int? = display?.takeIf { !it.released }?.displayId
 
     /** v0.5: the live background screen (null when none). */
@@ -428,13 +425,6 @@ object BackgroundOperation {
             pk.forEach { VScreenShell.resetDownscale(it) }
             VScreenDownscale.restoreAll()
         }.apply { isDaemon = true }.start()
-    }
-
-    /** `screen downscale restore`: put every saved setting back now (screen stays). */
-    fun restoreDownscaleNow(): List<String> {
-        val pk = synchronized(unscaled) { unscaled.toList().also { unscaled.clear() } }
-        pk.forEach { VScreenShell.resetDownscale(it) }
-        return pk.map { tr("已重置 $it 的 Android 降分辨率开关", "Reset Android's downscaling switch for $it") } + VScreenDownscale.restoreAll()
     }
 
     private val releaseListeners = java.util.concurrent.CopyOnWriteArrayList<(Int) -> Unit>()
@@ -587,19 +577,11 @@ object BackgroundOperation {
         _state.update { it.copy(agentTitle = title?.trim()?.take(40)?.takeIf { t -> t.isNotEmpty() }) }
     }
 
-    fun endTakeover(sessionId: String) {
-        if (_state.value.takeoverSessionId != sessionId) return
-        synchronized(lock) { tasks[sessionId]?.rereadRequired = true }
-        _state.update { it.copy(takeoverSessionId = null) }
-    }
-
     /** User touch while holding the screen. Maps preview coordinates already converted to screen px. */
     fun userTap(sessionId: String, x: Int, y: Int) = userInput(sessionId) { VScreenShell.tap(it, x, y) }
 
     fun userSwipe(sessionId: String, x1: Int, y1: Int, x2: Int, y2: Int, ms: Int) =
         userInput(sessionId) { VScreenShell.swipe(it, x1, y1, x2, y2, ms) }
-
-    fun userBack(sessionId: String) = userInput(sessionId) { com.kilon.agentvscreen.cmd.Teach.key("back"); VScreenShell.key(it, "back") }
 
     private fun userInput(sessionId: String, op: (Int) -> VScreenShell.Outcome) {
         val s = _state.value
@@ -826,8 +808,6 @@ object BackgroundOperation {
         return null
     }
 
-    fun screenSizePref(): String? = if (::prefs.isInitialized) prefs.getString(K_SCREEN_SIZE, null) else null
-
     /** `screen size`: remember the size and release the screen so the next launch rebuilds it. */
     fun setScreenSize(sessionId: String?, v: String?) {
         if (!::prefs.isInitialized) return
@@ -848,8 +828,6 @@ object BackgroundOperation {
         message =
         tr("副屏现在归会话“${owner ?: "?"}”", "The screen belongs to session \"${owner ?: "?"}\"") + (owner?.let { describeOwner(it) } ?: "") +
             tr("。要现在接手：在那个会话执行 vscreen done（结束它这一轮，页面留着给你接手）或 vscreen release（关掉副屏）", ". To take it now: in that session run vscreen done (ends its turn, leaves the page for you) or vscreen release (closes the screen)"))
-
-    fun mainMetrics(): Triple<Int, Int, Int>? = appContext?.let { mainScreenMetrics(it) }
 
     /** True when the screen was built landscape (wider than tall) before any rotation. */
     fun nativeLandscape(d: VScreenDisplay): Boolean = d.physWidth > d.physHeight
@@ -888,13 +866,6 @@ object BackgroundOperation {
         VScreenRecorder.mark(displayId, if (e.read) "read" else "action", e.describe, atMs = startedMs).takeIf { it > 0 }?.let { e.trackN = it }
         actionLogBuf.addLast(e)
         while (actionLogBuf.size > LOG_MAX) actionLogBuf.removeFirst()
-    }
-
-    /** The last [last] actions of [sessionId] (all sessions when null), oldest first. */
-    /** v21: attach the timeline screenshot to [sessionId]'s newest action (taken within [withinMs]). */
-    fun attachShot(sessionId: String, path: String, withinMs: Long = 120_000L) = synchronized(actionLogBuf) {
-        val e = actionLogBuf.lastOrNull { it.sessionId == sessionId } ?: return@synchronized
-        if (e.shot == null && !e.read && System.currentTimeMillis() - e.atMs < withinMs) e.shot = path
     }
 
     fun actionLog(sessionId: String?, last: Int): List<LogEntry> = synchronized(actionLogBuf) {
@@ -1004,7 +975,6 @@ object BackgroundOperation {
     fun nodeRoots(displayId: Int): List<AccessibilityNodeInfo> =
         VScreenAccessibilityService.getInstance()?.rootNodesForDisplay(displayId) ?: emptyList()
 
-
     private fun mainScreenMetrics(context: Context): Triple<Int, Int, Int> {
         val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -1041,15 +1011,6 @@ object BackgroundOperation {
         return if (v.isFinite() && v in min..max) v else def
     }
     fun windowScale(): Float = prefFloat(K_WIN_SCALE, 1f, 0.3f, 4f)
-    fun windowOnRight(): Boolean = if (::prefs.isInitialized) runCatching { prefs.getBoolean(K_WIN_RIGHT, true) }.getOrDefault(true) else true
-    fun windowYFraction(): Float = prefFloat(K_WIN_Y, 0.02f, 0f, 1f)
-    fun saveWindow(scale: Float, onRight: Boolean, yFraction: Float) {
-        if (!::prefs.isInitialized) return
-        val e = prefs.edit().putBoolean(K_WIN_RIGHT, onRight)
-        if (scale.isFinite() && scale in 0.3f..4f) e.putFloat(K_WIN_SCALE, scale)
-        if (yFraction.isFinite() && yFraction in 0f..1f) e.putFloat(K_WIN_Y, yFraction)
-        e.apply()
-    }
 
     /** True while a task of [sessionId] is running (a chat turn is streaming). */
     fun isTaskActive(sessionId: String?): Boolean = sessionId != null && synchronized(lock) { tasks.containsKey(sessionId) }

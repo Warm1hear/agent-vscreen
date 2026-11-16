@@ -20,7 +20,7 @@ import org.json.JSONObject
  *
  * Fix: through the shell-uid UserService, read the app's APS state, snapshot it (ratio + whether an
  * explicit per-app entry existed + that entry, parceled) into prefs, set the static ratio to 1.0, and
- * verify by reading it back. The snapshot survives a Minis crash; it is restored (entry re-set, or
+ * verify by reading it back. The snapshot survives an app crash; it is restored (entry re-set, or
  * deleted when there was none, then the ratio read back against the original) when the screen is
  * released, or on the next start when no screen is left. The APS ratio is per app, so the main-screen
  * copy of the same app also renders at full resolution until it is restored; results say so.
@@ -40,11 +40,7 @@ internal object VScreenDownscale {
     private fun fmt(f: Float) = "%.4f".format(f).trimEnd('0').trimEnd('.')
 
     data class Aps(val available: Boolean, val resolution: Float, val dynamic: Float, val hasInfo: Boolean,
-                   val info: ByteArray?, val error: String? = null) {
-        fun toJson(): JSONObject = if (!available) JSONObject().put("available", false).put("reason", error ?: tr("本机没有 aps_service", "This phone has no aps_service"))
-            else JSONObject().put("available", true).put("resolution", resolution.toDouble()).put("dynamic_ratio", dynamic.toDouble())
-                .put("explicit_app_entry", hasInfo)
-    }
+                   val info: ByteArray?, val error: String? = null)
 
     fun apsRead(pkg: String): Aps = VScreenRemoteDisplay.apsGet(pkg)
         .getOrElse { Aps(false, 1f, 1f, false, null, it.message) }
@@ -239,7 +235,6 @@ internal object VScreenDownscale {
 
     private val token = HashMap<Int, Long>()
     private val notes = HashMap<Int, String>()
-    fun takeNote(displayId: Int): String? = synchronized(notes) { notes.remove(displayId) }
     private fun note(displayId: Int, s: String) { synchronized(notes) { notes[displayId] = s }; AppLogger.info(TAG, s) }
 
     /**

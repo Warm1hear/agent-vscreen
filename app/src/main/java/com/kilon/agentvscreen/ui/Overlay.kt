@@ -365,7 +365,6 @@ object Overlay {
     internal const val TAB_H = 60f
     private fun bottomMargin() = dp(48f)
     internal fun stopAnim() { anim?.cancel(); anim = null }
-    internal fun isMini() = widthPx.floatValue <= clampWidth(0f) + dp(2f)
 
     /** Glide to (x, y), optionally changing the width, then run [then] (default: remember the place). */
     private fun animateTo(x: Int, y: Int, width: Float? = null, ms: Long = 240L, then: (() -> Unit)? = null) {
@@ -546,7 +545,6 @@ object Overlay {
         val c = ctx ?: return
         runCatching { c.startActivity(Intent(c, FullscreenActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
-
 
     private class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
         private val reg = LifecycleRegistry(this)

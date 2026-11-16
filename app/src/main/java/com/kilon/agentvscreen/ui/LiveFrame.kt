@@ -89,7 +89,6 @@ import com.kilon.agentvscreen.core.BackgroundOperation
 import com.kilon.agentvscreen.core.VScreenShell
 import kotlin.math.roundToInt
 
-
 /** [vscreen] The live picture of the background screen (floating window and full screen). */
 @Composable
 fun VScreenLiveFrame(sessionId: String, modifier: Modifier = Modifier, interactive: Boolean = false) {
@@ -202,9 +201,6 @@ private fun isBlank(b: android.graphics.Bitmap): Boolean = runCatching {
     }
     true
 }.getOrDefault(false)
-
-/** roundToInt() that cannot throw: NaN / ∞ become 0 instead of crashing the app. */
-private fun Float.safePx(): Int = if (isFinite()) roundToInt() else 0
 
 private fun map(p: Offset, view: IntSize, w: Int, h: Int): Pair<Int, Int> {
     if (view.width == 0 || view.height == 0 || w <= 0 || h <= 0 || !p.x.isFinite() || !p.y.isFinite()) return 0 to 0

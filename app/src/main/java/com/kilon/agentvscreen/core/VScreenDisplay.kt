@@ -517,7 +517,7 @@ class VScreenDisplay private constructor(
 
         /**
          * Take over a display the Shizuku service still holds from a previous
-         * Minis process: give it a fresh ImageReader surface. Null on failure.
+         * app process: give it a fresh ImageReader surface. Null on failure.
          */
         internal fun adopt(e: VScreenRemoteDisplay.Existing): VScreenDisplay? {
             val thread = HandlerThread("minis-vscreen-frames").apply { start() }
