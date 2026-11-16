@@ -182,6 +182,15 @@ internal fun isJunkLabel(t: String): Boolean = (HEXISH.matches(t) && t.any { it.
 
 private val DIGIT = Regex("[0-9]")
 
+/** Element words [l] say the OCR word [w]: one holds the other, or most of [w]'s characters (a misread glyph). */
+internal fun saysWord(l: String, w: String): Boolean {
+    if (l.isEmpty() || w.isEmpty()) return false
+    if (l.contains(w) || w.contains(l)) return true
+    val pool = l.groupingBy { it }.eachCount().toMutableMap()
+    val hit = w.count { c -> (pool[c] ?: 0).let { n -> if (n > 0) { pool[c] = n - 1; true } else false } }
+    return w.length >= 3 && hit * 10 >= w.length * 7
+}
+
 /**
  * The elements of one picture: accessibility nodes, then the OCR words no node already says, in reading order.
  * v0.5: when a node's text has digits and the picture shows different digits in its place (an accessibility tree
@@ -218,7 +227,6 @@ internal fun mergeElements(d: VScreenDisplay, a11y: List<El>, ocr: List<VScreenO
         }
         out += a
     }
-    val screenArea = d.width.toLong() * d.height
     for (it in items) {
         if (it in usedOcr) continue
         val t = it.text.replace('\n', ' ').trim()
@@ -226,10 +234,14 @@ internal fun mergeElements(d: VScreenDisplay, a11y: List<El>, ocr: List<VScreenO
         // 1.3: one source per place. Where the app's own element has words (its text, its description, or a hidden
         // link), those are the element: the OCR reading of the same place is not listed again. Before, both were listed
         // ("推荐,7之2,标签" and "推荐"), icons were named by what OCR made of them ("Q", "O") next to their real names,
-        // and an address bar hidden as a link was read out in clear by OCR. A big element only covers words it says.
+        // and an address bar hidden as a link was read out in clear by OCR.
+        // 1.4.0-beta3: an element with words covers only the words it SAYS (or a lone glyph inside it: an icon OCR
+        // misnamed). beta2 let any element up to a quarter of the screen swallow every word inside its box, so a card
+        // whose node says "荣耀字体" hid the "HONOR Sans" drawn under it: the word was on the picture and in no list.
+        // A hidden link still covers everything inside it.
         val said = out.any { a ->
             a.fromA11y && (a.kind == ElKind.TEXT || a.kind == ElKind.LINK) && Rect(a.box).apply { inset(-6, -6) }.contains(it.box.centerX(), it.box.centerY()) &&
-                (a.box.width().toLong() * a.box.height() <= screenArea / 4 || VScreenOcr.norm(a.text).let { l -> l.isNotEmpty() && (l.contains(nt) || nt.contains(l)) })
+                (a.kind == ElKind.LINK || nt.length <= 1 || saysWord(VScreenOcr.norm(a.text), nt))
         }
         if (!said) { val w = tidy(t); out += El(0, if (w.first == ElKind.TEXT) w.second else "", Rect(it.box), false, kind = w.first, hint = if (w.first == ElKind.LINK) w.second else null) }
     }
@@ -571,7 +583,7 @@ internal fun VScreenOffloadHandler.fourBlocks(sid: String, d: VScreenDisplay, li
         .put("generation", d.generation).put("image", pic ?: org.json.JSONObject.NULL).put("image_has_strip", since.changed && pic != null)
         .put("elements", org.json.JSONArray(els.take(Report.MAX_JSON_ELEMENTS).map { e -> e.json().also { o -> if (e !in shown) o.put("unchanged", true) } }))
         .put("elements_total", els.size)
-    return finish(sb, org.json.JSONObject().put("meanwhile", org.json.JSONArray(since.lines)).put("picture_changed", changed).put("screen", screen), outcome)
+    return finish(sb, org.json.JSONObject().put("meanwhile", org.json.JSONArray(since.lines)).put("picture_changed", changed || from != last).put("screen", screen), outcome)
 }
 private const val TIMING_MARK = "\u0000timing\u0000"
 private val REPORT_POOL = java.util.concurrent.Executors.newCachedThreadPool { r -> Thread(r, "vscreen-report").apply { isDaemon = true } }

@@ -37,8 +37,10 @@ internal enum class Detail(val key: String, val use: com.kilon.agentvscreen.core
 internal class Layout(val per: Int?, val cols: Int?) {
     companion object {
         fun of(args: OffloadArgs): Layout {
-            val v = args.get("layout")?.lowercase()?.trim() ?: return Layout(null, null)
-            Regex("^grid\\s*(\\d{1,2})\\s*[x×*]\\s*(\\d{1,2})$").matchEntire(v)?.let { m ->
+            // 1.4.0-beta3: one token (`3x4`). beta2 documented `grid 3x4`, which a shell splits in two: `3x4` then
+            // landed among the positionals and was refused as a region.
+            val v = args.get("layout")?.lowercase()?.replace(" ", "")?.trim() ?: return Layout(null, null)
+            Regex("^(?:grid)?(\\d{1,2})[x×*](\\d{1,2})$").matchEntire(v)?.let { m ->
                 val c = m.groupValues[1].toInt().coerceIn(1, 8); val r = m.groupValues[2].toInt().coerceIn(1, 8)
                 return Layout(c * r, c)
             }
@@ -46,11 +48,13 @@ internal class Layout(val per: Int?, val cols: Int?) {
                 "auto" -> Layout(null, null)
                 "single" -> Layout(1, 1)
                 "strip" -> Layout(6, 6)
-                else -> throw ActionError("INVALID_ARGS", tr("--layout 只能是 auto、single、strip 或 grid 3x4", "--layout is auto, single, strip or grid 3x4"))
+                else -> throw ActionError("INVALID_ARGS", tr("--layout 只能是 auto、single、strip 或 3x4", "--layout is auto, single, strip or 3x4"))
             }
         }
     }
 }
+
+private val REGION = Regex("^-?\\d+(\\.\\d+)?(,-?\\d+(\\.\\d+)?){3}$")
 
 internal object LookBudget {
     const val MAX_PICS = 8
@@ -63,6 +67,9 @@ internal fun OffloadArgs.marks(): Boolean = when (get("marks")?.lowercase()) { n
 /** `look [x1,y1,x2,y2] [--last|--from|--to|--count|--every|--page] [--detail] [--layout] [--marks]`. [as]: zoom or frames when called by their old names. */
 internal fun VScreenOffloadHandler.lookCmd(sid: String?, args: OffloadArgs, `as`: String = "look"): NativeOffloadResult {
     val region = args.positional.firstOrNull()
+    // A positional that is not a region is named as such, not mistaken for one (beta2: `--layout grid 3x4`).
+    if (region != null && !REGION.matches(region.replace(" ", "")))
+        throw ActionError("INVALID_ARGS", tr("看不懂“$region”：区域写成 x1,y1,x2,y2；排法写成 --layout 3x4", "Cannot read \"$region\": a region is x1,y1,x2,y2; a layout is --layout 3x4"))
     val stretch = `as` == "frames" || listOf("last", "from", "to", "count", "every", "page").any { args.get(it) != null }
     return when {
         region != null && stretch -> throw ActionError("INVALID_ARGS", tr("一次只看一样：区域（x1,y1,x2,y2）或一段时间（--last 等），不能同时", "One thing at a time: a region (x1,y1,x2,y2) or a stretch (--last etc.), not both"))

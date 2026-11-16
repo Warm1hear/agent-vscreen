@@ -78,6 +78,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -167,7 +168,31 @@ object Overlay {
     @Volatile internal var frameClaimed = false
 
     /** A question card hangs below the window, or above it when the window sits too low for it. */
-    internal fun cardAbove(): Boolean { val l = lp ?: return false; return l.y + winH() + dp(190f) > screenH() - bottomMargin() }
+    /**
+     * 1.4.0-beta3: the window and its question card are ONE group for placement. beta2 placed the window by the
+     * picture's height alone (opening from the tab, and the 190 dp guess that chose above / below), so the card hung
+     * past the bottom edge and a later settle() jumped the whole thing up. Now the card is measured as it lays out
+     * ([cardH]), it always hangs below the picture, and every resting place (opening, release, a card arriving) keeps
+     * the whole group on screen; the window glides up in step with the card growing in.
+     */
+    internal val cardH = androidx.compose.runtime.mutableFloatStateOf(0f)
+    internal val cardShown = androidx.compose.runtime.mutableStateOf(false)
+    private const val CARD_GUESS = 190f
+    /** The group's height when it comes to rest: picture (with its frame margin) plus the card and the gap. */
+    internal fun groupH(): Float {
+        val pic = (widthPx.floatValue + 2 * pad()) / aspect()
+        return pic + if (cardShown.value) (cardH.floatValue.takeIf { it > 0f } ?: dp(CARD_GUESS)) + dp(6f) else 0f
+    }
+    /** Keep the whole group on screen: glide up (or down) only as far as needed, in [ms] (the card's grow time). */
+    internal fun fitGroup(ms: Long = CARD_MS) {
+        val l = lp ?: return
+        if (docked.value) return
+        val sh = screenH().toFloat(); val h = groupH()
+        val y = l.y.toFloat().coerceIn(topMargin().coerceAtMost(sh - h), (sh - h - bottomMargin()).coerceAtLeast(0f))
+        if (y.toInt() != l.y) animateTo(l.x, y.toInt(), ms = ms)
+    }
+    /** How long the card takes to grow in or out; the window's glide uses the same time and easing. */
+    internal const val CARD_MS = 260L
 
     /** Our full-screen page is in front: it shows the same picture, so the floating window steps aside. */
     /**
@@ -413,7 +438,7 @@ object Overlay {
      */
     private fun restAt(px: Float, py: Float, fingerY: Float? = null, vx: Float = 0f) {
         val sw = screenW().toFloat(); val sh = screenH().toFloat()
-        val w = winW(); val h = winH()
+        val w = winW(); val h = maxOf(winH(), groupH())
         val side: Boolean? = when {
             px < -w * FOLD -> false
             px + w > sw + w * FOLD -> true
@@ -523,7 +548,7 @@ object Overlay {
         stopAnim()
         val right = dockRight.value
         val w = widthPx.floatValue + 2 * pad()
-        val h = w / aspect()
+        val h = groupH()
         // The tab stays a third of the way down the window, as when it folded.
         val y = (l.y + dp(TAB_H) / 2 - h * 0.3f).coerceIn(topMargin(), (screenH() - h - bottomMargin()).coerceAtLeast(topMargin()))
         val x = (if (right) screenW() - w - dp(8f) else dp(8f)).coerceAtLeast(0f)
@@ -743,6 +768,8 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
     val owner = s.ownerSessionId ?: return
     val mode = modeOf(s)
     val waiting = pendingAsks()
+    // Known before any placement, docked or not, so opening from the tab already counts the card.
+    androidx.compose.runtime.SideEffect { Overlay.cardShown.value = waiting.isNotEmpty() }
     if (Overlay.docked.value) { DockTab(mode, Overlay.dockRight.value, waiting.size); return }
     val density = LocalDensity.current
     val landscape = Overlay.aspect() > 1f
@@ -778,12 +805,12 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
     // card still hangs OUTSIDE the window (below it, or above when there is no room below): a card over the picture
     // would hide what the user has to tap.
     val asking = waiting.firstOrNull()
-    val cardAbove = remember(asking?.id) { asking != null && Overlay.cardAbove() }
-    LaunchedEffect(asking?.id) { delay(80); Overlay.settle() }
+    // The last question stays composed while its card shrinks away.
+    var shownAsk by remember { mutableStateOf(asking) }
+    if (asking != null) shownAsk = asking
     val chip = Color(0xCC12141C)
 
     Column(Modifier.padding(PAD).width(w), verticalArrangement = Arrangement.spacedBy((6 * k).dp)) {
-        if (asking != null && cardAbove) AskQuick(asking, waiting.size, k, inOverlay = true, modifier = Modifier.fillMaxWidth())
         Box(Modifier.width(w).height(h).glowBorder(mode, corner, pad = PAD - 1.dp)) {
             Box(Modifier.fillMaxSize().clip(RoundedCornerShape(corner)).background(Palette.ink)) {
                 // The picture: the only layer whose fingers reach the background screen.
@@ -844,7 +871,17 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
                 }
             }
         }
-        if (asking != null && !cardAbove) AskQuick(asking, waiting.size, k, inOverlay = true, modifier = Modifier.fillMaxWidth())
+        val ease = androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntSize>(Overlay.CARD_MS.toInt(), easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+        AnimatedVisibility(asking != null,
+            enter = androidx.compose.animation.expandVertically(ease, expandFrom = Alignment.Top) + fadeIn(androidx.compose.animation.core.tween(Overlay.CARD_MS.toInt())),
+            exit = androidx.compose.animation.shrinkVertically(ease, shrinkTowards = Alignment.Top) + fadeOut(androidx.compose.animation.core.tween(160))) {
+            shownAsk?.let { a ->
+                // Measured at its full size from the first frame (the expansion only clips it), so the window starts
+                // its glide up at the same moment and lands as the card finishes growing.
+                AskQuick(a, waiting.size.coerceAtLeast(1), k, inOverlay = true, modifier = Modifier.fillMaxWidth()
+                    .onSizeChanged { sz -> if (sz.height.toFloat() != Overlay.cardH.floatValue) { Overlay.cardH.floatValue = sz.height.toFloat() }; Overlay.fitGroup() })
+            }
+        }
     }
 }
 

@@ -667,7 +667,7 @@ class ApiServer(private val ctx: Context) {
         // 1.4.0-beta2: clients that feed images[] to a model get only pictures that say something new, compact
         // (ImagePolicy); the CLI prints paths only, so it gets them all at full size.
         val cli = r.headers["x-vscreen-client"] == "cli"
-        val shots = if (cli || !v2) all else ImagePolicy.pick(session, res, all)
+        val shots = if (cli || !v2) all else ImagePolicy.pick(res, all)
         val text = ShotStore.IN_TEXT.replace(res.output) { m -> val n = m.groupValues[1]; if (n in shots) shotUrl(n, r, v2) else ImagePolicy.leftOut() }
         val exit = if (!v2 && res.softFail) 0 else res.exitCode
         val code = if (!v2 && res.softFail) "OK" else res.codeOrDefault

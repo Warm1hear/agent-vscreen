@@ -113,10 +113,6 @@ object ShotStore {
 
     fun dir(ctx: Context): File = File(ctx.filesDir, "shots").apply { mkdirs() }
 
-    /** Content signatures of recent pictures (Pictures.sig), by name: what ImagePolicy compares. */
-    private val sigs = object : LinkedHashMap<String, Long>() { override fun removeEldestEntry(e: MutableMap.MutableEntry<String, Long>?) = size > KEEP }
-    fun sig(name: String): Long? = synchronized(sigs) { sigs[name] }
-
     /**
      * Keep [bmp] (already sized by the caller) as a picture for [use]. [sent]: it may go into a model context by
      * itself, so its compact copy (Pictures.Use.SENT) is written now from the same pixels, not re-encoded later.
@@ -126,7 +122,6 @@ object ShotStore {
         val safeTag = tag.replace(Regex("[^A-Za-z0-9_-]"), "").take(24).ifEmpty { "shot" }
         val name = "vscreen_${safeTag}_${System.currentTimeMillis()}_${(Math.random() * 1e6).toInt()}.jpg"
         com.kilon.agentvscreen.core.Pictures.write(bmp, File(d, name), use, fit = false)
-        runCatching { com.kilon.agentvscreen.core.Pictures.sig(bmp) }.getOrNull()?.let { sg -> synchronized(sigs) { sigs[name] = sg } }
         if (sent) runCatching { com.kilon.agentvscreen.core.Pictures.write(bmp, File(d, "vscreen_c" + name.removePrefix("vscreen")), com.kilon.agentvscreen.core.Pictures.Use.SENT) }
         d.listFiles()?.filter { it.name.startsWith("vscreen_") }?.sortedBy { it.lastModified() }
             ?.let { fs -> if (fs.size > KEEP) fs.take(fs.size - KEEP).forEach { it.delete() } }

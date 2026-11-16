@@ -38,22 +38,4 @@ object Pictures {
         try { FileOutputStream(f).use { b.compress(Bitmap.CompressFormat.JPEG, quality, it) } } finally { if (b !== bmp) b.recycle() }
         return f
     }
-
-    /**
-     * What a picture shows, coarsely: 16×16 cells of mean brightness, 8 levels each. Equal for two pictures of the
-     * same page (a ticking clock or a caret does not move a cell's mean across a level), different when the page
-     * changed. Used to say "same as the last picture you got" only when it is true.
-     */
-    fun sig(bmp: Bitmap): Long {
-        val n = 16
-        val s = Bitmap.createScaledBitmap(bmp, n, n, true)
-        var h = 1469598103934665603L
-        for (y in 0 until n) for (x in 0 until n) {
-            val c = s.getPixel(x, y)
-            val l = ((c shr 16 and 0xff) * 3 + (c shr 8 and 0xff) * 6 + (c and 0xff)) / 10
-            h = (h xor (l shr 5).toLong()) * 1099511628211L
-        }
-        if (s !== bmp) s.recycle()
-        return h
-    }
 }

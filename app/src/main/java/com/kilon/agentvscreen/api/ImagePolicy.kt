@@ -27,9 +27,6 @@ object ImagePolicy {
     const val MAX = 1
     const val MAX_ASKED = 8
 
-    /** Content signature of the last picture each session's model got (ShotStore.sig). */
-    private val lastSent = HashMap<String, Long>()
-
     /** A command that exists to show pictures (look, zoom, frames, spots…): its pictures were already sized as asked
      *  (look's --detail, within LookBudget), so they go as they are; only pictures that come by themselves are compacted. */
     fun asked(res: NativeOffloadResult): Boolean = res.data?.has("picture_changed") != true
@@ -38,23 +35,20 @@ object ImagePolicy {
     fun sendName(ctx: Context, res: NativeOffloadResult, name: String): String = if (asked(res)) name else compact(ctx, name)
 
     /**
-     * Pictures of [res] to put into [session]'s model context. A picture that comes by itself is left out only when
-     * what it shows is the same as the last picture this session's model got (compared by content, Pictures.sig):
-     * then "same as your last picture" is true. A failed stretch and act with no steps always get theirs.
+     * Pictures of [res] to put into the model context. A picture that comes by itself is left out only when the report
+     * says the picture did not change since the agent's last reply (`picture_changed`: the recording track, with areas
+     * that keep moving left out, the same judgment as the 【这段时间】 lines) and the stretch touched nothing (no
+     * strip of touches). The last reply then carried this same picture, or one of an unchanged screen, so "same as your
+     * last picture" is true. beta2 compared a hash of the whole frame instead: a carousel or a clock flipped it, so an
+     * unchanged screen still sent its picture. A failed stretch and act with no steps always get theirs.
      */
-    fun pick(session: String?, res: NativeOffloadResult, shots: List<String>): List<String> {
+    fun pick(res: NativeOffloadResult, shots: List<String>): List<String> {
         if (shots.isEmpty()) return emptyList()
         val d = res.data
-        val out = if (d == null || asked(res)) shots.take(MAX_ASKED) else {
-            val first = shots.take(MAX)
-            val sig = first.firstOrNull()?.let { ShotStore.sig(it) }
-            val prev = session?.let { synchronized(lastSent) { lastSent[it] } }
-            val must = res.exitCode != 0 || (d.optJSONArray("steps")?.length() ?: 0) == 0
-            val same = if (sig != null && prev != null) sig == prev else !d.optBoolean("picture_changed")
-            if (must || !same) first else emptyList()
-        }
-        out.lastOrNull()?.let { ShotStore.sig(it) }?.let { sg -> session?.let { synchronized(lastSent) { lastSent[it] = sg } } }
-        return out
+        if (d == null || asked(res)) return shots.take(MAX_ASKED)
+        val must = res.exitCode != 0 || (d.optJSONArray("steps")?.length() ?: 0) == 0
+        val new = d.optBoolean("picture_changed", true) || d.optJSONObject("screen")?.optBoolean("image_has_strip") == true
+        return if (must || new) shots.take(MAX) else emptyList()
     }
 
     /** The line that stands where a left-out picture was. */

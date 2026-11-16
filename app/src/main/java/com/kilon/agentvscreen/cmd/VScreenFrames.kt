@@ -218,8 +218,8 @@ internal fun VScreenOffloadHandler.framesCmd(sid: String?, args: OffloadArgs): N
         val rest = pages.size - first - shown
         if (rest > 0) sb.append(tr("还有 $rest 张图没给（每次最多 ${LookBudget.MAX_PICS} 张、约 ${LookBudget.MAX_BYTES / 1_000_000} MB）：同样的参数加 --page ${page + 1} 取下一批，或 --detail low 让每张更小\n",
             "$rest more pictures not sent (at most ${LookBudget.MAX_PICS} pictures, about ${LookBudget.MAX_BYTES / 1_000_000} MB, at a time): the same options with --page ${page + 1} for the next ones, or --detail low for smaller ones\n"))
-        sb.append(tr("录像保留：最近 3 分钟每张都留，3–10 分钟前每秒一张；现在最早一张是 ${Report.ago(oldest, now)}。更密：--every 0.3s；更长：--last 2m；某一段：--from 14:03:10 --to 14:03:30；看得更清楚：--detail high；排法：--layout single|strip|grid 3x4",
-            "Kept: every frame of the last 3 minutes, one a second for 3–10 minutes ago; the oldest now is ${Report.ago(oldest, now)}. Denser: --every 0.3s; longer: --last 2m; a given stretch: --from 14:03:10 --to 14:03:30; clearer: --detail high; layout: --layout single|strip|grid 3x4"))
+        sb.append(tr("录像保留：最近 3 分钟每张都留，3–10 分钟前每秒一张；现在最早一张是 ${Report.ago(oldest, now)}。更密：--every 0.3s；更长：--last 2m；某一段：--from 14:03:10 --to 14:03:30；看得更清楚：--detail high；排法：--layout single|strip|3x4",
+            "Kept: every frame of the last 3 minutes, one a second for 3–10 minutes ago; the oldest now is ${Report.ago(oldest, now)}. Denser: --every 0.3s; longer: --last 2m; a given stretch: --from 14:03:10 --to 14:03:30; clearer: --detail high; layout: --layout single|strip|3x4"))
         NativeOffloadResult(0, sb.toString() + "\n", null, org.json.JSONObject().put("from_ms", from).put("to_ms", to).put("frames", data))
     }
 }

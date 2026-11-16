@@ -186,7 +186,7 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 - `--every <间隔>` 按固定间隔取（如 0.5s），和上一张一样的不重复
 - `--page <页>` 超过 8 张图时看第几页
 - `--detail <清晰度>` low、normal（默认）或 high
-- `--layout <排法>` auto（默认）、single（一帧一张）、strip（一行 6 帧）或 grid 3x4
+- `--layout <排法>` auto（默认）、single（一帧一张）、strip（一行 6 帧）或 3x4
 - `--marks <on|off>` 图上的标尺和点击圈（默认 on）
 
 权限范围: `look` · 在副屏队列里执行
@@ -202,7 +202,7 @@ look --last … 的旧写法：回看录像，默认是上一次返回的【这�
 - `--every <间隔>` 按固定间隔取（如 0.5s），和上一张一样的不重复
 - `--page <页>` 超过 8 张图时看第几页
 - `--detail <清晰度>` low、normal（默认）或 high
-- `--layout <排法>` auto（默认）、single（一帧一张）、strip（一行 6 帧）或 grid 3x4
+- `--layout <排法>` auto（默认）、single（一帧一张）、strip（一行 6 帧）或 3x4
 - `--marks <on|off>` 图上的标尺和点击圈（默认 on）
 
 权限范围: `look` · 在副屏队列里执行
@@ -511,7 +511,7 @@ ask for pictures: no argument is the screen now; a region zooms into it; --last/
 - `--every <interval>` take one every interval (e.g. 0.5s), repeats left out
 - `--page <page>` which page when there are more than 8 pictures
 - `--detail <detail>` low, normal (default) or high
-- `--layout <layout>` auto (default), single (one frame each), strip (6 in a row) or grid 3x4
+- `--layout <layout>` auto (default), single (one frame each), strip (6 in a row) or 3x4
 - `--marks <on|off>` ruler and touch circles on the picture (default on)
 
 scope: `look` · runs in the screen queue
@@ -527,7 +527,7 @@ old form of look --last …: look back at the recording, by default the [Meanwhi
 - `--every <interval>` take one every interval (e.g. 0.5s), repeats left out
 - `--page <page>` which page when there are more than 8 pictures
 - `--detail <detail>` low, normal (default) or high
-- `--layout <layout>` auto (default), single (one frame each), strip (6 in a row) or grid 3x4
+- `--layout <layout>` auto (default), single (one frame each), strip (6 in a row) or 3x4
 - `--marks <on|off>` ruler and touch circles on the picture (default on)
 
 scope: `look` · runs in the screen queue

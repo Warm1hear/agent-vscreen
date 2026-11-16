@@ -402,6 +402,6 @@ private fun lookOpts() = listOf(
     CommandSpec.Opt("every", CommandSpec.Kind.DURATION, "间隔", "interval", "按固定间隔取（如 0.5s），和上一张一样的不重复", "take one every interval (e.g. 0.5s), repeats left out"),
     CommandSpec.Opt("page", CommandSpec.Kind.VALUE, "页", "page", "超过 8 张图时看第几页", "which page when there are more than 8 pictures"),
     detailOpt,
-    CommandSpec.Opt("layout", CommandSpec.Kind.VALUE, "排法", "layout", "auto（默认）、single（一帧一张）、strip（一行 6 帧）或 grid 3x4", "auto (default), single (one frame each), strip (6 in a row) or grid 3x4"),
+    CommandSpec.Opt("layout", CommandSpec.Kind.VALUE, "排法", "layout", "auto（默认）、single（一帧一张）、strip（一行 6 帧）或 3x4", "auto (default), single (one frame each), strip (6 in a row) or 3x4"),
     marksOpt,
     CommandSpec.Opt("big", CommandSpec.Kind.SWITCH, null, null, "同 --detail high", "same as --detail high", deprecated = true))
