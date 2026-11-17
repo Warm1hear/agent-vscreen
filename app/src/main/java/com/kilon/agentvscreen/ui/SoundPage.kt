@@ -26,7 +26,12 @@ import com.kilon.agentvscreen.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
 import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.preference.ArrowPreference
@@ -56,7 +61,28 @@ fun SoundPage() {
         c.why == "denied" -> tr("系统不允许修改：小米 / 红米请在开发者选项里打开“USB 调试（安全设置）”。", "The system refused: on Xiaomi / Redmi turn on \"USB debugging (Security settings)\" in developer options.")
         else -> tr("没有改成，系统读回来还是原样。", "It did not change; the system still reads the same.")
     }
-    fun run(op: () -> String) = scope.launch { msg = withContext(Dispatchers.IO) { op() }; tick++ }
+    // rainbow (beta13): a tap gave no sign of work and the list kept the restored apps, so people tapped again.
+    // Every change now has one pending state: the tapped row shows a spinner and what it is doing, every other row
+    // waits, and the list takes the change from the change's own verified reading at once (no second full scan).
+    var busy by remember { mutableStateOf<String?>(null) }
+    fun run(key: String, op: () -> Pair<String, ((List<PlayAudio.Hit>) -> List<PlayAudio.Hit>)?>) {
+        if (busy != null) return
+        busy = key
+        scope.launch {
+            val (m, update) = withContext(Dispatchers.IO) { op() }
+            if (update != null) silent = silent?.let(update) else tick++
+            busy = null; msg = m
+        }
+    }
+    @Composable fun Working(t: String) = Row(verticalAlignment = Alignment.CenterVertically) {
+        InfiniteProgressIndicator(size = 16.dp, color = MiuixTheme.colorScheme.primary); Spacer(Modifier.width(8.dp)); Value(t)
+    }
+    val noShizuku = tr("需要 Shizuku 已连接。", "Shizuku must be connected.")
+    fun repairAll(): Pair<String, ((List<PlayAudio.Hit>) -> List<PlayAudio.Hit>)?> = VScreenMute.repair()?.let { r ->
+        (tr("恢复了 ${r.fixed.size} 个，回到应用重新点一次播放。", "Restored ${r.fixed.size}; start playing again in the app.") +
+            (if (r.failed.isNotEmpty()) tr("${r.failed.size} 个没恢复。", " ${r.failed.size} could not be restored.") else "") +
+            (if (r.denied) tr("系统不允许修改：小米 / 红米请打开“USB 调试（安全设置）”。", " The system refused: on Xiaomi / Redmi turn on \"USB debugging (Security settings)\".") else "")) to { _: List<PlayAudio.Hit> -> r.failed }
+    } ?: (noShizuku to null)
 
     MiuixPage(tr("应用静音", "App sound")) {
         Group {
@@ -76,18 +102,24 @@ fun SoundPage() {
                         h.pkg in VScreenMute.mutedNow() -> tr("在副屏上，离开后恢复", "on the screen, back when it leaves")
                         else -> tr("被留下的静音", "left silent")
                     }
-                    ArrowPreference(title = label(h.pkg), summary = why, endActions = { Value(tr("恢复", "Unmute")) }, onClick = {
-                        run { if (h.user == 0) said(VScreenMute.unmute(h.pkg), tr("${label(h.pkg)} 的声音恢复了，回到应用重新点一次播放。", "${label(h.pkg)} has its sound back; start playing again in the app."))
-                            else VScreenMute.repair()?.let { tr("恢复了 ${it.fixed.size} 个。", "Restored ${it.fixed.size}.") } ?: tr("需要 Shizuku 已连接。", "Shizuku must be connected.") }
+                    val key = "${h.user}/${h.pkg}"
+                    ArrowPreference(title = label(h.pkg), summary = why, enabled = busy == null || busy == key,
+                        endActions = { if (busy == key) Working(tr("正在恢复…", "Unmuting…")) else Value(tr("恢复", "Unmute")) }, onClick = {
+                        run(key) {
+                            if (h.user != 0) repairAll()
+                            else VScreenMute.unmute(h.pkg).let { c -> said(c, tr("${label(h.pkg)} 的声音恢复了，回到应用重新点一次播放。", "${label(h.pkg)} has its sound back; start playing again in the app.")) to
+                                (if (c.ok) { l: List<PlayAudio.Hit> -> l.filterNot { it.user == 0 && it.pkg == h.pkg } } else null) }
+                        }
                     })
                 }
             }
-            if (!l.isNullOrEmpty() && l.size > 1) ArrowPreference(title = tr("全部恢复", "Unmute all"), onClick = {
-                run { VScreenMute.repair()?.let { r -> tr("恢复了 ${r.fixed.size} 个，回到应用重新点一次播放。", "Restored ${r.fixed.size}; start playing again in the app.") +
-                    (if (r.failed.isNotEmpty()) tr("${r.failed.size} 个没恢复。", " ${r.failed.size} could not be restored.") else "") +
-                    (if (r.denied) tr("系统不允许修改：小米 / 红米请打开“USB 调试（安全设置）”。", " The system refused: on Xiaomi / Redmi turn on \"USB debugging (Security settings)\".") else "") } ?: tr("需要 Shizuku 已连接。", "Shizuku must be connected.") }
-            })
-            ArrowPreference(title = tr("手动静音一个应用", "Mute an app"), summary = tr("在哪块屏幕上都不出声，直到你恢复", "Silent on every screen until you unmute it"), onClick = { picking = true })
+            if (scanning && l != null) BasicComponent(title = tr("正在重新检查…", "Checking again…"), endActions = { InfiniteProgressIndicator(size = 16.dp, color = MiuixTheme.colorScheme.primary) })
+            if (!l.isNullOrEmpty() && l.size > 1) ArrowPreference(title = tr("全部恢复", "Unmute all"), enabled = busy == null || busy == "all",
+                summary = if (busy == "all") tr("逐个恢复并核实，应用多时要几十秒", "Each one is restored and read back; many apps take a while") else null,
+                endActions = { if (busy == "all") Working(tr("正在恢复…", "Unmuting…")) },
+                onClick = { run("all") { repairAll() } })
+            ArrowPreference(title = tr("手动静音一个应用", "Mute an app"), summary = tr("在哪块屏幕上都不出声，直到你恢复", "Silent on every screen until you unmute it"),
+                enabled = busy == null || busy == "mute", endActions = { if (busy == "mute") Working(tr("正在静音…", "Muting…")) }, onClick = { picking = true })
         }
         Group(tr("在副屏里也出声", "Keeps its sound on the screen")) {
             val plays = VScreenMute.plays().sortedBy { label(it) }
@@ -110,7 +142,7 @@ fun SoundPage() {
                         apps.forEach { (name, pkg) ->
                             Text(name, fontSize = 15.sp, modifier = Modifier.fillMaxWidth().clickable {
                                 picking = null
-                                if (mute) run { said(VScreenMute.mute(pkg), tr("$name 已静音，直到你在这里恢复。", "$name is muted until you unmute it here.")) }
+                                if (mute) run("mute") { said(VScreenMute.mute(pkg), tr("$name 已静音，直到你在这里恢复。", "$name is muted until you unmute it here.")) to null }
                                 else { VScreenMute.setPlays(pkg, true); tick++ }
                             }.padding(vertical = 10.dp))
                         }

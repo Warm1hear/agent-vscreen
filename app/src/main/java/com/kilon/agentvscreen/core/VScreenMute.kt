@@ -110,10 +110,11 @@ object VScreenMute {
      * playing stays quiet until the app plays again (the caller says so). An app on the background screen right now is
      * muted again by the next action while the switch is on.
      */
-    fun repair(): Repair? {
-        runCatching { VScreenRemoteDisplay.soundGiveAll() }
-        known = emptySet()
-        val bad = silenced() ?: return null
+    fun repair(keepIntended: Boolean = false): Repair? {
+        // [keepIntended] (fix): leave the apps muted by hand and the ones on the screen now; only leftovers go back.
+        val keep = if (keepIntended) manual() + known else emptySet()
+        if (!keepIntended) { runCatching { VScreenRemoteDisplay.soundGiveAll() }; known = emptySet() }
+        val bad = silenced()?.filterNot { it.user == 0 && it.pkg in keep } ?: return null
         if (bad.isEmpty()) return Repair(emptyList(), emptyList(), false)
         val out = runCatching { VScreenShell.run(arrayOf("sh", "-c", bad.joinToString("; ") { PlayAudio.giveBack(it.user, it.pkg, it.uid) }), 60_000L).combined }.getOrDefault("")
         val after = PlayAudio.parseScan(out).associateBy { it.user to it.pkg }

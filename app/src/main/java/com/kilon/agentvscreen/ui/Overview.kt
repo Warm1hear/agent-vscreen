@@ -356,6 +356,11 @@ private fun FixCard(problems: List<Readiness.Item>, setupLeft: Boolean) {
                         Thread { val (ok, msg) = com.kilon.agentvscreen.host.Heal.accessibility(ctx, restart = first.code != "no_accessibility"); host.say(msg); if (ok) app.bump(); busy = false }.start()
                     }
                     "frozen_in_background" -> { val (_, msg) = com.kilon.agentvscreen.host.Heal.power(ctx); host.say(msg); app.bump() }
+                    "remote_down", "not_foreground_service" -> {
+                        busy = true
+                        Thread { val (ok, msg) = if (first.code == "remote_down") com.kilon.agentvscreen.host.Heal.remote(ctx) else com.kilon.agentvscreen.host.Heal.foreground(ctx)
+                            host.say(msg); if (ok) app.bump(); busy = false }.start()
+                    }
                     "service_off" -> { ServiceControl.turnOn(ctx, "home fix"); app.serviceOn = true; app.bump() }
                     null -> if (app.liveProblem != null && !setupLeft) {
                         val opened = com.kilon.agentvscreen.host.Liveness.openBackgroundSettings(ctx)

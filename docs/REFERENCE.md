@@ -237,7 +237,7 @@ look x1,y1,x2,y2 的旧写法：放大看一块区域（图边上标着副屏坐
 
 ### `fix [code] [--open]`
 
-修复 status 里列出的问题。会改系统设置或在主屏打开设置页的步骤：手机上会请用户确认。
+修复 status 里列出的问题，并把被留下静音的应用恢复声音；每项修完再检查一遍，fixed 是检查的结果。会改系统设置或在主屏打开设置页的步骤：手机上会请用户确认。
 
 - `--open` 需要用户手动处理时，在主屏打开对应页面
 
@@ -573,7 +573,7 @@ scope: `operate` · runs in the screen queue
 
 ### `fix [code] [--open]`
 
-fix the problems listed in status. Steps that change system settings or open a settings page on the main screen: the phone asks the user to confirm.
+fix the problems listed in status and give sound back to apps left silent; each is checked again afterwards and fixed is that check. Steps that change system settings or open a settings page on the main screen: the phone asks the user to confirm.
 
 - `--open` when the user must act by hand, open the page on the main screen
 
