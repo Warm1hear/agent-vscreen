@@ -25,7 +25,7 @@ Agent-VScreen 在一块看不见的虚拟屏上打开和操作别的应用，你
 <p align="center"><sub>同一条安装命令，Minis、Eta、RikkaHub、Muse 四个不同的安卓 agent 都能接入并操作副屏。</sub></p>
 
 <p align="center"><img src="docs/app.png" width="760" alt="Agent-VScreen 接入、记录、经验和设置页面"></p>
-<p align="center"><sub>App 界面：接入（每个接入的 agent 和远程连接）、记录（每次任务的步骤和画面）、经验（你示教的和 agent 记下的）、设置（谁能连进来、agent 能做多少、副屏）。</sub></p>
+<p align="center"><sub>App 界面：接入（已接入的 agent、Tailscale 远程连接、令牌）、记录（每次任务、提问和预约，带步骤缩略图）、经验（教过的操作和笔记）、设置（谁能连进来、agent 能做多少、应用规则、悬浮窗）。</sub></p>
 
 - 版本：1.4.0（versionCode 49）
 - 包名：`com.kilon.agentvscreen`
