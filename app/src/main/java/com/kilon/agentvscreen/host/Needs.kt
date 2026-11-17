@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.update
 /**
  * 1.4.0-beta11 (rainbow: "通知都点击不了…用户不知道去哪里处理 agent 的请求"; several agents use the app). Everything
  * that waits on the user, from every agent, has one home: the 等你处理 group at the top of the app's first page.
- *  - questions and lessons (UserAsk, Teach.reviewing),
+ *  - questions and lessons (UserAsk, Teach.lesson),
  *  - apps an agent handed to the user (VScreenOwnership.given): hand back or open,
  *  - agents that asked for the screen while another agent had it ([waiting]).
  * Every notification the app posts opens the app at the place where it is handled ([open]); a notification nobody can

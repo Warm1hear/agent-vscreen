@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -72,7 +73,8 @@ internal object AskWords {
     fun choose(ctx: Context, a: UserAsk.Ask, i: Int) = answer(ctx, a, true, JSONObject().put("kind", "choose").put("index", i + 1).put("choice", a.options[i]))
     fun openPage(ctx: Context, a: UserAsk.Ask) {
         // A lesson starts right on the tap (take over, record), whatever page opens after it.
-        if (a.kind == UserAsk.Kind.TEACH) com.kilon.agentvscreen.cmd.Teach.beginFor(a)
+        if (a.kind == UserAsk.Kind.TEACH && !com.kilon.agentvscreen.cmd.Teach.beginFor(a) && com.kilon.agentvscreen.cmd.Teach.lesson.value !is com.kilon.agentvscreen.cmd.Lesson.None)
+            android.widget.Toast.makeText(ctx, tr("先完成当前的示教", "Finish the lesson under way first"), android.widget.Toast.LENGTH_SHORT).show()
         MainDisplay.start(ctx, UserAsk.answerIntent(ctx, a.id))
     }
 }
@@ -210,16 +212,17 @@ internal object ReviewWords {
     fun title(r: com.kilon.agentvscreen.cmd.Teach.Result) = tr("录好了 ${r.lines.size} 步，等你保存", "${r.lines.size} steps recorded, waiting to be saved")
     fun who(r: com.kilon.agentvscreen.cmd.Teach.Result) = r.ask?.let { tr("「${it.tokenName}」请你演示：${it.title}", "\"${it.tokenName}\" asked: ${it.title}") }
         ?: tr("你自己录的示教", "A lesson of your own")
-    fun open(ctx: Context) = MainDisplay.start(ctx, android.content.Intent(ctx, TeachActivity::class.java))
+    fun open(ctx: Context) = Surface.openReview(ctx)
     fun discard(ctx: Context, r: com.kilon.agentvscreen.cmd.Teach.Result) {
         r.askId?.let { UserAsk.answer(ctx, it, false) }
-        com.kilon.agentvscreen.cmd.Teach.clearResult()
+        com.kilon.agentvscreen.cmd.Teach.clearResult(ctx)
     }
 }
 
 @Composable
 internal fun ReviewQuick(r: com.kilon.agentvscreen.cmd.Teach.Result, k: Float, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
+    var sure by remember(r) { mutableStateOf(false) }
     Column(modifier.eatTouches().glassDark(RoundedCornerShape((18 * k).dp)).padding(horizontal = (12 * k).dp, vertical = (11 * k).dp),
         verticalArrangement = Arrangement.spacedBy((8 * k).dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -230,8 +233,8 @@ internal fun ReviewQuick(r: com.kilon.agentvscreen.cmd.Teach.Result, k: Float, m
         Text(ReviewWords.title(r), color = Color.White, fontSize = (13.5f * k).sp, fontWeight = FontWeight.SemiBold)
         Column(verticalArrangement = Arrangement.spacedBy((4 * k).dp)) {
             GlassPill(tr("去保存", "Review and save"), true, k, Modifier.fillMaxWidth()) { ReviewWords.open(ctx) }
-            Text(tr("丢弃", "Discard"), color = Color(0x99FFFFFF), fontSize = (11 * k).sp,
-                modifier = Modifier.align(Alignment.End).clip(RoundedCornerShape(50)).clickable { ReviewWords.discard(ctx, r) }.padding(horizontal = (8 * k).dp, vertical = (3 * k).dp))
+            Text(if (sure) tr("确定丢弃？", "Discard for sure?") else tr("丢弃", "Discard"), color = if (sure) Palette.stopped else Color(0x99FFFFFF), fontSize = (11 * k).sp,
+                modifier = Modifier.align(Alignment.End).clip(RoundedCornerShape(50)).clickable { if (sure) ReviewWords.discard(ctx, r) else sure = true }.padding(horizontal = (8 * k).dp, vertical = (3 * k).dp))
         }
     }
 }

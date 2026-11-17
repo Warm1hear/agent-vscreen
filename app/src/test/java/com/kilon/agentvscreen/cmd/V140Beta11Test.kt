@@ -41,4 +41,18 @@ class V140Beta11Test {
         assertEquals("tap 设置; check \"看一下\"; tap 蓝牙", s2)
         Steps.parseAll(steps)
     }
+
+    @Test
+    fun gestureEdgesBelongToTheSystem() {
+        val e = com.kilon.agentvscreen.ui.GestureEdges(30f, 80f, 30f, 60f, 1080f, 2400f)
+        assertTrue(e.has(androidx.compose.ui.geometry.Offset(540f, 2380f))) // home swipe from the bottom
+        assertTrue(e.has(androidx.compose.ui.geometry.Offset(5f, 1200f)))    // back from the left edge
+        assertFalse(e.has(androidx.compose.ui.geometry.Offset(540f, 1200f)))
+    }
+
+    @Test
+    fun lessonStartsAsNone() {
+        assertTrue(Teach.lesson.value is Lesson.None || Teach.lesson.value is Lesson.Review)
+        assertNull(Lesson.None.askId)
+    }
 }

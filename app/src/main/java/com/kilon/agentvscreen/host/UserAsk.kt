@@ -129,7 +129,7 @@ object UserAsk {
             a.reply = reply; a.answer = allow; a.answeredAt = System.currentTimeMillis()
             publish(); lock.notifyAll(); a
         }
-        com.kilon.agentvscreen.cmd.Teach.askGone(id)
+        com.kilon.agentvscreen.cmd.Teach.askEnded(id, if (reply?.optString("kind") == "feedback") tr("你回了一句话", "you answered in words") else null)
         val what = when {
             reply?.optString("kind") == "feedback" -> "feedback"
             a.kind == Kind.CONFIRM -> if (allow) "allowed" else "denied"
@@ -180,7 +180,7 @@ object UserAsk {
     fun withdraw(ctx: Context, a: Ask) {
         // The user is answering it right now (a lesson under way or waiting to be saved): it stays.
         synchronized(lock) { if (bound(a)) return; if (a.answer == null) { asks.remove(a); a.picture?.delete(); publish() } }
-        com.kilon.agentvscreen.cmd.Teach.askGone(a.id)
+        com.kilon.agentvscreen.cmd.Teach.askEnded(a.id, tr("agent 撤回了请求", "the agent withdrew it"))
         quiet("ask-withdraw") { ctx.getSystemService(NotificationManager::class.java)?.cancel(noteId(a.id)) }
     }
 
@@ -252,7 +252,9 @@ object UserAsk {
      * `teach` sent again gets it.
      */
     fun deliver(ctx: Context, id: Int?, key: String?, token: String?, tokenName: String?, session: String?, title: String, reply: JSONObject) {
-        val open = synchronized(lock) { asks.firstOrNull { it.id == id && it.answer == null } }
+        // 1.4.0-beta11: a lesson restored after a restart knows its request only by key (ids start again): the same
+        // teach sent again meanwhile is the open one it answers.
+        val open = synchronized(lock) { asks.firstOrNull { it.id == id && it.answer == null } ?: key?.let { k -> asks.firstOrNull { it.key == k && it.answer == null && it.kind == Kind.TEACH } } }
         if (open != null) { answer(ctx, open.id, true, reply); return }
         if (key == null || token == null) return
         val a = synchronized(lock) {

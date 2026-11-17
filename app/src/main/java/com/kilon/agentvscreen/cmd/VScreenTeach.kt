@@ -87,6 +87,26 @@ internal class TeachPic(val bmp: android.graphics.Bitmap, val scale: Float) {
     companion object { const val W = 240 }
 }
 
+/**
+ * 1.4.0-beta11 (DESIGN-SCREEN-LESSON-1.4): where the lesson is, in ONE value owned by [Teach]. Before, five fields
+ * (rec, count, paused, prep, result) plus the pages each held a piece, and "stop recording" also opened the save page,
+ * so 缩小, hand-back, release and closing the window all threw the user onto it. A lesson never opens a page: only the
+ * user's own tap does (ui/Surface).
+ */
+internal sealed interface Lesson {
+    /** The request it answers (null: a lesson of the user's own). */
+    val askId: Int?
+    data object None : Lesson { override val askId: Int? get() = null }
+    /** 准备: the user holds the screen and gets to the start; nothing is written down. */
+    data class Ready(override val askId: Int) : Lesson
+    /** 示范: being written down. [askEnded]: the request ended meanwhile (said on the strip; saved as the user's own). */
+    data class Recording(override val askId: Int?, val steps: Int, val paused: Boolean, val askEnded: String? = null) : Lesson
+    /** Recording stopped; the steps are being written (a moment). */
+    data class Ending(override val askId: Int?, val steps: Int) : Lesson
+    /** 等保存: needs no screen. [screenGone]: the screen closed (cannot record again). */
+    data class Review(val result: Teach.Result, val screenGone: Boolean) : Lesson { override val askId: Int? get() = result.askId }
+}
+
 internal object Teach {
     const val MAX = Steps.MAX_STEPS
 
@@ -100,6 +120,8 @@ internal object Teach {
         @Volatile var paused = false
         /** 1.4.0-beta10: the question itself, kept so its answer reaches the agent whatever happened to the list. */
         val ask: UserAsk.Ask? = askId?.let { UserAsk.byId(it) }
+        /** 1.4.0-beta11: the request ended while recording (why); the lesson is then saved as the user's own. */
+        @Volatile var askEnded: String? = null
     }
 
     /** What the review page shows: the steps and where they came from. */
@@ -112,18 +134,18 @@ internal object Teach {
                  val ask: UserAsk.Ask? = null)
 
     @Volatile private var rec: Rec? = null
-    private val _count = MutableStateFlow<Int?>(null)
-    /** Steps recorded so far while recording; null = not recording. */
-    val count: StateFlow<Int?> = _count.asStateFlow()
-    private val _reviewing = MutableStateFlow<Result?>(null)
+    private val _lesson = MutableStateFlow<Lesson>(Lesson.None)
+    /** Where the lesson is (the only state the pages, the floating window and the home page read). */
+    val lesson: StateFlow<Lesson> = _lesson.asStateFlow()
     /**
      * 1.4.0-beta10: a lesson recorded and not yet saved or discarded. It stays until the user decides (leaving the
      * review page no longer drops it); the floating window and the home page show "录好了，等你保存" for it.
      */
-    val reviewing: StateFlow<Result?> = _reviewing.asStateFlow()
-    var result: Result?
-        get() = _reviewing.value
-        private set(v) { _reviewing.value = v }
+    val result: Result? get() = (_lesson.value as? Lesson.Review)?.result
+    /** Steps recorded so far while recording; null = not recording. */
+    val steps: Int? get() = (_lesson.value as? Lesson.Recording)?.steps
+    private val prepId: Int? get() = (_lesson.value as? Lesson.Ready)?.askId
+    private fun recState(r: Rec) { _lesson.value = Lesson.Recording(r.askId, r.events.size, r.paused, r.askEnded) }
 
     /**
      * 1.4.0-beta10 (rainbow: "彻底理顺"): ONE place says which agent question the lesson answers, from the lesson's own
@@ -131,7 +153,7 @@ internal object Teach {
      * every change of that state. Before, three places held and released one global slot by hand, and any cancel let
      * go of a question still being answered.
      */
-    private fun sync() { UserAsk.bind(_prep.value ?: rec?.askId ?: result?.askId) }
+    private fun sync() { UserAsk.bind(_lesson.value.askId) }
     private var current: TeachEv.Touch? = null
     private val reader = Executors.newSingleThreadExecutor { r -> Thread(r, "vscreen-teach").apply { isDaemon = true } }
 
@@ -155,39 +177,35 @@ internal object Teach {
         val name = name0 ?: bound?.options?.firstOrNull()
         val r = Rec(session, id, purpose, askId, name)
         r.startRead = reader.submit { r.start = read(id) }
-        synchronized(this) { rec = r; current = null; result = null }
-        _prep.value = null; _paused.value = false
-        _count.value = 0
-        sync()
+        synchronized(this) { rec = r; current = null; recState(r) }
+        sync(); Draft.clear()
         return true
     }
 
     // 1.4.0-beta4 (rainbow): a lesson has two parts. 准备: the user has the screen and goes to where the lesson starts;
     // nothing is written down. 示范: from 开始示范 on, what the user does is recorded, from that page.
-    private val _prep = MutableStateFlow<Int?>(null)
-    /** The teach request being prepared for (the user is getting to the start); null when none. */
-    val prep: StateFlow<Int?> = _prep.asStateFlow()
-    private val _paused = MutableStateFlow(false)
-    val paused: StateFlow<Boolean> = _paused.asStateFlow()
-
     /** Begin 示范 for the request being prepared (or a lesson of the user's own when none). */
     fun startPrepared(session: String): Boolean {
-        val a = _prep.value?.let { UserAsk.byId(it) }?.takeIf { it.live }
+        val a = prepId?.let { UserAsk.byId(it) }?.takeIf { it.live }
         return start(session, a?.title, a?.id, a?.options?.firstOrNull())
     }
 
     /** The live teach request this screen's lesson answers: the one being prepared for, else the newest for [session]. */
     internal fun openRequestFor(session: String): UserAsk.Ask? =
-        _prep.value?.let { UserAsk.byId(it) }?.takeIf { it.live && it.kind == UserAsk.Kind.TEACH }
+        prepId?.let { UserAsk.byId(it) }?.takeIf { it.live && it.kind == UserAsk.Kind.TEACH }
             ?: UserAsk.liveOf(UserAsk.Kind.TEACH).filter { it.session == session }.maxByOrNull { it.at }
 
-    fun cancelPrep() { _prep.value = null; sync() }
+    fun cancelPrep() { if (_lesson.value is Lesson.Ready) { _lesson.value = Lesson.None; sync() } }
 
     /**
      * 1.4.0-beta6 (test: after the teach request was cancelled the screen page still said 示教准备中 with 开始示范):
      * getting ready belongs to one request; when that request is answered, withdrawn or gone, so is getting ready.
+     * 1.4.0-beta11: while recording, the lesson goes on and the strip says why the request ended (saved as yours).
      */
-    fun askGone(id: Int) { if (_prep.value == id) cancelPrep() }
+    fun askEnded(id: Int, why: String? = null) {
+        if (prepId == id) { cancelPrep(); return }
+        synchronized(this) { rec?.takeIf { it.askId == id }?.let { it.askEnded = why ?: tr("请求已结束", "the request ended"); recState(it) } }
+    }
 
     /**
      * 1.4.0-beta5: the user handed the screen back (from the floating window, the notification, the full screen page,
@@ -197,8 +215,8 @@ internal object Teach {
      *  - getting ready: the request ends as not shown, and the agent hears it at once.
      */
     fun onTakeoverEnded(ctx: Context?) {
-        if (rec != null) { stop(ctx); return }
-        val p = _prep.value ?: return
+        if (rec != null) { endRecording(ctx, byDone = false); return }
+        val p = prepId ?: return
         cancelPrep()
         ctx?.let { UserAsk.answer(it, p, false, org.json.JSONObject().put("kind", "handed_back")) }
     }
@@ -220,13 +238,15 @@ internal object Teach {
         if (typing != null || typingStart != null) { typing = null; typingStart = null; return }
         if (r.events.isNotEmpty()) r.events.removeAt(r.events.lastIndex)
         current = null
-        _count.value = r.events.size
+        recState(r)
     }
 
     fun setPaused(p: Boolean) = synchronized(this) {
         val r = rec ?: return
         if (p) flushTyping(r)
-        r.paused = p; current = null; _paused.value = p
+        // A finger still on the picture when pausing is not a step (DESIGN §5.4).
+        current?.cancelled = true
+        r.paused = p; current = null; recState(r)
     }
 
     /**
@@ -235,13 +255,14 @@ internal object Teach {
      */
     fun beginFor(a: UserAsk.Ask): Boolean {
         if (!a.live || a.kind != UserAsk.Kind.TEACH) return false
-        if (rec?.askId == a.id || _prep.value == a.id) return true
+        if (rec?.askId == a.id || prepId == a.id) return true
+        if (_lesson.value !is Lesson.None) return false // one lesson at a time: finish the one under way first
         val st = BackgroundOperation.state.value
         val session = st.ownerSessionId ?: return false
         if (st.userStopped) BackgroundOperation.userResume()
         if (!BackgroundOperation.beginTakeover(session) && BackgroundOperation.state.value.takeoverSessionId != session) return false
         // 1.4.0-beta4: not recording yet: the user first gets to where the lesson starts.
-        _prep.value = a.id
+        _lesson.value = Lesson.Ready(a.id)
         sync()
         return true
     }
@@ -284,22 +305,23 @@ internal object Teach {
         else -> (0 until n).map { xs[(it * (xs.size - 1).toDouble() / (n - 1)).roundToInt()] }.distinct()
     }
 
-    fun cancel() { synchronized(this) { rec = null; current = null; typing = null; typingStart = null; _count.value = null; _prep.value = null; _paused.value = false }; sync() }
+    fun cancel() { synchronized(this) { rec = null; current = null; typing = null; typingStart = null; _lesson.value = Lesson.None }; sync(); Draft.clear() }
 
     /**
      * 1.4.0-beta10: the background screen closed. What was recorded is not lost with it (saving needs no screen):
      * recording ends as if Done was tapped; getting ready ends as not shown; a lesson waiting to be saved stays.
      */
     fun screenClosed(ctx: Context?) {
-        if (rec != null) { stop(ctx); return }
-        val p = _prep.value ?: return
+        if (rec != null) { endRecording(ctx, byDone = false, screenGone = true); return }
+        (_lesson.value as? Lesson.Review)?.let { v -> if (!v.screenGone) _lesson.value = v.copy(screenGone = true); return }
+        val p = prepId ?: return
         cancelPrep()
         ctx?.let { UserAsk.answer(it, p, false, org.json.JSONObject().put("ended", tr("副屏关了", "the screen closed"))) }
     }
 
     /** While recording an agent's request: who asked and what (the full screen page shows it in full). */
     fun brief(): Pair<String?, String>? = rec?.let { r -> r.purpose?.takeIf { it.isNotBlank() }?.let { p -> (r.askId?.let { UserAsk.byId(it)?.tokenName }) to p } }
-        ?: _prep.value?.let { UserAsk.byId(it) }?.let { a -> a.tokenName to a.title }
+        ?: prepId?.let { UserAsk.byId(it) }?.let { a -> a.tokenName to a.title }
 
     /** 1.4.0-beta11: the start of a segment as it would be kept, read from [displayId] now (null when unreadable). */
     fun startHere(displayId: Int): org.json.JSONObject? = startJson(read(displayId))
@@ -329,7 +351,7 @@ internal object Teach {
         if (r.events.size >= MAX) return
         r.events += e
         e.pending = reader.submit { e.before = read(r.displayId); e.pic = grab() }
-        _count.value = r.events.size
+        recState(r)
     }
 
     // ── what the user does (UserTouch, the typing field, the keys) ──
@@ -398,7 +420,7 @@ internal object Teach {
         if (r.events.size >= MAX) return
         r.events += e
         e.pending = reader.submit { runCatching { st.pending?.get(4, TimeUnit.SECONDS) }; e.before = st.before; e.pic = st.pic }
-        _count.value = r.events.size
+        recState(r)
     }
 
     private fun record(e: TeachEv) {
@@ -406,29 +428,78 @@ internal object Teach {
         runCatching { e.pending?.get(800, TimeUnit.MILLISECONDS) }
     }
 
-    /** Stop recording and write the steps (reads the screen once more). Opens the review page. */
-    fun stop(ctx: Context?) {
-        val r = synchronized(this) { rec?.let { flushTyping(it) }; rec.also { rec = null; current = null; typing = null; typingStart = null } } ?: return
-        _count.value = null; _paused.value = false
+    /**
+     * Stop recording and write the steps (reads the screen once more). Never opens a page (1.4.0-beta11): the user's
+     * own Done tap opens the save pane itself; every other way here (hand-back, the screen closing, the window closed)
+     * only changes the cards and posts one notification. [endWaitMs]: how long the end screen may be read on THIS
+     * thread (the screen is about to be released; 0 = read on the worker).
+     */
+    fun endRecording(ctx: Context?, byDone: Boolean, screenGone: Boolean = false, endWaitMs: Long = 0L) {
+        val r = synchronized(this) {
+            rec?.let { flushTyping(it) }
+            // A finger still on the picture when Done is tapped is not a step (DESIGN §5.4).
+            current?.cancelled = true
+            rec.also { rec = null; current = null; typing = null; typingStart = null }
+        } ?: return
+        _lesson.value = Lesson.Ending(r.askId, r.events.size)
         val ctx = ctx?.applicationContext
+        // The end screen, read before anything else happens to it (the screen may be released right after).
+        val endPic0 = if (endWaitMs > 0) grab() else null
+        val end0 = if (endWaitMs > 0) runCatching { reader.submit<TeachSnap?> { read(r.displayId) }.get(endWaitMs, TimeUnit.MILLISECONDS) }.getOrNull() else null
         Thread({
-            val end = runCatching { reader.submit<TeachSnap?> { read(r.displayId) }.get(4, TimeUnit.SECONDS) }.getOrNull()
-            val endPic = runCatching { reader.submit<TeachPic?> { grab() }.get(2, TimeUnit.SECONDS) }.getOrNull()
+            val end = end0 ?: if (endWaitMs > 0) null else runCatching { reader.submit<TeachSnap?> { read(r.displayId) }.get(4, TimeUnit.SECONDS) }.getOrNull()
+            val endPic = endPic0 ?: if (endWaitMs > 0) null else runCatching { reader.submit<TeachPic?> { grab() }.get(2, TimeUnit.SECONDS) }.getOrNull()
             r.events.forEach { e -> runCatching { e.pending?.get(4, TimeUnit.SECONDS) } }
             val evs = r.events.filter { it !is TeachEv.Touch || (!it.cancelled && it.end > 0) }
             val app = evs.firstNotNullOfOrNull { it.before?.pkg } ?: end?.pkg
             runCatching { r.startRead?.get(4, TimeUnit.SECONDS) }
             val size = runCatching { BackgroundOperation.previewDisplayFor(r.session)?.let { it.width to it.height } }.getOrNull()
-            result = Result(r.session, r.purpose, r.askId, r.name, app, translate(evs, end, size), endPic, startJson(r.start), r.ask)
+            // A request that ended meanwhile is not answered: the lesson is saved as the user's own.
+            val askId = r.askId?.takeIf { r.askEnded == null }
+            val res = Result(r.session, r.purpose, askId, r.name, app, translate(evs, end, size), endPic, startJson(r.start), r.ask?.takeIf { askId != null })
+            val gone = screenGone || BackgroundOperation.state.value.displayId == null
+            if (_lesson.value is Lesson.Ending) _lesson.value = Lesson.Review(res, gone)
             sync()
-            ctx?.let { c -> com.kilon.agentvscreen.ui.MainDisplay.start(c, Intent(c, com.kilon.agentvscreen.ui.TeachActivity::class.java)) }
+            ctx?.let { c ->
+                Draft.save(c, res)
+                if (!byDone) waitingNote(c, res)
+            }
         }, "vscreen-teach-stop").apply { isDaemon = true }.start()
     }
 
-    /** 1.3.0-beta16: "Done": stop recording AND hand the screen back (one tap, not Done then Hand back). */
+    /** 1.4.0-beta11: the one notification a lesson posts, when it was stopped by something other than Done. */
+    private fun waitingNote(c: Context, res: Result) {
+        val tap = android.app.PendingIntent.getActivity(c, 7790, com.kilon.agentvscreen.ui.Surface.reviewIntent(c),
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT, com.kilon.agentvscreen.ui.MainDisplay.options())
+        com.kilon.agentvscreen.core.VScreenHandoff.alert(c, NOTE_ID, tr("录好了 ${res.lines.size} 步，等你保存", "${res.lines.size} steps recorded, waiting to be saved"),
+            tr("示教停在这里了，录下的步骤都在。点这里看一遍再保存。", "The lesson stopped here; the steps are kept. Tap to check them and save."), tap)
+    }
+    private const val NOTE_ID = 7791
+
+    /** 1.3.0-beta16: "Done": stop recording AND hand the screen back (one tap, not Done then Hand back). The caller opens the save pane. */
     fun finish(ctx: Context) {
-        stop(ctx)
+        endRecording(ctx, byDone = true)
         if (BackgroundOperation.state.value.takeoverSessionId != null) BackgroundOperation.userResume()
+    }
+
+    /** 1.4.0-beta11: a lesson kept on disk ([Draft]) comes back waiting to be saved after the app restarted. */
+    internal fun restore(r: Result) {
+        if (_lesson.value !is Lesson.None) return
+        _lesson.value = Lesson.Review(r, BackgroundOperation.state.value.displayId == null)
+        sync()
+    }
+
+    /**
+     * 1.4.0-beta11: 重录 from the save pane: the same request, the steps cleared, the screen taken over again. False
+     * when the screen is gone (the button says why).
+     */
+    fun again(): Boolean {
+        val r = result ?: return false
+        val s = BackgroundOperation.state.value
+        if (s.ownerSessionId != r.session || s.displayId == null) return false
+        if (s.userStopped) BackgroundOperation.userResume()
+        BackgroundOperation.beginTakeover(r.session)
+        return start(r.session, r.purpose, r.askId, r.name)
     }
 
     /** The review page is done with the steps (saved, discarded or left): an unanswered question shows again. */
@@ -439,7 +510,11 @@ internal object Teach {
     }
 
     /** The user saved, discarded or re-recorded the lesson waiting to be saved. Only those end it. */
-    fun clearResult() { result = null; sync() }
+    fun clearResult(ctx: Context? = null) {
+        if (_lesson.value is Lesson.Review) _lesson.value = Lesson.None
+        sync(); Draft.clear()
+        ctx?.let { c -> runCatching { c.getSystemService(android.app.NotificationManager::class.java)?.cancel(NOTE_ID) } }
+    }
 
     // ── the starting page (1.4.0-beta4) ──
 
@@ -814,8 +889,8 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
     }
     when (ask.answer) {
         null -> if (UserAsk.taken(ask)) throw ActionError("ASK_PENDING", when {
-            Teach.reviewing.value?.askId == ask.id -> tr("用户已经录好，正在看一遍再保存。过一会儿把同一条 teach 原样再发一次取结果（等待时不会过期）", "The user has recorded it and is checking it before saving. Send the same teach again in a while for the result (it does not expire while they work)")
-            Teach.recAskId() == ask.id -> tr("用户正在演示（已记 ${Teach.count.value ?: 0} 步）。过一会儿把同一条 teach 原样再发一次取结果（等待时不会过期）", "The user is showing it (${Teach.count.value ?: 0} steps so far). Send the same teach again in a while for the result (it does not expire while they work)")
+            Teach.result?.askId == ask.id -> tr("用户已经录好，正在看一遍再保存。过一会儿把同一条 teach 原样再发一次取结果（等待时不会过期）", "The user has recorded it and is checking it before saving. Send the same teach again in a while for the result (it does not expire while they work)")
+            Teach.recAskId() == ask.id -> tr("用户正在演示（已记 ${Teach.steps ?: 0} 步）。过一会儿把同一条 teach 原样再发一次取结果（等待时不会过期）", "The user is showing it (${Teach.steps ?: 0} steps so far). Send the same teach again in a while for the result (it does not expire while they work)")
             else -> tr("用户正在副屏上走到起点，还没开始演示。过一会儿把同一条 teach 原样再发一次（等待时不会过期）", "The user is getting to the start on the screen. Send the same teach again in a while (it does not expire while they work)")
         }) else throw ActionError("ASK_PENDING", tr("请求已显示在手机上（通知、副屏小窗和 App 首页），用户 ${wait / 1000} 秒内还没做完。告诉用户去手机上演示；之后把同一条 teach 原样再发一次就能拿到结果（${ask.validMs / 60_000} 分钟内有效）",
             "The request is on the phone (notification, the floating window and the app's home page); the user has not finished within ${wait / 1000} s. Tell the user to show it on the phone; then send the same teach again for the result (valid for ${ask.validMs / 60_000} minutes)"))
@@ -852,4 +927,74 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
     data.put("message", (if (repeat) tr("（同一条 teach 已有结果，原样返回）", "(This teach already has its result; returned as is) ") else "") + tr("用户演示完并存成了段「$seg」（${r.optString("app")}）。照做：act \"$use\"" + (if (n > 0) "（按顺序填 $n 个参数，是用户当时输入的字的位置）" else "") + "。步骤：${r.optString("steps")}" + (pic?.let { "。示教关键步骤缩略图（数字是步骤序号，红圈是点的位置）：$it" } ?: ""),
         "The user showed it and saved it as segment \"$seg\" (${r.optString("app")}). Run it: act \"$use\"" + (if (n > 0) " (fill $n values in order: where the user typed)" else "") + ". Steps: ${r.optString("steps")}" + (pic?.let { ". Thumbnails of the key steps (numbers are step numbers, red rings are taps): $it" } ?: "")) + "\n" + next)
     return ok(args, data)
+}
+
+/**
+ * 1.4.0-beta11 (DESIGN-SCREEN-LESSON-1.4 §4.6): a lesson waiting to be saved is kept on disk (files/lesson-draft), so
+ * a killed or crashed app still has it: the home page shows "录好了 N 步" again and saving still answers the agent
+ * (by the request's key, as a late answer). The screen readings behind each step are not kept (only used to tell which
+ * of several matches a tap was); everything the save pane shows is.
+ */
+internal object Draft {
+    private const val TAG = "TeachDraft"
+    @Volatile private var dir: java.io.File? = null
+
+    fun init(ctx: Context) {
+        if (dir != null) return
+        dir = java.io.File(ctx.applicationContext.filesDir, "lesson-draft")
+        runCatching { load() }.onFailure { com.kilon.agentvscreen.host.AppLogger.warning(TAG, "load: ${it.message}") }.getOrNull()?.let { Teach.restore(it) }
+    }
+
+    fun clear() { runCatching { dir?.deleteRecursively() } }
+
+    private fun pic(name: String, p: TeachPic?, o: org.json.JSONObject) {
+        val d = dir ?: return
+        if (p == null) return
+        runCatching { com.kilon.agentvscreen.core.Pictures.write(p.bmp, java.io.File(d, "$name.jpg"), com.kilon.agentvscreen.core.Pictures.Use.LESSON, fit = false); o.put("${name}Scale", p.scale.toDouble()) }
+    }
+
+    private fun picOf(name: String, o: org.json.JSONObject): TeachPic? {
+        val d = dir ?: return null
+        val f = java.io.File(d, "$name.jpg").takeIf { it.isFile } ?: return null
+        val b = android.graphics.BitmapFactory.decodeFile(f.path) ?: return null
+        return TeachPic(b, o.optDouble("${name}Scale", 1.0).toFloat())
+    }
+
+    fun save(ctx: Context, r: Teach.Result) = runCatching {
+        if (dir == null) dir = java.io.File(ctx.applicationContext.filesDir, "lesson-draft")
+        val d = dir!!
+        d.deleteRecursively(); d.mkdirs()
+        val o = org.json.JSONObject().put("v", 1).put("session", r.session).put("purpose", r.purpose).put("askId", r.askId ?: -1)
+            .put("name", r.name).put("app", r.app).put("start", r.start)
+        r.ask?.let { a -> o.put("ask", org.json.JSONObject().put("id", a.id).put("key", a.key).put("token", a.token).put("tokenName", a.tokenName)
+            .put("session", a.session).put("title", a.title).put("detail", a.detail).put("at", a.at)) }
+        pic("end", r.endPic, o)
+        o.put("lines", org.json.JSONArray(r.lines.mapIndexed { i, l ->
+            org.json.JSONObject().put("head", l.head).put("until", l.until).put("why", l.why).put("kind", l.kind)
+                .put("typed", if (l.secret) null else l.typed).put("secret", l.secret).put("warn", l.warn)
+                .put("ax", l.at?.first ?: -1).put("ay", l.at?.second ?: -1).put("words", l.words).put("pos", l.pos).put("check", l.check)
+                .also { pic("p$i", l.pic, it) }
+        }))
+        java.io.File(d, "draft.json").writeText(o.toString())
+    }.onFailure { com.kilon.agentvscreen.host.AppLogger.warning(TAG, "save: ${it.message}") }
+
+    private fun load(): Teach.Result? {
+        val d = dir ?: return null
+        val o = org.json.JSONObject(java.io.File(d, "draft.json").takeIf { it.isFile }?.readText() ?: return null)
+        fun str(j: org.json.JSONObject, k: String) = j.optString(k).takeIf { j.has(k) && !j.isNull(k) && it.isNotEmpty() }
+        val arr = o.getJSONArray("lines")
+        val lines = (0 until arr.length()).map { i ->
+            val l = arr.getJSONObject(i)
+            val ax = l.optInt("ax", -1); val ay = l.optInt("ay", -1)
+            TeachLine(l.getString("head"), str(l, "until"), l.optString("why"), l.optString("kind"), str(l, "typed"), l.optBoolean("secret"),
+                str(l, "warn"), if (ax >= 0 && ay >= 0) ax to ay else null, str(l, "words"), null, picOf("p$i", l), str(l, "pos"), str(l, "check"))
+        }
+        val ask = o.optJSONObject("ask")?.let { a ->
+            UserAsk.Ask(a.getInt("id"), UserAsk.Kind.TEACH, a.getString("key"), a.getString("token"), a.getString("tokenName"), a.getString("session"),
+                a.getString("title"), a.optString("detail"), a.optLong("at"), false)
+        }
+        // The request id is not kept: ids start again after a restart; the request is found again by its key (UserAsk.deliver).
+        return Teach.Result(o.getString("session"), str(o, "purpose"), null, str(o, "name"), str(o, "app"), lines,
+            picOf("end", o), o.optJSONObject("start"), ask)
+    }
 }

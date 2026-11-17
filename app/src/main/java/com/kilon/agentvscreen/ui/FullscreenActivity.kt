@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.systemGestures
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -130,8 +132,20 @@ class FullscreenActivity : PageActivity() {
     private val teachAsk = mutableStateOf(-1)
     /** 1.4.0-beta4: opened to answer this question (its card comes first). */
     private val askOpen = mutableStateOf(-1)
+    /** 1.4.0-beta11: which pane this page shows (the live screen, or saving a lesson). Switching never starts a page. */
+    private val pane = mutableStateOf(Pane.LIVE)
+    private fun paneOf(i: android.content.Intent?) = runCatching { Pane.valueOf(i?.getStringExtra(Surface.EXTRA) ?: "") }.getOrNull()
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent); teachAsk.value = intent.getIntExtra("teach_ask", -1); askOpen.value = intent.getIntExtra("ask", askOpen.value)
+        paneOf(intent)?.let { pane.value = it; Surface.report(it) }
+    }
+    override fun onStart() { super.onStart(); Surface.report(pane.value) }
+    override fun onStop() { Surface.report(null); super.onStop() }
+
+    /** System bars: shown while saving or holding the screen (so the system's own edge gestures stay the system's). */
+    private fun bars(hidden: Boolean) = WindowInsetsControllerCompat(window, window.decorView).run {
+        if (hidden) { hide(WindowInsetsCompat.Type.systemBars()); systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE }
+        else show(WindowInsetsCompat.Type.systemBars())
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -139,18 +153,43 @@ class FullscreenActivity : PageActivity() {
         if (MainDisplay.moved(this)) return
         teachAsk.value = intent.getIntExtra("teach_ask", -1)
         askOpen.value = intent.getIntExtra("ask", -1)
+        paneOf(intent)?.let { pane.value = it }
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.systemBars())
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
+        bars(true)
         setContent {
             AvsTheme {
                 val s by BackgroundOperation.state.collectAsState()
+                val lesson by Teach.lesson.collectAsState()
                 val session = s.ownerSessionId
-                LaunchedEffect(session, s.displayId) { if (session == null || s.displayId == null) back() }
-                if (session != null) FullScreen(session)
+                val p by pane
+                val screenUp = session != null && s.displayId != null
+                val saving = lesson is com.kilon.agentvscreen.cmd.Lesson.Review || lesson is com.kilon.agentvscreen.cmd.Lesson.Ending
+                // DESIGN §2.3: the screen went away: a lesson waiting to be saved keeps this page (its save pane);
+                // otherwise the page closes as before. Saved or discarded on the save pane: back to the floating window.
+                LaunchedEffect(screenUp, saving, p) {
+                    when {
+                        p == Pane.REVIEW && !saving -> back()
+                        !screenUp && saving -> { pane.value = Pane.REVIEW; Surface.report(Pane.REVIEW) }
+                        !screenUp -> back()
+                    }
+                }
+                val takenOver = s.takeoverSessionId != null
+                LaunchedEffect(p, takenOver) { bars(p == Pane.LIVE && !takenOver) }
+                when {
+                    p == Pane.REVIEW -> when (val l = lesson) {
+                        is com.kilon.agentvscreen.cmd.Lesson.Review -> Box(Modifier.fillMaxSize().backdrop()) {
+                            ReviewPane(l.result, l.screenGone || !screenUp, onLeave = { back() }, onAgain = {
+                                if (Teach.again()) { pane.value = Pane.LIVE; Surface.report(Pane.LIVE) }
+                                else toast(tr("副屏已经关了，没法重录", "The background screen is closed; cannot record again"))
+                            })
+                        }
+                        else -> Box(Modifier.fillMaxSize().backdrop(), contentAlignment = Alignment.Center) {
+                            Text(tr("正在整理录下的步骤…", "Writing down the steps…"), fontSize = 15.sp)
+                        }
+                    }
+                    session != null -> FullScreen(session)
+                }
             }
         }
     }
@@ -178,18 +217,19 @@ class FullscreenActivity : PageActivity() {
             }
         }
         LaunchedEffect(session) { while (true) { left = Turns.leftMs(session) ?: -1L; delay(1000) } }
-        val prepId by Teach.prep.collectAsState()
-        val paused by Teach.paused.collectAsState()
+        val lesson by Teach.lesson.collectAsState()
+        val prepId = (lesson as? com.kilon.agentvscreen.cmd.Lesson.Ready)?.askId
+        val paused = (lesson as? com.kilon.agentvscreen.cmd.Lesson.Recording)?.paused == true
         // 1.4.0-beta5: what a hand-back does to a lesson is decided in one place (Teach.onTakeoverEnded), for every way back.
         LaunchedEffect(takenOver) { if (!takenOver) typing = false }
-        val teachN by Teach.count.collectAsState()
+        val teachN = (lesson as? com.kilon.agentvscreen.cmd.Lesson.Recording)?.steps
         val recording = teachN != null
         // 1.4.0-beta4: the one request in front: the lesson under way, else the question this page was opened for, else the newest.
         val waiting = pendingAsks()
         val focus by askOpen
         val req: UserAsk.Ask? = when {
             recording -> Teach.recAskId()?.let { UserAsk.byId(it) }
-            prepId != null -> UserAsk.byId(prepId!!)
+            prepId != null -> UserAsk.byId(prepId)?.takeIf { it.live }
             else -> waiting.firstOrNull { it.id == focus } ?: waiting.firstOrNull()
         }
         // 1.4.0-beta5: every new request opens unfolded. The folded ball was kept from an earlier request (and folded
@@ -198,6 +238,12 @@ class FullscreenActivity : PageActivity() {
         val mark = remember { MarkState() }
         val marking = req != null && !recording && (req.kind == UserAsk.Kind.POINT || req.kind == UserAsk.Kind.AREA) && !mark.finding && !takenOver
         var picSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+        var picAt by remember { mutableStateOf(Offset.Zero) }
+        val gi = WindowInsets.systemGestures
+        val win = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
+        val ld = androidx.compose.ui.platform.LocalLayoutDirection.current
+        val edges = GestureEdges(gi.getLeft(LocalDensity.current, ld).toFloat(), gi.getTop(LocalDensity.current).toFloat(),
+            gi.getRight(LocalDensity.current, ld).toFloat(), gi.getBottom(LocalDensity.current).toFloat(), win.width.toFloat(), win.height.toFloat())
         fun markReply(): org.json.JSONObject? {
             val a = mark.a ?: return null
             val w = picSize.width.toFloat(); val h = picSize.height.toFloat()
@@ -240,9 +286,13 @@ class FullscreenActivity : PageActivity() {
                 val ph = pw / aspect
                 Box(Modifier.size(pw, ph).glowBorder(mode, 22.dp, width = 3.dp, pad = 10.dp)) {
                     Box(Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp)).background(Palette.ink).onSizeChanged { picSize = it }
-                        .pointerInput(session, takenOver, marking) {
+                        .onGloballyPositioned { picAt = it.positionInWindow() }
+                        .pointerInput(session, takenOver, marking, edges) {
                             awaitEachGesture {
                                 val down = awaitFirstDown()
+                                // 1.4.0-beta11 (DESIGN §4.1): a finger that starts in the system's gesture area (home,
+                                // back, the status bar) is the system's: never sent to the screen, never a lesson step.
+                                if (takenOver && edges.has(down.position + picAt)) return@awaitEachGesture
                                 // 1.4.0-beta4: answering point / area: the finger marks the live picture instead.
                                 if (marking) {
                                     mark.a = down.position; mark.b = down.position
@@ -267,7 +317,7 @@ class FullscreenActivity : PageActivity() {
                                     val ev = withTimeoutOrNull(16L) { awaitPointerEvent() }
                                     val elapsed = SystemClock.uptimeMillis() - t0
                                     if (!takenOver && !moved && !held) {
-                                        hold = ((elapsed - 150L) / 850f).coerceIn(0f, 1f); holdAt = down.position
+                                        hold = ((elapsed - 100L) / 400f).coerceIn(0f, 1f); holdAt = down.position
                                         if (hold >= 1f) {
                                             held = true; hold = 0f
                                             if (s.userStopped) BackgroundOperation.userResume()
@@ -314,7 +364,8 @@ class FullscreenActivity : PageActivity() {
             // Top block: the bar (it sets the picture's top), and the request card floating under it when at the top.
             Column(Modifier.fillMaxWidth().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().onGloballyPositioned { topEdge = it.boundsInRoot().bottom }.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Circle(Icons.Filled.CloseFullscreen, tr("退出全屏", "Exit full screen"), Color(0x33FFFFFF)) { if (Teach.recordingFor(session)) Teach.stop(applicationContext); back() }
+                // 1.4.0-beta11: 小窗 only leaves the page; a lesson goes on in the floating window (it never stops one).
+                Circle(Icons.Filled.CloseFullscreen, tr("小窗", "Small window"), Color(0x33FFFFFF)) { back() }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(appLabel ?: tr("后台副屏", "Background screen"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -335,8 +386,9 @@ class FullscreenActivity : PageActivity() {
                     }
                     Spacer(Modifier.width(8.dp))
                 }
-                when (mode) {
-                    Mode.ACTING, Mode.STANDBY -> Pill(tr("停止 AI", "Stop AI"), Icons.Filled.Stop, Palette.stopped, Color.White) { BackgroundOperation.userStop() }
+                when {
+                    recording || prepId != null -> {} // ended with 完成 / 不教 on the strip, not by closing the screen
+                    mode == Mode.ACTING || mode == Mode.STANDBY -> Pill(tr("停止 AI", "Stop AI"), Icons.Filled.Stop, Palette.stopped, Color.White) { BackgroundOperation.userStop() }
                     else -> Circle(Icons.Filled.Close, tr("关闭副屏", "Close screen"), Color(0x33FFFFFF)) {
                         BackgroundOperation.releaseNow(session); back()
                     }
@@ -364,7 +416,7 @@ class FullscreenActivity : PageActivity() {
             var now by remember { mutableLongStateOf(0L) }
             LaunchedEffect(hintAt) { now = SystemClock.uptimeMillis(); delay(2600); now = SystemClock.uptimeMillis() }
             AnimatedVisibility(now - hintAt < 2500 && hintAt > 0, Modifier.align(Alignment.Center), enter = fadeIn(), exit = fadeOut()) {
-                Text(tr("长按画面 1 秒接管，接管后点、长按、滑动都会落到副屏上", "Hold the picture 1 s to take over; then taps, long presses and swipes go to the screen"), color = Color.White, fontSize = 13.sp,
+                Text(tr("长按画面 0.5 秒接管，接管后点、长按、滑动都会落到副屏上", "Hold the picture 0.5 s to take over; then taps, long presses and swipes go to the screen"), color = Color.White, fontSize = 13.sp,
                     modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xE612141C)).padding(horizontal = 14.dp, vertical = 8.dp))
             }
 
@@ -425,7 +477,8 @@ class FullscreenActivity : PageActivity() {
                         // 示教: record what you do here as steps an agent can run again (its controls are on the card).
                         if (!recording && prepId == null && !mark.finding) {
                             Circle(Icons.Filled.FiberManualRecord, tr("示教：录下接下来的操作", "Teach: record what you do next"), Color(0x22FFFFFF)) {
-                                if (Teach.start(session, null, null)) toast(tr("开始录制：照常操作，做完点“完成”", "Recording: do it as usual, then tap Done"))
+                                if (Teach.start(session, null, null)) toast(if (Teach.recAskId() != null) tr("开始录制：照常操作，做完点“完成”", "Recording: do it as usual, then tap Done")
+                                    else tr("开始录制。没有 agent 在等，这段会存为你的经验", "Recording. No agent is waiting: it is saved as your own"))
                             }
                             Pill(tr("交还 AI", "Hand back"), Icons.Filled.SmartToy, Palette.takeover, Color(0xFF052E1C)) { BackgroundOperation.userResume() }
                         }
@@ -524,4 +577,9 @@ internal fun vscreenUserInput(sessionId: String, op: (Int) -> Unit) {
     val id = s.displayId ?: return
     if (s.takeoverSessionId != sessionId) return
     Thread { runCatching { op(id) } }.apply { isDaemon = true; name = "vscreen-user-input" }.start()
+}
+
+/** The system's gesture areas along the window's edges (window pixels). */
+internal data class GestureEdges(val l: Float, val t: Float, val r: Float, val b: Float, val w: Float, val h: Float) {
+    fun has(p: Offset): Boolean = w > 0f && h > 0f && (p.x < l || p.y < t || p.x > w - r || p.y > h - b)
 }

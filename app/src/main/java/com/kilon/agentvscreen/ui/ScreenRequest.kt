@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -130,8 +131,10 @@ internal fun RequestCard(a: UserAsk.Ask?, session: String, recording: Boolean, p
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GlassPill(tr("发给 agent", "Send to the agent"), true, 1f, Modifier.weight(1f)) {
                     if (said.isBlank()) return@GlassPill
-                    if (recording || prep) Teach.cancel()
-                    if (takenOver && (recording || prep || kind == UserAsk.Kind.TEACH)) BackgroundOperation.userResume()
+                    // 1.4.0-beta11: words while recording pause it and keep the steps (saved as yours); while
+                    // getting ready the request ends with them and the screen goes back.
+                    if (recording) Teach.setPaused(true)
+                    else if (takenOver && (prep || kind == UserAsk.Kind.TEACH)) BackgroundOperation.userResume()
                     feedback(ctx, a, said)
                 }
                 GlassPill(tr("算了", "Never mind"), false, 1f) { saying = false }
@@ -140,27 +143,8 @@ internal fun RequestCard(a: UserAsk.Ask?, session: String, recording: Boolean, p
         }
 
         when {
-            recording -> {
-                Text(tr("照常操作就行，每一步都会记下。点错了可以撤掉；要调整又不想被记下就先暂停。", "Just do it; every step is written down. Undo a slip; pause to fix something without it being recorded."),
-                    color = Color(0x99FFFFFF), fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    GlassPill(tr("撤掉上一步", "Undo"), false, 1f) { Teach.undo() }
-                    GlassPill(if (paused) tr("继续记录", "Resume") else tr("暂停记录", "Pause"), false, 1f) { Teach.setPaused(!paused) }
-                    GlassPill(tr("完成", "Done"), true, 1f, Modifier.weight(1f)) { Teach.finish(ctx) }
-                }
-                // 1.4.0-beta11 (rainbow): mark that the agent should look here before the lesson goes on (said better on the save page).
-                GlassPill(tr("这一步后让 agent 看一下", "Have the agent check after this step"), false, 1f, Modifier.fillMaxWidth()) {
-                    Teach.markCheck(); android.widget.Toast.makeText(ctx, tr("记下了：agent 会在这一步之后看一下，保存时可以写它看什么", "Marked: the agent checks after this step; say what on the save page"), android.widget.Toast.LENGTH_SHORT).show()
-                }
-                if (a != null) Say { saying = true }
-            }
-            prep -> {
-                Text(tr("先在副屏上走到要开始的页面，这时的操作不会被记下。到了再点“开始示范”。", "First get to the page where it starts on the screen; nothing is written down yet. Then tap Start."),
-                    color = Color(0x99FFFFFF), fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    GlassPill(tr("开始示范", "Start"), true, 1f, Modifier.weight(1f)) { Teach.startPrepared(session) }
-                    GlassPill(tr("不教", "Skip"), false, 1f) { a?.let { UserAsk.answer(ctx, it.id, false) }; Teach.cancelPrep(); BackgroundOperation.userResume() }
-                }
+            recording || prep -> {
+                LessonStrip(session, 1f)
                 if (a != null) Say { saying = true }
             }
             a == null -> {}
@@ -168,7 +152,9 @@ internal fun RequestCard(a: UserAsk.Ask?, session: String, recording: Boolean, p
                 Text(tr("先接管副屏走到起点，再开始示范；觉得它要学的不对，就说一句。", "Take the screen and get to the start, then show it; if what it wants to learn is wrong, say so."),
                     color = Color(0x99FFFFFF), fontSize = 12.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    GlassPill(tr("去示范", "Show it"), true, 1f, Modifier.weight(1f)) { Teach.beginFor(a) }
+                    // DESIGN §4.6: one lesson at a time; another agent's request waits until this one is saved or dropped.
+                    val busy = Teach.lesson.collectAsState().value !is com.kilon.agentvscreen.cmd.Lesson.None
+                    GlassPill(if (busy) tr("先完成当前示教", "Finish the current lesson first") else tr("去示范", "Show it"), !busy, 1f, Modifier.weight(1f)) { if (!busy) Teach.beginFor(a) }
                     GlassPill(tr("不教", "Skip"), false, 1f) { UserAsk.answer(ctx, a.id, false) }
                 }
                 Say { saying = true }
@@ -255,3 +241,47 @@ private fun Say(modifier: Modifier = Modifier, onClick: () -> Unit) = Box(modifi
 private fun Skip(onClick: () -> Unit) =
     Text(tr("不回答", "Decline"), color = Color(0x99FFFFFF), fontSize = 12.sp,
         modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 4.dp))
+
+/**
+ * 1.4.0-beta11 (DESIGN-SCREEN-LESSON-1.4 §4.3): the lesson's controls, the same in the floating window and on the
+ * screen page: getting ready (开始示范 · 不教) and recording (撤销 · 暂停/继续 · 完成 · 让 agent 看一下). Done opens
+ * the save pane: the only way a lesson leads to a page, and it is the user's own tap.
+ */
+@Composable
+internal fun LessonStrip(session: String, k: Float, withHead: Boolean = false) {
+    val ctx = LocalContext.current
+    val lesson by Teach.lesson.collectAsState()
+    Column(verticalArrangement = Arrangement.spacedBy((6 * k).dp)) {
+        when (val l = lesson) {
+            is com.kilon.agentvscreen.cmd.Lesson.Ready -> {
+                val a = UserAsk.byId(l.askId)
+                if (withHead) Text(tr("给「${a?.tokenName ?: "agent"}」示范：${a?.title.orEmpty()}", "Show \"${a?.tokenName ?: "agent"}\": ${a?.title.orEmpty()}"),
+                    color = Color.White, fontSize = (12.5f * k).sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(tr("先在副屏上走到要开始的页面，这时的操作不会被记下。到了再点“开始示范”。", "First get to the page where it starts on the screen; nothing is written down yet. Then tap Start."),
+                    color = Color(0x99FFFFFF), fontSize = (11.5f * k).sp)
+                Row(horizontalArrangement = Arrangement.spacedBy((6 * k).dp)) {
+                    GlassPill(tr("开始示范", "Start"), true, k, Modifier.weight(1f)) { Teach.startPrepared(session) }
+                    GlassPill(tr("不教", "Skip"), false, k) { UserAsk.answer(ctx, l.askId, false); Teach.cancelPrep(); BackgroundOperation.userResume() }
+                }
+            }
+            is com.kilon.agentvscreen.cmd.Lesson.Recording -> {
+                if (withHead) Text(if (l.paused) tr("已暂停 · 现在的操作不记", "Paused · nothing is written down") else tr("录制中 · 已记 ${l.steps} 步", "Recording · ${l.steps} steps"),
+                    color = Color.White, fontSize = (12.5f * k).sp, fontWeight = FontWeight.SemiBold)
+                Text(l.askEnded?.let { tr("请求已结束（$it），录的会存为你的经验", "The request ended ($it); this is saved as your own") }
+                    ?: if (l.paused) tr("暂停中，操作不会被记下。", "Paused: nothing is written down.")
+                    else tr("照常操作就行，每一步都会记下。点错了可以撤掉；要调整又不想被记下就先暂停。", "Just do it; every step is written down. Undo a slip; pause to fix something without it being recorded."),
+                    color = if (l.askEnded != null) Palette.asking else Color(0x99FFFFFF), fontSize = (11.5f * k).sp)
+                Row(horizontalArrangement = Arrangement.spacedBy((6 * k).dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (!l.paused) GlassPill(tr("撤销", "Undo"), false, k) { Teach.undo() }
+                    GlassPill(if (l.paused) tr("继续", "Resume") else tr("暂停", "Pause"), false, k) { Teach.setPaused(!l.paused) }
+                    GlassPill(tr("完成", "Done"), true, k, Modifier.weight(1f)) { Teach.finish(ctx); Surface.openReview(ctx) }
+                }
+                // 1.4.0-beta11 (rainbow): mark that the agent should look here before the lesson goes on (said better on the save page).
+                if (!l.paused) GlassPill(tr("这一步后让 agent 看一下", "Have the agent check after this step"), false, k, Modifier.fillMaxWidth()) {
+                    Teach.markCheck(); android.widget.Toast.makeText(ctx, tr("记下了：agent 会在这一步之后看一下，保存时可以写它看什么", "Marked: the agent checks after this step; say what on the save page"), android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+            else -> {}
+        }
+    }
+}

@@ -73,9 +73,8 @@
             android:name=".ui.TeachActivity"
             android:exported="false"
             android:excludeFromRecents="true"
-            android:taskAffinity="com.kilon.agentvscreen.teach"
-            android:windowSoftInputMode="adjustResize"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <service
             android:name=".host.HostService"

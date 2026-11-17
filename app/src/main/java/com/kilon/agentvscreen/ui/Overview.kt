@@ -417,7 +417,9 @@ private fun NeedsGroup() {
     val ctx = LocalContext.current
     val host = LocalHost.current
     val asks = pendingAsks()
-    val review by com.kilon.agentvscreen.cmd.Teach.reviewing.collectAsState()
+    val lessonNow by com.kilon.agentvscreen.cmd.Teach.lesson.collectAsState()
+    val review = (lessonNow as? com.kilon.agentvscreen.cmd.Lesson.Review)?.result
+    var sureDiscard by remember(review) { mutableStateOf(false) }
     val givenAll by com.kilon.agentvscreen.core.VScreenOwnership.given.collectAsState()
     val given = givenAll.values.sortedBy { it.at }
     val s by BackgroundOperation.state.collectAsState()
@@ -437,7 +439,7 @@ private fun NeedsGroup() {
             }
             review?.let { r ->
                 NeedCard(ReviewWords.title(r), ReviewWords.who(r), tr("去保存", "Review and save"), { ReviewWords.open(ctx) },
-                    tr("丢弃", "Discard")) { ReviewWords.discard(ctx, r) }
+                    if (sureDiscard) tr("确定丢弃？", "Discard for sure?") else tr("丢弃", "Discard")) { if (sureDiscard) ReviewWords.discard(ctx, r) else sureDiscard = true }
             }
             given.forEach { g ->
                 val app = remember(g.pkg) { com.kilon.agentvscreen.core.VScreenOwnership.label(ctx, g.pkg) }

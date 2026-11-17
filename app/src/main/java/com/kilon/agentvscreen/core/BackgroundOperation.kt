@@ -247,6 +247,7 @@ object BackgroundOperation {
         // Apps muted on the background screen: the screen service owns their sound and gives it back by itself (also when
         // this app dies or is uninstalled); a release here only makes it immediate.
         VScreenMute.init(context)
+        com.kilon.agentvscreen.cmd.Draft.init(context)
         onScreenReleased { Thread { runCatching { VScreenMute.restoreAll() } }.apply { isDaemon = true; name = "vscreen-unmute" }.start() }
         runCatching {
             val home = context.packageManager.resolveActivity(
@@ -431,6 +432,10 @@ object BackgroundOperation {
         cancelIdleRelease()
         mainHandler.removeCallbacks(idlePark)
         _state.update { it.copy(powerSaving = false) }
+        // 1.4.0-beta11: a lesson being recorded ends with what the screen shows NOW, before its apps are closed and it
+        // is released (before, it read a destroyed screen for up to 10 s and the end picture was blank).
+        if (com.kilon.agentvscreen.cmd.Teach.lesson.value is com.kilon.agentvscreen.cmd.Lesson.Recording)
+            runCatching { com.kilon.agentvscreen.cmd.Teach.endRecording(appContext, byDone = false, screenGone = true, endWaitMs = 800L) }
         val d = synchronized(lock) { display.also { display = null } } ?: return
         // Close whatever app was left on the screen so it does not hop to the
         // main display when its display disappears.
@@ -484,8 +489,11 @@ object BackgroundOperation {
             Thread { runCatching { VScreenShell.finger(d.displayId, "cancel", 0, -1, -1) } }.apply { isDaemon = true }.start()
         }
         if (_state.value.ownerSessionId == sessionId && display != null) {
-            // A user takeover ends with the turn: nobody is holding the screen any more.
-            _state.update { it.copy(takeoverSessionId = null, operating = false, idle = true, agentTitle = null, note = tr("本轮结束，副屏保留 ${IDLE_TTL_MS / 60_000} 分钟", "Turn over; the screen is kept for ${IDLE_TTL_MS / 60_000} minutes")) }
+            // A user takeover ends with the turn: nobody is holding the screen any more. 1.4.0-beta11: except while the
+            // user is showing a lesson (getting ready or recording): that is the user's, not the turn's.
+            val lessonOn = com.kilon.agentvscreen.cmd.Teach.lesson.value.let { it is com.kilon.agentvscreen.cmd.Lesson.Ready || it is com.kilon.agentvscreen.cmd.Lesson.Recording }
+            val keep = if (lessonOn) _state.value.takeoverSessionId else null
+            _state.update { it.copy(takeoverSessionId = keep, operating = false, idle = true, agentTitle = null, note = tr("本轮结束，副屏保留 ${IDLE_TTL_MS / 60_000} 分钟", "Turn over; the screen is kept for ${IDLE_TTL_MS / 60_000} minutes")) }
             scheduleIdleRelease()
             scheduleIdlePark(if (parkSoonFor == sessionId) 1_500L else PARK_AFTER_MS)
             parkSoonFor = null

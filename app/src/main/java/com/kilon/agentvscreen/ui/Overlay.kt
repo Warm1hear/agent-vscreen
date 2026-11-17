@@ -49,6 +49,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.SmartToy
@@ -223,6 +224,14 @@ object Overlay {
 
     /** 1.1.6: the × button. One tap, never a lock: see [BackgroundOperation.closeWindow]. */
     fun closeTapped() {
+        // 1.4.0-beta11 (DESIGN §4.2): while the user shows a lesson the × folds the window to the edge; it never hands
+        // the screen back or ends the lesson (that is 完成 / 不教 on the strip).
+        val l = com.kilon.agentvscreen.cmd.Teach.lesson.value
+        if (l is com.kilon.agentvscreen.cmd.Lesson.Ready || l is com.kilon.agentvscreen.cmd.Lesson.Recording) {
+            dock(dockRight.value)
+            ctx?.let { android.widget.Toast.makeText(it, tr("收到边上了，示教还在继续", "Folded to the edge; the lesson goes on"), android.widget.Toast.LENGTH_SHORT).show() }
+            return
+        }
         val msg = BackgroundOperation.closeWindow()
         ctx?.let { android.widget.Toast.makeText(it, msg, android.widget.Toast.LENGTH_LONG).show() }
     }
@@ -568,7 +577,8 @@ object Overlay {
 
     internal fun openFull() {
         val c = ctx ?: return
-        MainDisplay.start(c, Intent(c, FullscreenActivity::class.java))
+        // A lesson waiting to be saved opens its save pane; otherwise the live screen (a recording goes on there).
+        if (com.kilon.agentvscreen.cmd.Teach.result != null) Surface.openReview(c) else Surface.openLive(c)
     }
 
     private class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
@@ -769,10 +779,13 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
     val mode = modeOf(s)
     val waiting = pendingAsks()
     // 1.4.0-beta10: a lesson waiting to be saved is a card too (it replaces the question it answers).
-    val review by com.kilon.agentvscreen.cmd.Teach.reviewing.collectAsState()
+    val lesson by com.kilon.agentvscreen.cmd.Teach.lesson.collectAsState()
+    val review = (lesson as? com.kilon.agentvscreen.cmd.Lesson.Review)?.result
+    // 1.4.0-beta11: getting ready / recording: the lesson strip hangs under the window (same place as a question card).
+    val showing = lesson is com.kilon.agentvscreen.cmd.Lesson.Ready || lesson is com.kilon.agentvscreen.cmd.Lesson.Recording
     // Known before any placement, docked or not, so opening from the tab already counts the card.
-    androidx.compose.runtime.SideEffect { Overlay.cardShown.value = waiting.isNotEmpty() || review != null }
-    if (Overlay.docked.value) { DockTab(mode, Overlay.dockRight.value, waiting.size + if (review != null) 1 else 0); return }
+    androidx.compose.runtime.SideEffect { Overlay.cardShown.value = waiting.isNotEmpty() || review != null || showing }
+    if (Overlay.docked.value) { DockTab(mode, Overlay.dockRight.value, waiting.size + if (review != null || showing) 1 else 0); return }
     val density = LocalDensity.current
     val landscape = Overlay.aspect() > 1f
     LaunchedEffect(landscape) { Overlay.orientationChanged(landscape) }
@@ -788,14 +801,14 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
         while (true) { left = Turns.leftMs(owner) ?: -1L; delay(1000) }
     }
     // 1.3.0-beta14: a lesson is recorded wherever the user is (this window or the full screen page).
-    val teachN by com.kilon.agentvscreen.cmd.Teach.count.collectAsState()
+    val teachN = (lesson as? com.kilon.agentvscreen.cmd.Lesson.Recording)?.steps
     val octx = LocalContext.current
-    LaunchedEffect(mode == Mode.TAKEOVER) { if (mode != Mode.TAKEOVER && com.kilon.agentvscreen.cmd.Teach.recordingFor(owner)) com.kilon.agentvscreen.cmd.Teach.stop(octx.applicationContext) }
+    // 1.4.0-beta11: no effect here ends a lesson any more (a hand-back is handled once, in Teach.onTakeoverEnded).
     // 1.4.0-beta2: the app is with the user on the main screen: no stale picture, one way to hand it back.
     val givenAll by com.kilon.agentvscreen.core.VScreenOwnership.given.collectAsState()
     val mine = givenAll.values.firstOrNull { it.session == owner && !it.agentMovedOn }
     val mineLabel = remember(mine?.pkg) { mine?.let { com.kilon.agentvscreen.core.VScreenOwnership.label(octx, it.pkg) } }
-    val title = mineLabel?.let { tr("已交给你 · $it", "With you · $it") } ?: teachN?.let { tr("示教录制中 · 已记 $it 步", "Recording a lesson · $it steps") } ?: s.agentTitle ?: when (mode) {
+    val title = mineLabel?.let { tr("已交给你 · $it", "With you · $it") } ?: teachN?.let { tr("示教录制中 · 已记 $it 步", "Recording a lesson · $it steps") } ?: (if (lesson is com.kilon.agentvscreen.cmd.Lesson.Ready) tr("示教准备中", "Getting ready to show") else null) ?: s.agentTitle ?: when (mode) {
         Mode.ACTING -> s.action?.take(18) ?: Palette.word(mode)
         Mode.STANDBY -> if (left >= 0) tr("AI 待命", "AI on standby") + " · ${left / 60000}:${"%02d".format((left / 1000) % 60)}" else Palette.word(mode)
         Mode.IDLE -> if (s.powerSaving) tr("空闲 · 省电暂停", "Idle · paused to save power") else tr("空闲", "Idle")
@@ -839,6 +852,9 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
                     .padding(horizontal = (8 * k).dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // 1.4.0-beta11: a grip, so it reads as the window's handle (it moves the window, also while you hold the screen).
+                Icon(Icons.Filled.DragIndicator, tr("拖这里移动小窗", "Drag here to move the window"), tint = Color(0x99FFFFFF), modifier = Modifier.size((11 * k).dp))
+                Spacer(Modifier.width((3 * k).dp))
                 Box(Modifier.size((7 * k).dp).clip(CircleShape).background(if (mode == Mode.ACTING) Brush.sweepGradient(Palette.rainbow) else Brush.linearGradient(listOf(Palette.of(mode), Palette.of(mode)))))
                 Spacer(Modifier.width((5 * k).dp))
                 Text(title, color = Color.White, fontSize = (11 * k).sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
@@ -855,7 +871,7 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
             // The one action of this state, bottom centre (one place for all of them): stop, done or hand back.
             val action: Triple<String, Color, () -> Unit>? = when {
                 mine != null -> Triple(tr("交回 agent", "Hand back"), Palette.takeover) { val c = octx.applicationContext; val p = mine.pkg; Thread { com.kilon.agentvscreen.core.VScreenOwnership.handBack(c, p, "overlay") }.start() }
-                teachN != null && mode == Mode.TAKEOVER -> Triple(tr("完成", "Done") + " · $teachN", Palette.asking) { com.kilon.agentvscreen.cmd.Teach.finish(octx.applicationContext) }
+                showing -> null // the lesson strip under the window has 完成 / 不教
                 mode == Mode.TAKEOVER || mode == Mode.STOPPED -> Triple(tr("交还 AI", "Hand back"), Palette.takeover) { BackgroundOperation.userResume() }
                 // 1.3.0-beta19 (rainbow): stop only while the AI acts or waits; idle shows nothing.
                 mode == Mode.ACTING || mode == Mode.STANDBY -> Triple(tr("停止 AI", "Stop AI"), Palette.stopped) { BackgroundOperation.userStop() }
@@ -876,11 +892,16 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
             }
         }
         val ease = androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntSize>(Overlay.CARD_MS.toInt(), easing = androidx.compose.animation.core.LinearOutSlowInEasing)
-        AnimatedVisibility(asking != null || review != null,
+        AnimatedVisibility(asking != null || review != null || showing,
             enter = androidx.compose.animation.expandVertically(ease, expandFrom = Alignment.Top) + fadeIn(androidx.compose.animation.core.tween(Overlay.CARD_MS.toInt())),
             exit = androidx.compose.animation.shrinkVertically(ease, shrinkTowards = Alignment.Top) + fadeOut(androidx.compose.animation.core.tween(160))) {
             val rv = review
-            if (asking == null && rv != null) ReviewQuick(rv, k, Modifier.fillMaxWidth()
+            if (showing) androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().eatTouches().glassDark(RoundedCornerShape((18 * k).dp))
+                .padding(horizontal = (12 * k).dp, vertical = (11 * k).dp)
+                .onSizeChanged { sz -> if (sz.height.toFloat() != Overlay.cardH.floatValue) { Overlay.cardH.floatValue = sz.height.toFloat() }; Overlay.fitGroup() }) {
+                LessonStrip(owner, k, withHead = true)
+            }
+            else if (asking == null && rv != null) ReviewQuick(rv, k, Modifier.fillMaxWidth()
                 .onSizeChanged { sz -> if (sz.height.toFloat() != Overlay.cardH.floatValue) { Overlay.cardH.floatValue = sz.height.toFloat() }; Overlay.fitGroup() })
             else shownAsk?.let { a ->
                 // Measured at its full size from the first frame (the expansion only clips it), so the window starts
