@@ -12,6 +12,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 object A11yTree {
     private const val MAX_DEPTH = 50
     private const val MAX_NODES = 3_000
+    private const val RECHECK_MAX = 200
 
     class Node(
         /** The node itself, for actions and for a refresh of a hit. */
@@ -43,16 +44,31 @@ object A11yTree {
          * The first visible node whose words pass [match], re-read before it counts (a background screen's cache can
          * keep a cleared box's old text). "" when none; null when the tree could not be read.
          */
-        fun shows(match: (String) -> Boolean): String? = if (!readable) null else find(match, 1)!!.firstOrNull()?.first ?: ""
+        fun shows(match: (String) -> Boolean, recheck: Boolean = false): String? = if (!readable) null else find(match, 1, recheck)!!.firstOrNull()?.first ?: ""
 
-        /** Visible nodes whose words pass [match] (re-read first), with their boxes; null when the tree could not be read. */
-        fun find(match: (String) -> Boolean, max: Int = 20): List<Pair<String, Rect>>? {
+        /**
+         * Visible nodes whose words pass [match] (re-read first), with their boxes; null when the tree could not be read.
+         *
+         * 1.4.0-beta15 (test: `repeat { tap 1 } until text:11` stopped at "111" or "1,111"): only nodes whose CACHED
+         * words matched were re-read, so a display whose cache still said "1" was never re-read and "11" was never
+         * seen. [recheck] re-reads every visible node with words before matching: for a final "no" that must rest on
+         * what is on the screen now, not on the cache (at most [RECHECK_MAX] nodes).
+         */
+        fun find(match: (String) -> Boolean, max: Int = 20, recheck: Boolean = false): List<Pair<String, Rect>>? {
             if (!readable) return null
             val out = ArrayList<Pair<String, Rect>>()
+            var rechecked = 0
             for (n in nodes) {
                 if (out.size >= max) break
                 val t = n.words ?: continue
-                if (!n.visible || !match(t)) continue
+                if (!n.visible) continue
+                if (!match(t)) {
+                    if (!recheck || rechecked++ >= RECHECK_MAX) continue
+                    if (!runCatching { n.info.refresh() }.getOrDefault(false)) continue
+                    val t2 = wordsOf(n.info) ?: continue
+                    if (n.info.isVisibleToUser && match(t2)) out += t2.take(40) to Rect().also { n.info.getBoundsInScreen(it) }
+                    continue
+                }
                 val fresh = runCatching { n.info.refresh() }.getOrDefault(false)
                 val t2 = if (fresh) wordsOf(n.info) else t
                 if (t2 != null && (!fresh || n.info.isVisibleToUser) && match(t2)) out += t2.take(40) to Rect().also { n.info.getBoundsInScreen(it) }

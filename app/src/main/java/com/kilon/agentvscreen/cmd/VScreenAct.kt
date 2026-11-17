@@ -110,8 +110,13 @@ internal class Probe(private val h: VScreenOffloadHandler, private val d: VScree
      */
     fun judgeFresh(waitMs: Long): String? {
         if (wantsText) VScreenPerception.reading(d.displayId, since, waitMs)
-        return poll()
+        // 1.4.0-beta15 (test: repeat … until still ran one or two rounds more in 3 of 4 runs): the final look also
+        // re-reads every accessibility node (the cache kept the display's old number) and does not hide words inside
+        // "moving" areas (a display changing every round reads as a carousel). The words asked for are judged as shown.
+        finalLook = true
+        return try { poll() } finally { finalLook = false }
     }
+    private var finalLook = false
 
     private fun scaled(c: Cond, b: Bitmap): Rect? = c.area?.let { r ->
         val k = b.width.toDouble() / maxOf(1, d.width)
@@ -143,17 +148,17 @@ internal class Probe(private val h: VScreenOffloadHandler, private val d: VScree
         val before = prior[pat.key].orEmpty()
         fun inArea(r: Rect) = area == null || area.contains(r.centerX(), r.centerY())
         fun ok(r: Rect): Boolean = inArea(r) && counts(r, before, exclude, pageAt > 0)
-        if ((!afterAction || actionAt == 0L) && area == null) runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).shows(pat::hit) }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
-        else if (!afterAction || actionAt == 0L) runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).find(pat::hit) }.getOrNull()?.firstOrNull { inArea(it.second) }?.let { return it.first }
-        else runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).find(pat::hit) }.getOrNull()?.firstOrNull { ok(it.second) }?.let { return it.first }
+        if ((!afterAction || actionAt == 0L) && area == null) runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).shows(pat::hit, finalLook) }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
+        else if (!afterAction || actionAt == 0L) runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).find(pat::hit, recheck = finalLook) }.getOrNull()?.firstOrNull { inArea(it.second) }?.let { return it.first }
+        else runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).find(pat::hit, recheck = finalLook) }.getOrNull()?.firstOrNull { ok(it.second) }?.let { return it.first }
         val r = VScreenPerception.reading(d.displayId, readFrom(), 0) ?: return null
-        return VScreenPerception.still(r.items, mask).firstOrNull { pat.hit(it.text) && inArea(Rect(it.box)) && (!afterAction || actionAt == 0L || ok(Rect(it.box))) }?.text?.take(40)
+        return (if (finalLook) r.items else VScreenPerception.still(r.items, mask)).firstOrNull { pat.hit(it.text) && inArea(Rect(it.box)) && (!afterAction || actionAt == 0L || ok(Rect(it.box))) }?.text?.take(40)
     }
 
     /** True only when a reading taken late enough does not hold [q] (and the accessibility tree does not either). */
     private fun gone(q: String): Boolean {
         val pat = TextPat(q)
-        if (!runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).shows(pat::hit) }.getOrNull().isNullOrEmpty()) return false
+        if (!runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).shows(pat::hit, finalLook) }.getOrNull().isNullOrEmpty()) return false
         val r = VScreenPerception.reading(d.displayId, readFrom(), 0) ?: return false
         return VScreenPerception.still(r.items, mask).none { pat.hit(it.text) }
     }

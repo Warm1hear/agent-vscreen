@@ -27,7 +27,7 @@ Agent-VScreen 在一块看不见的虚拟屏上打开和操作别的应用，你
 <p align="center"><img src="docs/app.png" width="760" alt="Agent-VScreen 首页、语言、首次配置、接入 agent、设置、应用限制和诊断"></p>
 <p align="center"><sub>App 界面：语言切换、首次配置、接入 agent（本机 / Tailscale，命令行 / MCP / HTTP）、设置、应用限制和诊断。</sub></p>
 
-- 版本：1.3.0（versionCode 33）
+- 版本：1.4.0（versionCode 49）
 - 包名：`com.kilon.agentvscreen`
 - 系统：Android 11 及以上，推荐 Android 14 及以上
 - 特权：只用 [Shizuku](https://shizuku.rikka.app/)，不需要 root
@@ -155,6 +155,17 @@ Tailscale 的设置就在这个选项下面。连好后，下面复制的给 age
 - [API.md](API.md)：完整的接口说明，包括命令行、MCP、HTTP、会话、盯守、权限和安全、悬浮窗、远程连接、已知限制和从 1.1 升级。
 - [docs/REFERENCE.md](docs/REFERENCE.md)：每条命令的参数和每个结果代码（由代码生成）。
 - [docs/TASKS.md](docs/TASKS.md)：发版前在真机上跑的固定任务集。
+
+## 1.4.0 更新内容
+
+- **全新的 App**：四个标签（现在、接入、记录、设置），每页只做一件事，说明都收进二级页；整体紫色玻璃风格。
+- **每个 agent 各自独立**：每个接入的 agent 有自己的令牌、记录和存下的步骤，示教共享。首页一个收件箱收齐 agent 要你做的事，点通知直接到对应页面。
+- **示教重做**：从请求到存成段是一条流程；录制键直接回应 agent 的请求，审阅和实时画面并排。同一条 `teach` 再发直接拿到已存的示教，不再问你。agent 请你示教前会先把页面整理回起始状态。
+- **键盘**：`key ctrl+a`、`shift+tab`、`alt+f4` 等组合键；`type` 一次输入，或 `type "…" slow` 逐字输入。全屏页的键盘按钮直接用手机自己的输入法。
+- **应用静音**：设置 › 应用静音 列出所有被静音的应用并一键恢复，agent 用 `sound` 命令也能做；静音同时设置 Android 的两条声音记录，只认其中一条的机型也照顾到。
+- **`fix` 修得更多**：被留下静音的应用、停掉的前台服务、内置 Tailscale；“修好了”是修完重新检查的结果。
+- **端口被占用**：别的应用（或分身里的同一个 App）占着端口时，服务自动换到下一个空闲端口并说明是谁占着；本机 agent 自己找得到，Tailscale 自动转过去。
+- **识别更小更快**：PP-OCRv6 tiny 检测 + small 识别（11.5 MB）；`collect` 跳过搜索栏、一直收到真正的底部；`repeat … until` 最后一次按画面上现在的内容判断。
 
 ## 1.3.0 更新内容
 
