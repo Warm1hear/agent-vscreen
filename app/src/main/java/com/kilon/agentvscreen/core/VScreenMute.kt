@@ -50,7 +50,21 @@ object VScreenMute {
             ctx?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.edit()?.putBoolean(K_ON, v)?.apply()
             // 1.4.0-beta13: off gives back what the screen muted; apps muted by hand stay as the user set them.
             if (!v) Thread { runCatching { VScreenRemoteDisplay.soundGiveAll() }; known = emptySet() }.apply { isDaemon = true }.start()
+            else resync()
         }
+
+    /**
+     * 1.4.0-beta14 (test S6: turning muting back on left the apps on the screen audible until the next launch): the
+     * rule changed, so what is on the screen now is put under it at once, not at the agent's next action.
+     */
+    fun resync() {
+        Thread {
+            runCatching {
+                val d = BackgroundOperation.currentDisplay() ?: return@runCatching
+                sync(d.displayId, VScreenShell.topActivity(0)?.substringBefore('/'))
+            }.onFailure { AppLogger.warning(TAG, "resync: ${it.message}") }
+        }.apply { isDaemon = true; name = "vscreen-mute-resync" }.start()
+    }
 
     private fun legacyFile(): File? = ctx?.let { File(File(it.filesDir, "vscreen"), "muted.json") }
 
@@ -168,7 +182,7 @@ object VScreenMute {
     /** [pkg] keeps (true) or loses (false) its sound while on the background screen. */
     fun setPlays(pkg: String, on: Boolean) {
         put(K_PLAYS, if (on) plays() + pkg else plays() - pkg)
-        if (on && pkg in known) restore(pkg)
+        resync()
     }
 
     /** One app's state now: its two records, and whether it can be heard. */

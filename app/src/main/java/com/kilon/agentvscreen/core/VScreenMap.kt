@@ -160,6 +160,10 @@ internal object VScreenMap {
     @Synchronized fun forTeach(asked: String): Pair<String, Segment>? =
         knownPkgs().flatMap { p -> load(p).segments.filter { it.asked == asked }.map { p to it } }.maxByOrNull { it.second.at }
 
+    /** 1.4.0-beta14: the newest taught lesson called [name], in any app. */
+    @Synchronized fun taughtNamed(name: String): Pair<String, Segment>? =
+        knownPkgs().flatMap { p -> load(p).segments.filter { it.name == name && isTaught(p, it) }.map { p to it } }.maxByOrNull { it.second.at }
+
     /** 1.3.0-beta15: every saved segment of every app (the app's "saved lessons" page), newest first. */
     @Synchronized fun allSegments(): List<Pair<String, Segment>> =
         knownPkgs().flatMap { p -> load(p).segments.map { p to it } }.sortedByDescending { it.second.at }

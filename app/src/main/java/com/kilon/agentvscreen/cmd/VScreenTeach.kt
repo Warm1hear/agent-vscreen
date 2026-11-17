@@ -881,7 +881,8 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
     // 1.4.0-beta13 (test B6: the same teach sent again an hour later, or after the app restarted, asked the user
     // again): the request in memory is short-lived; what lasts is the segment it produced. A saved lesson remembers the
     // request it answered, so the same teach finds it whoever sends it and whenever.
-    val kept = if (old == null && !again) VScreenMap.forTeach(Teach.askedOf(key)) else null
+    // 1.4.0-beta14: a named teach also finds the taught lesson of that name (lessons kept before beta13 have no request).
+    val kept = if (old == null && !again) VScreenMap.forTeach(Teach.askedOf(key)) ?: name?.let { VScreenMap.taughtNamed(it) } else null
     val repeat = (old?.answer == true && old.used) || kept != null
     var heardLine = ""
     var said: List<String> = emptyList()

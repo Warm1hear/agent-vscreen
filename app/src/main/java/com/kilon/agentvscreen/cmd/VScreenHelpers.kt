@@ -1,5 +1,6 @@
 package com.kilon.agentvscreen.cmd
 
+import com.kilon.agentvscreen.core.VScreenAwake
 import com.kilon.agentvscreen.core.Change
 import com.kilon.agentvscreen.tr
 
@@ -153,7 +154,16 @@ internal fun entriesOfEls(els: List<El>, screenW: Int, screenH: Int, fixed: List
     // search page), known by its view id or class, the platform's own naming.
     val inputs = els.filter { it.editable || it.placeholder || it.search }.map { it.box }
     fun inInput(e: El) = e.editable || e.placeholder || e.search || inputs.any { it.contains(e.box.centerX(), e.box.centerY()) }
-    val live = els.filter { !isFixed(it) && (it.kind == ElKind.TEXT && it.text.isNotBlank()) && !inInput(it) }
+    val live0 = els.filter { !isFixed(it) && (it.kind == ElKind.TEXT && it.text.isNotBlank()) && !inInput(it) }
+    // 1.4.0-beta14 (test R8: Settings and the app store still began with their search bar): many apps draw that bar
+    // with no name the platform can read. What it says is the remaining sign: the topmost wide, short tappable bar whose
+    // words begin with "search" (or call themselves a search box) opens a search, it is not a row of the page.
+    val top = live0.minOfOrNull { it.box.top }
+    fun searchBar(e: El) = e.box.top == top && e.box.width() > screenW * 0.55 && e.box.height() < screenH / 10 &&
+        (e.clickable || els.any { o -> o.clickable && o.box.contains(e.box.centerX(), e.box.centerY()) && o.box.height() < screenH / 10 }) &&
+        e.text.trim().let { t -> t.startsWith("搜索") || t.startsWith("search", ignoreCase = true) || t.contains("搜索框") }
+    val bars = live0.filter { searchBar(it) }.map { it.box }
+    val live = live0.filter { e -> bars.none { it.contains(e.box.centerX(), e.box.centerY()) } }
     val area = screenW.toLong() * screenH
     val cards = live.filter { it.fromA11y && it.clickable && it.box.width().toLong() * it.box.height() in (area / 60)..(area / 2) }
         .sortedByDescending { it.box.width().toLong() * it.box.height() }
@@ -298,7 +308,23 @@ internal fun VScreenOffloadHandler.collectCmd(sid: String?, args: OffloadArgs): 
                 // on a carousel or was taken as a tap, stood still once and collect said "the end" (1, 3, 6 screens on
                 // the same feed; a scroll right after moved 47%). A second, different swipe confirms it, and only the
                 // list itself saying it cannot go further makes it "the end".
-                if (scrolled(0.5, 450, 2_500L) <= Change.Level.SCROLL.max && scrolled(0.3, 650, 3_500L) <= Change.Level.SCROLL.max) {
+                // 1.4.0-beta14 (test: Settings, the app store and Weather each stopped once after one screen, and the
+                // next try went through 3-5): when the list itself says it can go further, the swipes were the problem
+                // (asleep, still loading, landed on a carousel), so the list is asked to scroll by its own action once.
+                fun listScrolled(): Boolean {
+                    VScreenAwake.ensure(d)
+                    val snap = runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId) }.getOrNull() ?: return false
+                    if (snap.canScroll(forward = true) != true) return false
+                    val before = d.latestFrame()?.let { VScreenPerception.small(it) }
+                    if (!snap.scrollForward()) { before?.recycle(); return false }
+                    val still = Probe(this, d, listOf(Cond("stable", CondKind.STILL)))
+                    try { waitOn(d, still, 3_000L, null) } finally { still.close() }
+                    val after = d.latestFrame()?.let { VScreenPerception.small(it) }
+                    val moved = Change.ratio(before, after, null, emptyList()).let { if (it < 0) 1.0 else it }
+                    before?.recycle(); after?.recycle()
+                    return moved > Change.Level.SCROLL.max
+                }
+                if (scrolled(0.5, 450, 2_500L) <= Change.Level.SCROLL.max && scrolled(0.3, 650, 3_500L) <= Change.Level.SCROLL.max && !listScrolled()) {
                     why = when (runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).canScroll(forward = true) }.getOrNull()) {
                         false -> tr("到底了（再滑两次画面都没动，列表也说不能再往下）", "reached the end (two more swipes moved nothing, and the list says it cannot go further)")
                         true -> tr("再滑两次画面都没动，但列表说还能往下（可能在加载，或滑动落在了不能滚的地方）；稍后可以再 collect", "two more swipes moved nothing, though the list says it can go further (loading, or the swipe landed on something that does not scroll); collect again later")

@@ -68,6 +68,12 @@ object A11yTree {
             else AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD.id in ids || AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.id in ids
         }
 
+        /** 1.4.0-beta14: ask the largest visible scrollable area to go one page further (the list's own scroll). */
+        fun scrollForward(): Boolean {
+            val best = nodes.filter { it.scrollable && it.visible }.maxByOrNull { it.box.width().toLong() * it.box.height() } ?: return false
+            return runCatching { best.info.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) }.getOrDefault(false)
+        }
+
         /** Visible editable fields, in tree order. */
         fun editables(): List<Node> = nodes.filter { it.visible && it.editable }
 

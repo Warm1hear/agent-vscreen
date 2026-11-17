@@ -398,11 +398,22 @@ internal object VScreenShell {
     fun keyWithMethod(displayId: Int, key: String): KeyResult {
         if (key.length > 1 && '+' in key) {
             val c = runCatching { combo(key) }.getOrElse { return KeyResult(fail("INVALID_ARGS", it.message ?: key), "none") }
-            if (c != null) return KeyResult(injected(tr("组合键 $key", "shortcut $key"), displayId, injector.combo(displayId, c.first, c.second)), "inject")
+            if (c != null) return KeyResult(injected(tr("组合键 $key", "shortcut $key"), displayId, again { injector.combo(displayId, c.first, c.second) }), "inject")
         }
         val code = keyCode(key)
             ?: return KeyResult(fail("INVALID_ARGS", tr("未知按键 $key（可用：${KEYS.keys.joinToString(" ")} 或数字 keycode；没有 home / 多任务键）", "Unknown key $key (available: ${KEYS.keys.joinToString(" ")} or a numeric keycode; there is no home / recents key)")), "none")
-        return KeyResult(injected(tr("按键 $key", "key $key"), displayId, injector.key(displayId, code)), "inject")
+        return KeyResult(injected(tr("按键 $key", "key $key"), displayId, again { injector.key(displayId, code) }), "inject")
+    }
+
+    /**
+     * 1.4.0-beta14 (test: `key ctrl+a` once came back "the system refused the injection" and worked when sent again):
+     * a key the input system turns down once (it was busy dispatching the previous one) is sent once more.
+     */
+    private fun again(send: () -> Result<Boolean>): Result<Boolean> {
+        val r = send()
+        if (r.getOrNull() == true) return r
+        Thread.sleep(150)
+        return send()
     }
 
     fun key(displayId: Int, key: String): Outcome = keyWithMethod(displayId, key).outcome

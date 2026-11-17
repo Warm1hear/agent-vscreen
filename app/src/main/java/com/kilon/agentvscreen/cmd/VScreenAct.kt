@@ -535,14 +535,19 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
         val conds = step.until ?: if (quick) null else listOf(Cond("stable", CondKind.STABLE))
         val probe = conds?.let { Probe(this, d, it, afterAction = true) }
         // The picture before the action, to say afterwards when the action changed nothing at all.
-        val before = if (step.until == null && !quick && step.kind != StepKind.TYPE) d.latestFrame()?.let { VScreenPerception.small(it) } else null
+        // 1.4.0-beta14 (test K1/K2: "nothing changed" after ctrl+a and typed keys that did change the words): an
+        // editing key changes a few letters, too small to read as a change of the picture; it gets no such note.
+        val editKey = step.kind == StepKind.KEY && step.text.orEmpty().let { k -> '+' in k || k.length == 1 || k == "del" || k == "forward_del" || k == "space" }
+        val before = if (step.until == null && !quick && step.kind != StepKind.TYPE && !editKey) d.latestFrame()?.let { VScreenPerception.small(it) } else null
         try {
             val tAct = SystemClock.elapsedRealtime()
             val done1 = doAction(sid, d, step, ctxAct, lastTap)
             probe?.acted(step.kind)
             val actMs = SystemClock.elapsedRealtime() - tAct
             val fact = done1.text + if (actMs >= 1_500L) tr("（这一步本身用了 ${s1(actMs)}）", " (the step itself took ${s1(actMs)})") else ""
-            lastTap = if (step.kind == StepKind.TAP || step.kind == StepKind.PRESS) ctxAct.point else if (step.kind == StepKind.TYPE) lastTap else null
+            // 1.4.0-beta14 (test K6: tap a web box; key ctrl+a; type → the box was not found and the words were lost):
+            // an editing key keeps focus where the tap put it, so the tapped point still names the box typed into.
+            lastTap = if (step.kind == StepKind.TAP || step.kind == StepKind.PRESS) ctxAct.point else if (step.kind == StepKind.TYPE || editKey) lastTap else null
             val so = StepOut(label, step.raw, "done", "").also { it.fact = fact; it.point = ctxAct.point.takeIf { step.kind == StepKind.TAP || step.kind == StepKind.PRESS } }
             val maxMs = step.untilMs ?: if (step.until != null) Steps.UNTIL_DEFAULT_MS else 3_000L
             if (done1.miss != null) {

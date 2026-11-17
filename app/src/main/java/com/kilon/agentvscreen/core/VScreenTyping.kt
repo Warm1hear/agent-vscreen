@@ -171,7 +171,9 @@ object VScreenTyping {
         }
         latch.await(2, TimeUnit.SECONDS)
         if (!clipOk) throw ActionError("TYPE_FAILED", tr("无法写入剪贴板", "Cannot write the clipboard"))
-        val r = VScreenShell.key(displayId, "paste")
+        // 1.4.0-beta14 (test K6: the paste key did nothing in a web page, while ctrl+v there worked): paste with
+        // ctrl+v, the shortcut every text box handles (native boxes too); the paste key only when that cannot be sent.
+        val r = VScreenShell.key(displayId, "ctrl+v").takeIf { it.ok } ?: VScreenShell.key(displayId, "paste")
         if (!r.ok) throw ActionError(r.code, r.message)
         // Give the app a moment to read the clip, then do not leave our text on the clipboard.
         Thread.sleep(400)

@@ -930,6 +930,9 @@ object BackgroundOperation {
             throw ActionError("REREAD_REQUIRED", tr("用户刚接管过副屏，页面可能已变化。动作没有执行：看清现在的画面再继续", "The user just took over the screen and the page may have changed. The action was not done: look at the screen now before going on"))
         }
         runCatching { ensureUpright(d) }.onFailure { AppLogger.warning(TAG, "orientation check failed: ${it.message}") }
+        // 1.4.0-beta14 (test: collect stopped after one screen while the screen had gone to sleep): every command on
+        // the screen wakes it first, here, not only the ones that remembered to (act, look).
+        VScreenAwake.ensure(d)
         // v27 IME guard: the system focus (and with it the keyboard) belongs to the user's screen.
         val focus0 = if (!isRead && !describe.startsWith(tr("接力", "Relay"))) focusedNow() else null
         _state.update { it.copy(operating = true, action = describe.take(24)) }

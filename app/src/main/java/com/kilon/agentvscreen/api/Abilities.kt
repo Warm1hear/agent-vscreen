@@ -151,16 +151,16 @@ object Abilities {
             listOf("look", "zoom", "spots", "frames"),
             "排法写成一个词 `--layout 3x4`（之前文档里的 `grid 3x4` 会被拆成两段）；只有画面变了或出错时回执才附图。",
             "A layout is one word, `--layout 3x4` (the `grid 3x4` the docs showed is split in two by the shell); replies attach a picture only when the screen changed or something failed."),
-        Ability("trouble", 1, 37,
+        Ability("trouble", 1, 47,
             "连不上手机、命令一直失败或出了怪问题",
             "the phone cannot be reached, commands keep failing, or something odd happens",
-            "先分清是没开还是坏了：没在运行、服务关着或收起是用户的选择，转告用户打开即可，不用修；`vscreen status` 里 ready 为假时才是故障，`vscreen fix` 只修它列出的项",
-            "First tell off from broken: not running, service off or hidden is the user's choice; tell the user to open it, nothing to repair. Only `vscreen status` with ready false is a fault, and `vscreen fix` repairs just what it lists",
+            "先分清是没开还是坏了：没在运行、服务关着或收起是用户的选择，转告用户打开即可，不用修；`vscreen status` 里 ready 为假时才是故障，`vscreen fix` 修它列出的项，也恢复被留下静音的应用",
+            "First tell off from broken: not running, service off or hidden is the user's choice; tell the user to open it, nothing to repair. Only `vscreen status` with ready false is a fault, and `vscreen fix` repairs what it lists and gives sound back to apps left silent",
             "命令说 Agent-VScreen 没在运行、服务被关掉（DISABLED）或禁止了访问时，这不是故障：转告用户打开 App 或打开服务，不要让用户“修复”。`vscreen status`（ready、readiness.blocking、remote.user_action 说明要用户做什么）为假时才是故障：`vscreen fix` 修它列出的项（改系统设置的步骤手机上会问用户），`vscreen diag` 导出诊断交给开发者。",
             "When a command says Agent-VScreen is not running, the service was turned off (DISABLED) or access is blocked, that is not a fault: tell the user to open the app or turn the service on; don't ask them to repair anything. Only `vscreen status` with ready false is a fault (readiness.blocking and remote.user_action say what the user must do): `vscreen fix` repairs what it lists (steps that change system settings ask the user), `vscreen diag` exports diagnostics for the developer.",
             listOf("status", "fix", "diag"),
-            "文字识别失败时回执写 OCR_DOWN：那时元素只来自无障碍，以截图为准；vscreen diag 里有文字识别自检。",
-            "When text recognition fails the reply says OCR_DOWN: elements then come from accessibility only; trust the screenshot. vscreen diag has a text recognition self-test."),
+            "vscreen fix 不带参数时也会恢复被留下静音的应用，能自己重启前台服务和内置 Tailscale；结果里的 fixed 是修完再检查的结果。",
+            "vscreen fix without arguments also gives sound back to apps left silent, and can restart the foreground service and the built-in Tailscale itself; fixed in its result is a check made afterwards."),
     )
 
     /** Which ability a command belongs to (null = not disclosed: AbilitiesTest fails on that). */
