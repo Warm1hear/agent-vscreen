@@ -155,30 +155,7 @@ fun OverviewTab(bottom: Dp) {
     MiuixPage(title, back = false, bottom = bottom, lead = { StatusPill(eyebrow, mode, home) }, actions = {
         IconButton(onClick = { shield = true }, modifier = Modifier.padding(end = 12.dp)) { Icon(Icons.Filled.PowerSettingsNew, tr("服务", "Service")) }
     }) {
-        // Questions waiting: they slide in from the top and leave to the right when answered.
-        val waiting = pendingAsks()
-        AnimatedVisibility(waiting.isNotEmpty(), enter = slideInVertically(tween(380)) { -it / 3 } + fadeIn(tween(300)) + expandVertically(tween(380)),
-            exit = slideOutHorizontally(tween(280)) { it } + fadeOut(tween(220)) + shrinkVertically(tween(320, delayMillis = 160))) {
-            waiting.firstOrNull()?.let { a -> Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) { HomeAskCard(a, waiting.size) } }
-        }
-        // 1.4.0-beta10: a lesson recorded and not saved yet waits here until the user saves or discards it.
-        val review by com.kilon.agentvscreen.cmd.Teach.reviewing.collectAsState()
-        review?.let { r ->
-            val ctx = androidx.compose.ui.platform.LocalContext.current
-            Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp).fillMaxWidth(), insideMargin = androidx.compose.foundation.layout.PaddingValues(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AskMark(22f)
-                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                        Text(ReviewWords.title(r), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Text(ReviewWords.who(r), fontSize = 12.5.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1)
-                    }
-                }
-                Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PrimaryButton(onClick = { ReviewWords.open(ctx) }, modifier = Modifier.weight(1f)) { Text(tr("去保存", "Review and save")) }
-                    SoftButton(onClick = { ReviewWords.discard(ctx, r) }) { Text(tr("丢弃", "Discard")) }
-                }
-            }
-        }
+        NeedsGroup()
 
         val stage = @Composable { m: Modifier ->
             AnimatedContent(home, modifier = m, transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(200)) }, label = "stage") { h ->
@@ -430,13 +407,91 @@ private fun FirstUse(setupLeft: Boolean) {
     }
 }
 
+/**
+ * 1.4.0-beta11 (rainbow: notifications could not be tapped and the user did not know where agents' requests are
+ * handled). Everything that waits on the user, from every agent, in one group at the top of the home page; every
+ * notification opens this page (host.Needs). Each item names the agent it is for and offers the one tap that ends it.
+ */
+@Composable
+private fun NeedsGroup() {
+    val ctx = LocalContext.current
+    val host = LocalHost.current
+    val asks = pendingAsks()
+    val review by com.kilon.agentvscreen.cmd.Teach.reviewing.collectAsState()
+    val givenAll by com.kilon.agentvscreen.core.VScreenOwnership.given.collectAsState()
+    val given = givenAll.values.sortedBy { it.at }
+    val s by BackgroundOperation.state.collectAsState()
+    val refused by com.kilon.agentvscreen.host.Needs.waiting.collectAsState()
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(refused.isNotEmpty()) { while (refused.isNotEmpty()) { delay(5_000); tick++ } }
+    val queue = remember(refused, s.ownerSessionId, tick) { com.kilon.agentvscreen.host.Needs.waitingNow(owner = s.ownerSessionId) }
+    val n = asks.size + (if (review != null) 1 else 0) + given.size + queue.size
+    AnimatedVisibility(n > 0, enter = slideInVertically(tween(380)) { -it / 3 } + fadeIn(tween(300)) + expandVertically(tween(380)),
+        exit = fadeOut(tween(220)) + shrinkVertically(tween(320))) {
+        Column {
+            SmallTitle(tr("等你处理 · $n", "Waiting for you · $n"))
+            // Questions: the newest one as a full card; it leaves to the right when answered.
+            AnimatedVisibility(asks.isNotEmpty(), enter = fadeIn(tween(300)) + expandVertically(tween(380)),
+                exit = slideOutHorizontally(tween(280)) { it } + fadeOut(tween(220)) + shrinkVertically(tween(320, delayMillis = 160))) {
+                asks.firstOrNull()?.let { a -> Box(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) { HomeAskCard(a, asks.size) } }
+            }
+            review?.let { r ->
+                NeedCard(ReviewWords.title(r), ReviewWords.who(r), tr("去保存", "Review and save"), { ReviewWords.open(ctx) },
+                    tr("丢弃", "Discard")) { ReviewWords.discard(ctx, r) }
+            }
+            given.forEach { g ->
+                val app = remember(g.pkg) { com.kilon.agentvscreen.core.VScreenOwnership.label(ctx, g.pkg) }
+                val who = com.kilon.agentvscreen.api.Agents.nameOfSession(g.session)
+                NeedCard(tr("$app 在你手上", "$app is with you"),
+                    when (g.why) {
+                        "user" -> tr("你在主屏打开了它；「$who」在等你交回，交回后从你离开的页面接着做", "You opened it on the main screen; \"$who\" waits for it and carries on from your page")
+                        else -> tr("「$who」交给你的；用完点交回，它从你离开的页面接着做", "\"$who\" handed it to you; hand it back when done and it carries on from your page")
+                    },
+                    tr("交回", "Hand back"), {
+                        Thread { val line = com.kilon.agentvscreen.core.VScreenOwnership.handBack(ctx.applicationContext, g.pkg, "app"); host.say(line) }.start()
+                    },
+                    tr("打开", "Open")) {
+                    ctx.packageManager.getLaunchIntentForPackage(g.pkg)?.let { MainDisplay.start(ctx, it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                }
+            }
+            queue.forEach { w ->
+                val who = com.kilon.agentvscreen.api.Agents.nameOfSession(w.session)
+                val owner = s.ownerSessionId ?: w.owner
+                val holder = com.kilon.agentvscreen.api.Agents.nameOfSession(owner)
+                val left = com.kilon.agentvscreen.api.Turns.leftMs(owner)
+                NeedCard(tr("「$who」也想用副屏", "\"$who\" wants the screen too"),
+                    tr("「$holder」正在用。", "\"$holder\" is using it. ") + (left?.let { tr("它安静 ${(it + 59_999) / 60_000} 分钟内就会让出，「$who」会自己再试。", "It gives way within ${(it + 59_999) / 60_000} min of quiet; \"$who\" retries by itself.") }
+                        ?: tr("它有命令正在执行，做完后会让出。", "It is running a command and gives way after.")),
+                    if (left != null) tr("让「$who」先用", "Let \"$who\" go first") else null, { Thread { com.kilon.agentvscreen.api.Turns.finish(owner) }.start() })
+            }
+        }
+    }
+}
+
+@Composable
+private fun NeedCard(title: String, sub: String, main: String?, onMain: () -> Unit, second: String? = null, onSecond: () -> Unit = {}) {
+    Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp).fillMaxWidth(), insideMargin = PaddingValues(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AskMark(22f)
+            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(sub, fontSize = 12.5.sp, lineHeight = 18.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            }
+        }
+        if (main != null || second != null) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            main?.let { PrimaryButton(onClick = onMain, modifier = Modifier.weight(1f)) { Text(it) } }
+            second?.let { SoftButton(onClick = onSecond) { Text(it) } }
+        }
+    }
+}
+
 /** Bookings and watches still to come, as a row of small cards; nothing at all when there are none. */
 @Composable
 private fun NextUp(beat: Int, tick: Int) {
     val ctx = LocalContext.current
     val nav = LocalNav.current
     var books by remember { mutableStateOf(emptyList<Wake.Entry>()) }
-    LaunchedEffect(beat / 5, tick) { books = withContext(Dispatchers.IO) { runCatching { Wake.list(ctx).filter { it.on } }.getOrDefault(emptyList()) } }
+    LaunchedEffect(beat / 5, tick) { books = withContext(Dispatchers.IO) { runCatching { val now = System.currentTimeMillis(); Wake.list(ctx).filter { it.on && it.pending(now) != null } }.getOrDefault(emptyList()) } }
     val watches = remember(beat, tick) { VScreenRules.list().filter { !it.stopped } }
     if (books.isEmpty() && watches.isEmpty()) return
     SmallTitle(tr("接下来", "Coming up"))

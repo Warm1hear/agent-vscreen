@@ -84,7 +84,9 @@ class TeachActivity : PageActivity() {
         var name by remember { mutableStateOf(defaultName(r)) }
         var keep by remember { mutableStateOf(r.lines.indices.toSet()) }
         var literal by remember { mutableStateOf(emptySet<Int>()) }
-        val (steps, params) = Teach.build(r.lines, keep, literal)
+        // 1.4.0-beta11: after which steps the agent checks (marked while recording, or added here), and what it looks at.
+        var checks by remember { mutableStateOf(r.lines.withIndex().mapNotNull { (i, l) -> l.check?.let { i to it } }.toMap()) }
+        val (steps, params) = Teach.build(r.lines, keep, literal, checks)
         val ask = r.askId?.let { UserAsk.byId(it) }
 
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
@@ -100,7 +102,8 @@ class TeachActivity : PageActivity() {
                     label = { Text(tr("名字（agent 用 use 名字 来重放）", "Name (agents replay it with use <name>)")) }, shape = RoundedCornerShape(18.dp))
                 if (r.lines.isEmpty()) Text(tr("没有记到操作。", "Nothing was recorded."), fontSize = 15.sp)
                 r.lines.forEachIndexed { i, l -> StepRow(i, l, i in keep, i in literal, params = paramOf(r.lines, keep, literal, i),
-                    onKeep = { keep = if (i in keep) keep - i else keep + i }, onLiteral = { literal = if (i in literal) literal - i else literal + i }) }
+                    onKeep = { keep = if (i in keep) keep - i else keep + i }, onLiteral = { literal = if (i in literal) literal - i else literal + i },
+                    check = checks[i], onCheck = { v -> checks = if (v == null) checks - i else checks + (i to v.take(80)) }) }
                 if (keep.isNotEmpty()) Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(18.dp), lift = false).padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(tr("agent 这样用", "How an agent runs it"), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("act \"use $name" + (1..params).joinToString("") { " <$it>" } + "\"", fontSize = 13.sp, fontFamily = FontFamily.Monospace)
@@ -126,7 +129,8 @@ class TeachActivity : PageActivity() {
     }
 
     @Composable
-    private fun StepRow(i: Int, l: TeachLine, kept: Boolean, lit: Boolean, params: Int, onKeep: () -> Unit, onLiteral: () -> Unit) {
+    private fun StepRow(i: Int, l: TeachLine, kept: Boolean, lit: Boolean, params: Int, onKeep: () -> Unit, onLiteral: () -> Unit,
+                        check: String? = null, onCheck: (String?) -> Unit = {}) {
         val shown = when {
             l.kind == "value" && l.typed != null && !lit -> l.head + " until " + l.until.orEmpty().replaceFirst("text:${l.typed} in ", "text:{$params} in ")
             l.kind != "type" -> l.head + (l.until?.let { " until $it" } ?: "")
@@ -146,6 +150,17 @@ class TeachActivity : PageActivity() {
                 }
                 Text(l.why, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 l.warn?.let { Text(it, fontSize = 12.sp, color = Palette.stopped) }
+                // 1.4.0-beta11: a check after this step: the run stops here and the agent looks (or puts it right) first.
+                if (kept) {
+                    if (check == null) Text(tr("＋ 之后让 agent 看一下", "+ Have the agent check after this"), fontSize = 12.sp, color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onCheck(Teach.CHECK_DEFAULT) }.padding(vertical = 2.dp))
+                    else Column(Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        OutlinedTextField(check, { onCheck(it) }, Modifier.fillMaxWidth(), singleLine = true, textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
+                            label = { Text(tr("之后让 agent 看：", "Then the agent checks:")) }, shape = RoundedCornerShape(14.dp))
+                        Text(tr("去掉这个检查", "Remove this check"), fontSize = 12.sp, color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onCheck(null) }.padding(vertical = 2.dp))
+                    }
+                }
                 if (l.kind == "value" && l.typed != null && kept) Text(if (lit) tr("每次都拨到「${l.typed}」 · 点这里改成由 agent 填", "Always set to \"${l.typed}\" · tap to let the agent fill it")
                     else tr("由 agent 每次填（{$params}），这次是「${l.typed}」 · 点这里改成固定拨到这个值", "Filled by the agent each time ({$params}), \"${l.typed}\" this time · tap to always set this value"),
                     fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onLiteral).padding(vertical = 2.dp))

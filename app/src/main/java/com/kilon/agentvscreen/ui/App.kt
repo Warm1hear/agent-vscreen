@@ -27,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -169,6 +170,14 @@ fun AppRoot(host: AppHost, firstPage: Route?, snack: SnackbarHostState, firstTab
     val stack = rememberNavBackStack<Route>(Route.Main)
     val nav = remember(stack) { Nav(stack) { i -> scope.launch { pager.animateScrollToPage(i) } } }
     LaunchedEffect(firstPage) { if (firstPage != null && firstPage != Route.Main) nav.go(firstPage) }
+    // 1.4.0-beta11: a notification tapped while the app is open goes to its page (tab, then the page if it has one).
+    val asked by MainActivity.pageRequests.collectAsState()
+    LaunchedEffect(asked) {
+        val name = asked?.second ?: return@LaunchedEffect
+        nav.tab(MainActivity.tabOf(name))
+        MainActivity.routeOf(name)?.takeIf { it != Route.Connect }?.let { nav.go(it) }
+        MainActivity.pageRequests.value = null
+    }
     CompositionLocalProvider(LocalHost provides host, LocalNav provides nav, LocalApp provides app) {
         Box(Modifier.fillMaxSize()) {
             NavDisplay(backStack = stack, onBack = { nav.back() }) {

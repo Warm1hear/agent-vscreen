@@ -134,18 +134,21 @@ internal object VScreenHandoff {
         null
     }.getOrNull()
 
-    /** A heads-up notification; false when the system does not allow it (see [notifyBlocked]) or posting failed. */
-    fun alert(context: Context, id: Int, title: String, body: String, tap: android.app.PendingIntent? = null,
+    /**
+     * A heads-up notification; false when the system does not allow it (see [notifyBlocked]) or posting failed.
+     * 1.4.0-beta11: [tap] is required: every notification opens the place where it is handled (host.Needs.open).
+     */
+    fun alert(context: Context, id: Int, title: String, body: String, tap: android.app.PendingIntent,
               actions: List<Pair<String, android.app.PendingIntent>> = emptyList()): Boolean = runCatching {
         if (notifyBlocked(context) != null) return@runCatching false
         ensureAlertChannel(context)
         val n = NotificationCompat.Builder(context, ALERT_CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(com.kilon.agentvscreen.R.drawable.ic_stat)
             .setContentTitle(title).setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
-            .apply { tap?.let { setContentIntent(it) }; actions.forEach { (t, pi) -> addAction(0, t, pi) } }
+            .setContentIntent(tap).apply { actions.forEach { (t, pi) -> addAction(0, t, pi) } }
             .build()
         context.getSystemService(NotificationManager::class.java)?.notify(id, n)
         true

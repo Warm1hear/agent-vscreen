@@ -148,6 +148,10 @@ internal fun RequestCard(a: UserAsk.Ask?, session: String, recording: Boolean, p
                     GlassPill(if (paused) tr("继续记录", "Resume") else tr("暂停记录", "Pause"), false, 1f) { Teach.setPaused(!paused) }
                     GlassPill(tr("完成", "Done"), true, 1f, Modifier.weight(1f)) { Teach.finish(ctx) }
                 }
+                // 1.4.0-beta11 (rainbow): mark that the agent should look here before the lesson goes on (said better on the save page).
+                GlassPill(tr("这一步后让 agent 看一下", "Have the agent check after this step"), false, 1f, Modifier.fillMaxWidth()) {
+                    Teach.markCheck(); android.widget.Toast.makeText(ctx, tr("记下了：agent 会在这一步之后看一下，保存时可以写它看什么", "Marked: the agent checks after this step; say what on the save page"), android.widget.Toast.LENGTH_SHORT).show()
+                }
                 if (a != null) Say { saying = true }
             }
             prep -> {

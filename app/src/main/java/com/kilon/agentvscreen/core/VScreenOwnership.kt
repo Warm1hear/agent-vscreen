@@ -162,7 +162,12 @@ object VScreenOwnership {
         com.kilon.agentvscreen.ui.Overlay.refresh()
     }
 
-    private fun nudgeId(pkg: String) = 7300 + (pkg.hashCode() and 0xff)
+    /** One notification per handed-over app ("yours now", later "done with it?"); clear of the watch (7300+) and ask (7400–7899) ids. */
+    fun nudgeId(pkg: String) = 8100 + (pkg.hashCode() and 0xff)
+
+    fun handBackIntent(ctx: Context, pkg: String): android.app.PendingIntent = android.app.PendingIntent.getService(ctx, nudgeId(pkg),
+        android.content.Intent(ctx, com.kilon.agentvscreen.host.HostService::class.java).setAction(com.kilon.agentvscreen.host.HostService.ACTION_HAND_BACK).putExtra("pkg", pkg),
+        android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
 
     /** Start watching (idempotent). Runs while the service runs; ticks only do work while there is a screen. */
     fun start(ctx: Context) {
@@ -252,12 +257,12 @@ object VScreenOwnership {
                 away && !g.nudged && now - g.leftAt >= NUDGE_MS -> {
                     _given.update { it + (g.pkg to g.copy(nudged = true)) }
                     val app = label(ctx, g.pkg)
-                    val pi = android.app.PendingIntent.getService(ctx, nudgeId(g.pkg),
-                        android.content.Intent(ctx, com.kilon.agentvscreen.host.HostService::class.java).setAction(com.kilon.agentvscreen.host.HostService.ACTION_HAND_BACK).putExtra("pkg", g.pkg),
-                        android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+                    val who = com.kilon.agentvscreen.api.Agents.nameOfSession(g.session)
                     VScreenHandoff.alert(ctx, nudgeId(g.pkg), tr("$app 用完了吗？", "Done with $app?"),
-                        tr("agent 在等你把 $app 交回去。用完了就点“交回”，它会从你离开的页面接着做。", "The agent is waiting for $app. When you are done, tap Hand back and it carries on from where you left it."),
-                        actions = listOf(tr("交回", "Hand back") to pi))
+                        tr("「$who」在等你把 $app 交回去。用完了就点“交回”，它会从你离开的页面接着做；也可以点开 Agent-VScreen 处理。",
+                            "\"$who\" is waiting for $app. When you are done, tap Hand back and it carries on from where you left it, or open Agent-VScreen."),
+                        com.kilon.agentvscreen.host.Needs.open(ctx, com.kilon.agentvscreen.host.Needs.Page.HOME, 7),
+                        listOf(tr("交回", "Hand back") to handBackIntent(ctx, g.pkg)))
                 }
             }
         }

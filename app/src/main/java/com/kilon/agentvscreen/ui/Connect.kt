@@ -52,6 +52,7 @@ import com.kilon.agentvscreen.host.Tailnet
 import com.kilon.agentvscreen.host.Tailnet.Phase as TsPhase
 import com.kilon.agentvscreen.tr
 import kotlinx.coroutines.Dispatchers
+import com.kilon.agentvscreen.core.BackgroundOperation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -247,6 +248,7 @@ fun AgentPage(id: String) {
         InfoCard(if (k == Kept.CAME_BACK) Palette.takeover else if (k == Kept.CONNECTED) Palette.stopped else Palette.standby,
             when (k) { Kept.CAME_BACK -> tr("已记下，后来也在用", "Saved, and still using it"); Kept.SAVED -> tr("已记下说明", "Note saved"); Kept.CONNECTED -> tr("还没说记在哪", "Has not said where it saved it"); Kept.NONE -> tr("还没连上过", "Not connected yet") },
             remember(l, id) { keptText(id, l) })
+        AgentNow(id)
         Group(tr("名字", "Name")) {
             TextField(value = n, onValueChange = { n = it.take(24) }, label = tr("名字", "Name"), useLabelAsPlaceholder = true, singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp))
@@ -265,6 +267,56 @@ fun AgentPage(id: String) {
                 Text(tr("它的令牌作废，连不上了；做过的任务还留在记录里", "Its token stops working; its past tasks stay in the records"), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
         }
+    }
+}
+
+/**
+ * 1.4.0-beta11 (rainbow: with several agents, can the user manage them quickly?). What this agent has going on the
+ * phone now, each with the tap that ends it: its bookings, its watches, what it waits on from the user, and its records.
+ */
+@Composable
+private fun AgentNow(id: String) {
+    val ctx = LocalContext.current
+    val nav = LocalNav.current
+    fun mine(session: String?) = com.kilon.agentvscreen.api.Agents.ofSession(session) == id
+    var tick by remember { mutableIntStateOf(0) }
+    var books by remember { mutableStateOf(emptyList<com.kilon.agentvscreen.host.Wake.Entry>()) }
+    LaunchedEffect(tick) { while (true) { books = withContext(Dispatchers.IO) { runCatching { com.kilon.agentvscreen.host.Wake.list(ctx).filter { mine(it.session) } }.getOrDefault(emptyList()) }; delay(3_000) } }
+    val watches = remember(tick, books) { com.kilon.agentvscreen.core.VScreenRules.list().filter { !it.stopped && mine(it.spec.sid) } }
+    val open by com.kilon.agentvscreen.host.UserAsk.open.collectAsState()
+    val given by com.kilon.agentvscreen.core.VScreenOwnership.given.collectAsState()
+    val waits = open.count { mine(it.session) } + given.values.count { mine(it.session) }
+    val s by BackgroundOperation.state.collectAsState()
+    val using = mine(s.ownerSessionId) && s.displayId != null
+    Group(tr("它现在", "Now")) {
+        if (using) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Dot(Palette.brand); Text(tr("  正在用副屏", "  Using the screen now"), fontSize = 15.sp)
+        }
+        if (waits > 0) ArrowPreference(title = tr("等你处理 $waits 件", "$waits waiting for you"), summary = tr("在首页最上面", "At the top of the home page"), onClick = { nav.tab(0) })
+        books.forEach { e ->
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(tr("预约「${e.name}」", "Booking \"${e.name}\""), fontSize = 15.sp)
+                    Text(e.spec.describe(), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+                Text(tr("取消", "Cancel"), color = MiuixTheme.colorScheme.error, fontSize = 14.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { Thread { com.kilon.agentvscreen.host.Wake.remove(ctx.applicationContext, e.name, id); tick++ }.start() }.padding(horizontal = 12.dp, vertical = 8.dp))
+            }
+        }
+        watches.forEach { l ->
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(tr("盯守「${l.spec.name}」", "Watch \"${l.spec.name}\""), fontSize = 15.sp)
+                    Text(l.status, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 2)
+                }
+                Text(tr("停止", "Stop"), color = MiuixTheme.colorScheme.error, fontSize = 14.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { com.kilon.agentvscreen.core.VScreenRules.stop(l.spec.name, tr("用户在 App 里停止", "stopped by the user in the app")); tick++ }.padding(horizontal = 12.dp, vertical = 8.dp))
+            }
+        }
+        if (!using && waits == 0 && books.isEmpty() && watches.isEmpty())
+            Text(tr("没有在用副屏，也没有预约或盯守", "Not using the screen; no bookings or watches"), fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp))
+        ArrowPreference(title = tr("它的记录", "Its records"), onClick = { RecordsWho.value = id; nav.tab(TAB_RECORDS) })
     }
 }
 

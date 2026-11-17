@@ -210,7 +210,7 @@ object UserAsk {
                 fun pi(allow: Boolean) = PendingIntent.getService(ctx, a.id * 2 + (if (allow) 1 else 0),
                     Intent(ctx, HostService::class.java).setAction(ACTION).putExtra("id", a.id).putExtra("allow", allow),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-                val open = PendingIntent.getActivity(ctx, 6, Intent(ctx, com.kilon.agentvscreen.ui.MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE, com.kilon.agentvscreen.ui.MainDisplay.options())
+                val open = Needs.open(ctx, Needs.Page.HOME, 6)
                 val body = tr("${a.detail}\n来自：${a.tokenName}（会话 ${a.session}）", "${a.detail}\nFrom: ${a.tokenName} (session ${a.session})")
                 b.setContentTitle(tr("AI 请求：${a.title}", "AI asks: ${a.title}"))
                     .setContentText(a.detail).setStyle(NotificationCompat.BigTextStyle().bigText(body))
@@ -256,7 +256,7 @@ object UserAsk {
         if (open != null) { answer(ctx, open.id, true, reply); return }
         if (key == null || token == null) return
         val a = synchronized(lock) {
-            Ask(++seq, Kind.TEACH, key, token, tokenName ?: token, session ?: "default", title, "", System.currentTimeMillis(), false, validMs = 15 * 60_000L).also {
+            Ask(++seq, Kind.TEACH, key, token, tokenName ?: token, session ?: "default", title, "", System.currentTimeMillis(), true, validMs = 15 * 60_000L).also {
                 it.reply = reply; it.answer = true; it.answeredAt = System.currentTimeMillis(); asks += it; publish(); lock.notifyAll()
             }
         }

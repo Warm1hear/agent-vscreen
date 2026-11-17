@@ -206,7 +206,12 @@ private fun VScreenOffloadHandler.handoffOut(sid: String, pkgArg: String?, msg: 
             synchronized(VScreenOffloadHandler.lastActivity) { VScreenOffloadHandler.lastActivity[d0.displayId] })
         if (!m.ok) throw ActionError("HANDOFF_DENIED", tr("系统没有让 $pkg 移回主屏（${m.detail}）。替代：请用户点副屏悬浮窗 › 全屏 › 接管，自己完成这一步", "The system did not move $pkg back to the main screen (${m.detail}). Instead: ask the user to tap the floating window › Full screen › Take over and do the step themselves"))
         val label = runCatching { context.packageManager.getApplicationInfo(pkg, 0).loadLabel(context.packageManager).toString() }.getOrDefault(pkg)
-        val notified = VScreenHandoff.alert(context, 7290, tr("$label 已交给你", "$label is yours now"), msg ?: tr("Agent 把 $label 停在当前页面交给你，请在主屏继续", "The agent left $label on the current page for you; carry on on the main screen"))
+        val who = com.kilon.agentvscreen.api.Agents.nameOfSession(sid)
+        val notified = VScreenHandoff.alert(context, com.kilon.agentvscreen.core.VScreenOwnership.nudgeId(pkg), tr("$label 已交给你", "$label is yours now"),
+            (msg ?: tr("「$who」把 $label 停在当前页面交给你，请在主屏继续。", "\"$who\" left $label on the current page for you; carry on on the main screen.")) +
+                tr("\n用完点“交回”，它会从你离开的页面接着做。", "\nWhen done, tap Hand back and it carries on from where you left it."),
+            com.kilon.agentvscreen.host.Needs.open(context, com.kilon.agentvscreen.host.Needs.Page.HOME, 1),
+            listOf(tr("交回", "Hand back") to com.kilon.agentvscreen.core.VScreenOwnership.handBackIntent(context, pkg)))
         text(run { val top = VScreenShell.topPackage(0) ?: "?"; tr("$pkg 已移到主屏最前面（${m.via}），停在交还时的页面；主屏现在是 $top。", "$pkg is now in front on the main screen (${m.via}), on the page it was handed back on; the main screen shows $top. ") } +
             (if (notified) tr("已通知用户。", "The user was notified.") else run { val why = VScreenHandoff.notifyBlocked(context) ?: tr("通知没发出", "the notification was not sent"); tr("没通知到用户（$why）。", "The user was not notified ($why). ") }) +
             tr("告诉用户接下来要做什么；之后不要再操作它，除非用户再让你接手（handoff in）", "Tell the user what to do next; don't operate it afterwards unless the user asks you to take it over again (handoff in)"))

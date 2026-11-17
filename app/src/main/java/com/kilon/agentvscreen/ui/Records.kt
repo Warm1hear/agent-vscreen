@@ -98,6 +98,9 @@ private fun dayOf(at: Long): String {
     }
 }
 
+/** 1.4.0-beta11: whose records the tab shows; an agent's page opens the tab on that agent's records. */
+object RecordsWho { var value by androidx.compose.runtime.mutableStateOf<String?>(null) }
+
 @Composable
 fun RecordsTab(bottom: Dp) {
     val app = LocalApp.current
@@ -106,7 +109,7 @@ fun RecordsTab(bottom: Dp) {
     LaunchedEffect(Unit) { while (true) { delay(4_000); beat++ } }
     var filter by remember { mutableStateOf(Filter.ALL) }
     // 1.4.0-beta7: whose records (null = every agent); shown once more than one agent left any.
-    var who by remember { mutableStateOf<String?>(null) }
+    var who by RecordsWho::value
     var lines by remember { mutableStateOf(emptyList<Line>()) }
     LaunchedEffect(beat, app.tick) {
         lines = withContext(Dispatchers.IO) {
@@ -139,7 +142,7 @@ fun RecordsTab(bottom: Dp) {
         }, confirmButton = {}, dismissButton = {})
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(Filter.ALL to tr("全部", "All"), Filter.TASKS to tr("任务", "Tasks"), Filter.ASKS to tr("提问", "Questions"),
-                Filter.PLANS to tr("预约与盯守", "Plans"), Filter.LESSONS to tr("示教", "Lessons")).forEach { (f, label) ->
+                Filter.PLANS to tr("预约与盯守", "Plans"), Filter.LESSONS to tr("经验", "Kept")).forEach { (f, label) ->
                 FilterChip(label, filter == f) { filter = f }
             }
         }
@@ -277,7 +280,7 @@ fun SchedulesPage() {
 @Composable
 fun LessonsPage() {
     val app = LocalApp.current
-    MiuixPage(tr("示教", "Lessons")) {
+    MiuixPage(tr("经验", "Kept")) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { LessonsList(app.tick) }
     }
 }

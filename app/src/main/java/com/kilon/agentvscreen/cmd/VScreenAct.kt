@@ -356,6 +356,15 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
     var missed: String? = null
     var outcome = "done"
     var skipped = 0
+    // 1.4.0-beta11 (rainbow): a `check` step stops the stretch and hands the screen to the agent; [resumeWith] is how
+    // to go on from the step after it (`use NAME … from N` inside a segment, the remaining steps in a plain act).
+    class Checkpoint(val label: String, val what: String, val resumeWith: String?)
+    var checkpoint: Checkpoint? = null
+    // Where each running `use` is (its name, values and which of its own steps), innermost last; and the top-level step.
+    class UseAt(val name: String, val params: List<String>, val size: Int) { var at = 0 }
+    val useStack = ArrayList<UseAt>()
+    var topAt = 0
+    var topSteps: List<Step> = emptyList()
     fun screenNow(): String = runCatching {
         val sn = snapshot(d)
         val words = sn.els.filter { !it.placeholder }.map { it.text.take(16) }.distinct().take(10)
@@ -384,12 +393,19 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
             var name = step.text!!
             var params = emptyList<String>()
             var seg0 = app?.let { VScreenMap.segment(it, name) }
-            val toks = Steps.tokens(step.raw).drop(1)
+            var toks = Steps.tokens(step.raw).drop(1)
+            // 1.4.0-beta11: `use NAME values… from N` goes on from its N-th step (after a check stopped it).
+            var fromN = 1
+            if (toks.size >= 3 && toks[toks.size - 2].lowercase() in setOf("from", "从") && toks.last().toIntOrNull() != null) {
+                fromN = toks.last().toInt().coerceAtLeast(1); toks = toks.dropLast(2)
+                if (seg0 == null) { name = toks.joinToString(" "); seg0 = app?.let { VScreenMap.segment(it, name) } }
+            }
             if (seg0 == null && toks.size > 1) app?.let { VScreenMap.segment(it, toks[0]) }?.let { seg0 = it; name = toks[0]; params = toks.drop(1) }
             val seg = seg0 ?: throw StepRefused("NOT_FOUND", tr("没有叫“$name”的段（${app ?: "当前应用"}）：note 能看到保存过的段", "No segment named \"$name\" (${app ?: "current app"}): note lists the saved segments"))
             if (depth >= 3) throw StepRefused("INVALID_STEP", tr("段里 use 套用太深（最多 3 层）", "use is nested too deep in segments (at most 3 levels)"))
             // 1.4.0-beta4: a lesson starts from the page it was shown on. Not there: do nothing and say what it looks like.
-            seg.start?.let { st ->
+            // Going on after a check (from N > 1) is in the middle, not at the start.
+            seg.start?.takeIf { fromN == 1 }?.let { st ->
                 val shot = runCatching { com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId) }.getOrNull()
                 val read = VScreenPerception.reading(d.displayId, 0L, 0)?.items.orEmpty()
                 val top = runCatching { VScreenShell.topActivity(d.displayId) }.getOrNull()
@@ -402,8 +418,34 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
                 "Segment \"$name\" takes ${missing.max()} values (missing ${missing.joinToString(" ") { "{$it}" }}): use $name ${(1..missing.max()).joinToString(" ") { "<$it>" }}; quote values with spaces"))
             val inner = runCatching { filled.map { Steps.parse(it.first) } }.getOrElse { throw StepRefused("INVALID_STEP", tr("段“$name”的步骤读不懂：${it.message}", "The steps of segment \"$name\" can't be parsed: ${it.message}")) }
             put(StepOut(label, step.raw, "done", tr("$label use $name（${inner.size} 步）", "$label use $name (${inner.size} steps)")))
+            if (fromN > inner.size) throw StepRefused("INVALID_STEP", tr("段“$name”只有 ${inner.size} 步，没有第 $fromN 步", "Segment \"$name\" has only ${inner.size} steps, there is no step $fromN"))
             app?.let { VScreenMap.markUsed(it, name) }
-            inner.forEachIndexed { i, st -> runOne(st, "$label.${i + 1}", depth + 1, quick, own) }
+            val at = UseAt(name, params, inner.size)
+            useStack += at
+            // 1.4.0-beta11: where it really started from, for a segment that does not know its start yet (learned once it succeeds).
+            val startSeen = if (fromN == 1 && seg.start == null && app != null && !VScreenMap.oldLesson(app, seg)) runCatching { Teach.startHere(d.displayId) }.getOrNull() else null
+            try {
+                inner.forEachIndexed { i, st -> if (i + 1 >= fromN) { at.at = i + 1; runOne(st, "$label.${i + 1}", depth + 1, quick, own) } }
+            } finally { useStack.remove(at) }
+            if (startSeen != null && missed == null && outcome == "done" && stoppedBy == null && checkpoint == null) app?.let { VScreenMap.learnStart(it, name, startSeen) }
+            return
+        }
+        if (step.kind == StepKind.CHECK) {
+            step.until?.let { conds ->
+                val w = check(conds, step.untilMs ?: Steps.CHECK_DEFAULT_MS, label, step.raw) ?: return
+                if (w.met != null) { put(StepOut(label, step.raw, "done", tr("$label check「${step.text}」：${w.met}，不用停", "$label check \"${step.text}\": ${w.met}, no need to stop"))); return }
+            }
+            fun q(v: String) = if (v.any { it.isWhitespace() }) "'$v'" else v
+            val u = useStack.lastOrNull()
+            val resume = when {
+                u != null && u.at < u.size -> "act \"use ${u.name}" + u.params.joinToString("") { " " + q(it) } + " from ${u.at + 1}\""
+                u != null -> null
+                topAt < topSteps.size -> "act \"" + topSteps.drop(topAt).joinToString("; ") { it.raw } + "\""
+                else -> null
+            }
+            put(StepOut(label, step.raw, "check", tr("$label 检查点：${step.text}", "$label checkpoint: ${step.text}")).also { it.code = "CHECKPOINT" })
+            checkpoint = Checkpoint(label, step.text!!, resume)
+            outcome = "checkpoint"
             return
         }
         if (++ran > MAX_RUN) throw StepRefused("INVALID_STEP", tr("这段已经做了 $MAX_RUN 步（repeat 套得太多），停在这里", "this stretch has already done $MAX_RUN steps (too many repeats); it stops here"))
@@ -522,7 +564,9 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
         } finally { probe?.close(); before?.recycle() }
     }
     fun runList(list: List<Step>, prefix: String, quickAll: Boolean, lastWaits: Boolean, own: Boolean) {
+        if (own) topSteps = list
         list.forEachIndexed { i, st ->
+            if (own) topAt = i + 1
             val last = i == list.lastIndex
             runOne(st, "$prefix${i + 1}", 0, quick = quickAll && !(last && lastWaits), own = own)
         }
@@ -580,6 +624,14 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
         outcome = "missed"
         notes.add(outs.lastOrNull { it.status == "missed" }?.code ?: "STEP_MISSED", tr("没达到预期，这段停在这里：$m", "Expectation missed, the stretch stops here: $m") + (if (skipped > 0) tr("。后面 $skipped 步没做", ". The remaining $skipped steps were not done") else "") + tr("。看截图决定下一步", ". Look at the screenshot to decide what next"))
         if (skipped > 0) lines += tr("（后面 $skipped 步没做：上一步没达到预期）", "(the remaining $skipped steps were not done: the previous step missed its expectation)")
+    }
+    checkpoint?.let { c ->
+        notes.add("CHECKPOINT", tr("停在检查点 ${c.label}：${c.what}。先看【现在】的画面：没问题就接着跑" + (c.resumeWith?.let { "：$it" } ?: "（后面没有步骤了）") +
+                "；不对就先用 act 改好，再接着跑。改的事每次都一样的话，把它写回段里（note save），下次就不用停。",
+            "Stopped at checkpoint ${c.label}: ${c.what}. Look at [Now] first: if it is right, go on" + (c.resumeWith?.let { ": $it" } ?: " (no steps were left)") +
+                "; if not, put it right with act first, then go on. If the fix is the same every time, write it into the segment (note save) so it need not stop next time."))
+        if (skipped > 0) lines += tr("（检查点之后的 $skipped 步还没做）", "(the $skipped steps after the checkpoint are not done yet)")
+        com.kilon.agentvscreen.host.Needs.checkpoint(context, sid, c.what, app)
     }
     if (outcome == "done" && stoppedBy != null) outcome = "stopped"
     if (setupMs >= 1_000L) lines += tr("（开始前的准备用了 ${s1(setupMs)}：唤醒副屏、读取这个应用的记录）", "(getting ready took ${s1(setupMs)}: waking the screen, reading this app's records)")

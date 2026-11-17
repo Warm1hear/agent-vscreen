@@ -447,7 +447,8 @@ class ApiServer(private val ctx: Context) {
             if (first) {
                 Audit.security("locked_out", who)
                 quiet("lockout-notify") { com.kilon.agentvscreen.core.VScreenHandoff.alert(ctx, 7390, tr("有设备在反复尝试连接 Agent-VScreen", "A device keeps trying to connect to Agent-VScreen"),
-                    tr("$who 一分钟内 $n 次验证失败，已暂停接受它的请求 ${LOCK_MS / 60_000} 分钟。不是你的设备的话，在 其它设备 里关掉远程访问或重置令牌", "$who failed verification $n times within a minute; its requests are refused for ${LOCK_MS / 60_000} minutes. If it is not your device, turn off remote access or reset the token under Other devices")) }
+                    tr("$who 一分钟内 $n 次验证失败，已暂停接受它的请求 ${LOCK_MS / 60_000} 分钟。不是你的设备的话，在 其它设备 里关掉远程访问或重置令牌", "$who failed verification $n times within a minute; its requests are refused for ${LOCK_MS / 60_000} minutes. If it is not your device, turn off remote access or reset the token under Other devices"),
+                    com.kilon.agentvscreen.host.Needs.open(ctx, com.kilon.agentvscreen.host.Needs.Page.CONNECT, 2)) }
             }
         }
         // Slow every wrong guess down a little (bounded: it holds one worker).

@@ -29,6 +29,15 @@ class MainActivity : ComponentActivity(), AppHost {
     companion object {
         const val EXTRA_PAGE = "page"
 
+        /** 1.4.0-beta11: the tab a page name opens (notifications open HOME, RECORDS, CONNECT …). */
+        fun tabOf(name: String?): Int = when (name?.uppercase()) { "RECORDS" -> TAB_RECORDS; "CONNECT" -> TAB_CONNECT; "SETTINGS" -> 3; else -> 0 }
+
+        /**
+         * A page asked for while the app is already open (it is singleTask: a notification tap reaches onNewIntent,
+         * not onCreate). AppRoot follows it. Before beta11 such a tap only brought the app forward on whatever page.
+         */
+        val pageRequests = kotlinx.coroutines.flow.MutableStateFlow<Pair<Long, String>?>(null)
+
         /** A page name from a notification, a shortcut or a test: the route names, plus the 1.3 page names. */
         fun routeOf(name: String?): Route? = when (name?.uppercase()) {
             null, "", "MAIN" -> null
@@ -53,8 +62,13 @@ class MainActivity : ComponentActivity(), AppHost {
         super.onCreate(savedInstanceState)
         if (MainDisplay.moved(this)) return
         val page = intent?.getStringExtra(EXTRA_PAGE)
-        val tab = when (page?.uppercase()) { "RECORDS" -> 1; "SETTINGS" -> 2; else -> 0 }
-        setContent { AvsTheme { AppRoot(this, routeOf(page), snack, tab) } }
+        setContent { AvsTheme { AppRoot(this, routeOf(page)?.takeIf { it != Route.Connect }, snack, tabOf(page)) } }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra(EXTRA_PAGE)?.let { pageRequests.value = System.nanoTime() to it }
     }
 
     override fun onResume() {

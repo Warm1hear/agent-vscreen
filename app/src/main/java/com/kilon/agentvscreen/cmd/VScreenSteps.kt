@@ -50,7 +50,9 @@ internal enum class StepKind(val key: String, private val zh: String, private va
     SCROLL("scroll", "scroll down", "scroll down"), TYPE("type", "type 文字", "type <text>"), KEY("key", "key back", "key back"),
     WAIT("wait", "wait 条件", "wait <condition>"), SLEEP("sleep", "wait 2s", "wait 2s"), USE("use", "use 段名", "use <segment>"),
     TRY("try", "try 一步", "try <step>"), IF("if", "if 条件 { … } else { … }", "if <cond> { … } else { … }"),
-    REPEAT("repeat", "repeat 3 { … } | repeat { … } until 条件", "repeat 3 { … } | repeat { … } until <cond>");
+    REPEAT("repeat", "repeat 3 { … } | repeat { … } until 条件", "repeat 3 { … } | repeat { … } until <cond>"),
+    /** 1.4.0-beta11 (rainbow): stop here and hand the screen to the agent to check (or put right) before going on. */
+    CHECK("check", "check \"要看什么\" [unless 条件]", "check \"what to look at\" [unless <cond>]");
     /** How it is written (help): generated, so the help cannot miss a kind. */
     val form: String get() = tr(zh, en)
     override fun toString() = key
@@ -76,7 +78,7 @@ internal data class Step(
     val alt: List<Step> = emptyList(),
     val times: Int = 0,
 ) {
-    val isAction: Boolean get() = kind !in BLOCKS && kind !in setOf(StepKind.WAIT, StepKind.SLEEP, StepKind.USE)
+    val isAction: Boolean get() = kind !in BLOCKS && kind !in setOf(StepKind.WAIT, StepKind.SLEEP, StepKind.USE, StepKind.CHECK)
     companion object { val BLOCKS = setOf(StepKind.TRY, StepKind.IF, StepKind.REPEAT) }
 }
 
@@ -103,6 +105,16 @@ internal object Steps {
     /** 1.2: key names come from the one key table (VScreenShell.KEYS); a number is a keycode. */
     private fun isKey(k: String): Boolean = com.kilon.agentvscreen.core.VScreenShell.keyCode(k) != null
     private val KEY_NAMES: String get() = com.kilon.agentvscreen.core.VScreenShell.KEYS.keys.joinToString(" ")
+
+    /**
+     * 1.4.0-beta11: whether `tap <s>` reads back as exactly the words [s] (not coordinates, an element number, an
+     * offset, a duration or an @N). Recorders (teach) name places only this way, so what they write is what replays.
+     */
+    fun readsAsWords(s: String): Boolean = runCatching {
+        val t = s.trim()
+        val q = if (t.any { it.isWhitespace() }) "\"$t\"" else t
+        parse("tap $q").target == StepTarget.Words(t)
+    }.getOrDefault(false)
 
     /** Split a segment into step strings: ';' / '；' / new lines, not inside quotes. */
     fun split(body: String): List<String> {
@@ -325,6 +337,19 @@ internal object Steps {
         if (toks0.isEmpty()) bad(raw, tr("空步骤", "empty step"))
         val verb = toks0[0].lowercase()
         if (verb in setOf("try", "试", "if", "如果", "repeat", "重复")) return blockStep(raw.trim(), verb, toks0[0])
+        if (verb == "check" || verb == "检查") {
+            // `check "what to look at" [unless <cond>]`: the words are what the agent should look at; unless = pass by
+            // itself when that is on the screen (checked for 1.5 s like if), so a run that went well is not stopped.
+            val ui = toks0.indexOfFirst { it.lowercase() == "unless" || it == "除非" }
+            val what = (if (ui > 0) toks0.subList(1, ui) else toks0.drop(1)).joinToString(" ").trim()
+            if (what.isEmpty()) bad(raw, tr("check 后面写要 agent 看什么：check \"确认收件人\" [unless text:已发送]", "write what the agent should look at after check: check \"confirm the recipient\" [unless text:Sent]"))
+            if (ui > 0) {
+                if (ui == toks0.lastIndex) bad(raw, tr("unless 后面写条件：", "unless needs a condition: ") + CONDS_HELP)
+                val (c, max) = condsWithMax(toks0.drop(ui + 1))
+                return Step(raw, StepKind.CHECK, text = what, until = c, untilMs = max ?: CHECK_DEFAULT_MS)
+            }
+            return Step(raw, StepKind.CHECK, text = what)
+        }
         if (verb == "else" || verb == "否则") bad(raw, tr("else 要紧跟在 if { … } 后面，同一步里", "else goes right after if { … }, in the same step"))
         // until … at the end (for type only when what follows really is a condition).
         val ui = toks0.indexOfLast { it.lowercase() == "until" }

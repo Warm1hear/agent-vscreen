@@ -191,6 +191,9 @@ object Wake {
         fun store(): JSONObject = JSONObject().put("name", name).put("when", text).put("for", forMin).put("session", session).put("by", by).put("at", at)
             .put("opened", opened).put("on", on).also { o -> last?.let { o.put("last", it) } }
         /** The next window start not yet opened and not over at [now] (null: none left). */
+        /** A one-off whose last window has ended. */
+        fun over(now: Long): Boolean = spec.date != null && next(spec, now - forMin * 60_000L) == null
+
         fun pending(now: Long): Long? {
             if (!on) return null
             var t = next(spec, now - forMin * 60_000L) ?: return null
@@ -230,7 +233,18 @@ object Wake {
         file(ctx).writeText(JSONObject().put("entries", JSONArray(synchronized(lock) { entries.map { it.store() } })).toString(1))
     }
 
-    fun list(ctx: Context): List<Entry> { load(ctx); return synchronized(lock) { entries.toList() } }
+    /**
+     * 1.4.0-beta11 (rainbow: a finished one-off booking stayed on the home page as "--:--"). A one-off is over once
+     * its last window has ended; it goes from the store the moment anyone reads the list, not only when the next alarm
+     * happens to re-arm (after the last window there was no alarm left, so it stayed for good).
+     */
+    private fun dropOver(ctx: Context, now: Long = System.currentTimeMillis()): Boolean {
+        val over = synchronized(lock) { entries.filter { it.over(now) }.also { entries.removeAll(it.toSet()) } }
+        if (over.isNotEmpty()) { save(ctx); AppLogger.info(TAG, "over: ${over.joinToString { it.name }}") }
+        return over.isNotEmpty()
+    }
+
+    fun list(ctx: Context): List<Entry> { load(ctx); dropOver(ctx); return synchronized(lock) { entries.toList() } }
 
     /** What [add] did: the entry, and the existing one it matched when nothing new was added. */
     class Added(val entry: Entry, val same: Boolean)
@@ -299,9 +313,7 @@ object Wake {
         load(ctx)
         val am = ctx.getSystemService(AlarmManager::class.java) ?: return
         val now = System.currentTimeMillis()
-        // One-offs that are over go.
-        val over = synchronized(lock) { entries.filter { it.spec.date != null && next(it.spec, now - it.forMin * 60_000L) == null }.also { entries.removeAll(it.toSet()) } }
-        if (over.isNotEmpty()) save(ctx)
+        dropOver(ctx, now)
         val list = synchronized(lock) { entries.toList() }
         // 1.3 beta2: "next" is the first window that has not ended (one in progress stays next, it does not jump to
         // tomorrow), and the alarm is for the first window not opened yet. Before, any change of the list re-armed the
@@ -375,7 +387,7 @@ object Wake {
             if (!ok) quiet("wake-alert") {
                 // 1.3 beta4: say plainly what happens to the agent's task and what the user can do, with the one tap
                 // that does it. "Off" is the user's own choice, so it is told as a consequence, not as a fault.
-                val tap = android.app.PendingIntent.getActivity(ctx, 7703, Intent(ctx, com.kilon.agentvscreen.ui.MainActivity::class.java), android.app.PendingIntent.FLAG_IMMUTABLE)
+                val tap = Needs.open(ctx, Needs.Page.HOME, 5)
                 val on = android.app.PendingIntent.getForegroundService(ctx, 7704, Intent(ctx, HostService::class.java).setAction(HostService.ACTION_ON), android.app.PendingIntent.FLAG_IMMUTABLE)
                 if (items.any { it.blocking && it.code == "service_off" })
                     com.kilon.agentvscreen.core.VScreenHandoff.alert(ctx, 7702,

@@ -310,15 +310,16 @@ internal fun LessonsList(tick: Int) {
     val ctx = LocalContext.current
     var again by remember { mutableIntStateOf(0) }
     var all by remember { mutableStateOf<List<Pair<String, VScreenMap.Segment>>>(emptyList()) }
-    LaunchedEffect(tick, again) { all = withContext(Dispatchers.IO) { VScreenMap.allSegments() } }
+    var kept by remember { mutableStateOf<List<VScreenMap.Kept>>(emptyList()) }
+    LaunchedEffect(tick, again) { withContext(Dispatchers.IO) { kept = VScreenMap.allKept(); all = kept.flatMap { k -> k.segments.map { k.pkg to it } }.sortedByDescending { it.second.at } } }
     var open by remember { mutableStateOf<String?>(null) }
     var askDelete by remember { mutableStateOf<List<Pair<String, VScreenMap.Segment>>?>(null) }
     var query by remember { mutableStateOf("") }
     var picking by remember { mutableStateOf(false) }
     var picked by remember { mutableStateOf(setOf<String>()) }
-    if (all.isEmpty()) { EmptyState(androidx.compose.material.icons.Icons.Outlined.School, tr("还没有示教", "No lessons yet"),
-        tr("agent 请你演示一段操作，或你在全屏页点录制，存下来的会在这里", "When an agent asks you to show it something, or you record on the full screen page, the saved lessons are here")); return }
-    val labels = remember(all) { all.map { it.first }.distinct().associateWith { pkg -> runCatching { ctx.packageManager.getApplicationLabel(ctx.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg) } }
+    if (kept.isEmpty()) { EmptyState(androidx.compose.material.icons.Icons.Outlined.School, tr("还没有经验", "Nothing kept yet"),
+        tr("你示教存下的段、agent 自己存的段和记下的经验，都按应用放在这里", "Segments you taught, segments agents saved and what they noted, by app, are kept here")); return }
+    val labels = remember(kept) { kept.map { it.pkg }.distinct().associateWith { pkg -> runCatching { ctx.packageManager.getApplicationLabel(ctx.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg) } }
     val q = query.trim()
     val shown = if (q.isEmpty()) all else all.filter { (p, s) -> lessonMatches(q, s.name, labels[p] ?: p, p, s.steps) }
     fun keyOf(p: String, s: VScreenMap.Segment) = "$p/${s.name}"
@@ -353,9 +354,16 @@ internal fun LessonsList(tick: Int) {
             }
         }
     }
-    if (shown.isEmpty()) Note(tr("没有匹配“$q”的示教", "No lessons match \"$q\""))
-    shown.groupBy { it.first }.forEach { (pkg, list) ->
+    // 1.4.0-beta11 (rainbow: one kind of experience): under each app, its segments (taught by the user or saved by an
+    // agent, said which), then what agents noted about it and its habits; all can be seen and removed here.
+    val keptOf = remember(kept) { kept.associateBy { it.pkg } }
+    fun noteHits(k: VScreenMap.Kept?) = k?.notes.orEmpty().filter { q.isEmpty() || lessonMatches(q, it.text, labels[k!!.pkg] ?: k.pkg) }
+    val pkgs = (shown.map { it.first } + kept.map { it.pkg }.filter { p -> noteHits(keptOf[p]).isNotEmpty() || (q.isEmpty() && keptOf[p]?.habits?.isNotEmpty() == true) }).distinct()
+    if (pkgs.isEmpty()) Note(tr("没有匹配“$q”的经验", "Nothing kept matches \"$q\""))
+    pkgs.forEach { pkg ->
+        val list = shown.filter { it.first == pkg }
         Text(labels[pkg] ?: pkg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        if (!picking) KeptExtras(pkg, noteHits(keptOf[pkg]), if (q.isEmpty()) keptOf[pkg]?.habits.orEmpty() else emptyMap()) { again++ }
         list.forEach { (p, s) ->
             val key = keyOf(p, s)
             // 1.3.0-beta18: try / if / repeat show as blocks, their steps indented.
@@ -378,7 +386,7 @@ internal fun LessonsList(tick: Int) {
                     Column(Modifier.weight(1f)) {
                         Text(s.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(tr("$count 步", "$count steps") + (if (s.uses > 0) tr(" · 用过 ${s.uses} 次", " · used ${s.uses}×") else "") +
-                            " · " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(s.at)) + (s.by?.let { " · " + tr("为 ", "for ") + com.kilon.agentvscreen.api.Agents.name(it) } ?: ""),
+                            " · " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(s.at)) + " · " + segmentSource(p, s),
                             fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                     if (!picking) Icon(Icons.Filled.KeyboardArrowDown, null, tint = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.rotate(turn))
@@ -420,6 +428,37 @@ internal fun LessonsList(tick: Int) {
             }) { Text(tr("删除", "Delete"), color = Palette.stopped) } },
             dismissButton = { LinkButton(onClick = { askDelete = null }) { Text(tr("取消", "Cancel")) } },
         )
+    }
+}
+
+/** Who a segment came from: the user's lesson (it has a contact sheet) for an agent, or an agent's own. */
+internal fun segmentSource(pkg: String, s: VScreenMap.Segment): String {
+    val who = s.by?.let { com.kilon.agentvscreen.api.Agents.name(it) }
+    return if (VScreenMap.pictureFile(pkg, s.name)?.isFile == true) tr("你示教的", "taught by you") + (who?.let { tr("（为 $it）", " (for $it)") } ?: "")
+    else (who?.let { tr("$it 存的", "saved by $it") } ?: tr("agent 存的", "saved by an agent"))
+}
+
+/** An app's notes (what agents learned about it) and habits (steps before / after every act, human pacing). */
+@Composable
+private fun KeptExtras(pkg: String, notes: List<VScreenMap.Note>, habits: Map<String, String>, changed: () -> Unit) {
+    if (notes.isEmpty() && habits.isEmpty()) return
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MiuixTheme.colorScheme.surfaceContainer).padding(horizontal = 14.dp, vertical = 8.dp)) {
+        fun line(title: String, sub: String, remove: () -> Unit) = @Composable {
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, fontSize = 14.sp, lineHeight = 20.sp)
+                    Text(sub, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+                LinkButton(onClick = remove) { Text(tr("删除", "Delete"), color = Palette.stopped) }
+            }
+        }
+        habits["before"]?.let { line(tr("每次先做：$it", "Before every act: $it"), tr("这个应用的习惯", "A habit of this app")) { VScreenMap.setProfile(pkg, mapOf("before" to "")); changed() }() }
+        habits["after"]?.let { line(tr("每次最后做：$it", "After every act: $it"), tr("这个应用的习惯", "A habit of this app")) { VScreenMap.setProfile(pkg, mapOf("after" to "")); changed() }() }
+        habits["human"]?.takeIf { it == "true" }?.let { line(tr("用仿人节奏", "Human pacing"), tr("这个应用的习惯", "A habit of this app")) { VScreenMap.setProfile(pkg, mapOf("human" to "")); changed() }() }
+        notes.forEach { n ->
+            line(n.text, (n.by?.let { tr("${com.kilon.agentvscreen.api.Agents.name(it)} 记的", "noted by ${com.kilon.agentvscreen.api.Agents.name(it)}") } ?: tr("agent 记的", "noted by an agent")) +
+                " · " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(n.at))) { VScreenMap.deleteNote(pkg, n.id); changed() }()
+        }
     }
 }
 

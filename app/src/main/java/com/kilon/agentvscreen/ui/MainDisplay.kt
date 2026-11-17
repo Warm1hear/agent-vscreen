@@ -17,8 +17,14 @@ import android.view.Display
 object MainDisplay {
     fun options(): Bundle = ActivityOptions.makeBasic().setLaunchDisplayId(Display.DEFAULT_DISPLAY).toBundle()
 
+    /**
+     * 1.4.0-beta11 (rainbow: after Done the review page was pushed away to the floating window). Every page is its own
+     * task, always: started from the full screen page (an Activity) without NEW_TASK, the review page landed INSIDE
+     * the full screen page's task, and that page ends its whole task when it is covered (closeWhenHidden) — taking
+     * the review page with it. Each page's taskAffinity only applies with NEW_TASK.
+     */
     fun start(ctx: Context, intent: Intent) {
-        if (ctx !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { ctx.startActivity(intent, options()) }.onFailure { runCatching { ctx.startActivity(intent) } }
     }
 

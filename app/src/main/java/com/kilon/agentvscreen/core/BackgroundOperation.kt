@@ -617,6 +617,10 @@ object BackgroundOperation {
     private fun acquireInner(sessionId: String?, create: Boolean, landscape: Boolean?, scale: Double): VScreenDisplay {
         val sid = sessionId?.takeIf { it.isNotEmpty() }
             ?: throw ActionError("NO_SESSION", tr("没有会话（请求头 X-VScreen-Session）", "No session (header X-VScreen-Session)"))
+        return acquireOwned(sid, create, landscape, scale).also { com.kilon.agentvscreen.host.Needs.got(sid) }
+    }
+
+    private fun acquireOwned(sid: String, create: Boolean, landscape: Boolean?, scale: Double): VScreenDisplay {
         val s0 = _state.value
         if (!s0.enabled) throw ActionError("DISABLED", tr("Agent-VScreen 的服务已被用户关闭。请用户打开 Agent-VScreen 点“启动服务”", "The user turned off the Agent-VScreen service. Ask the user to open Agent-VScreen and turn the service on"))
         if (s0.connection != Connection.READY) {
@@ -639,7 +643,7 @@ object BackgroundOperation {
                     return cur
                 }
                 val ownerBusy = s.ownerSessionId != null && s.ownerSessionId != sid && tasks.containsKey(s.ownerSessionId)
-                if (ownerBusy) throw busy(s.ownerSessionId)
+                if (ownerBusy) throw busy(s.ownerSessionId, sid)
                 // The other session's screen is only idling (or its owner is gone): take it over
                 // as it is, page included. Never build a second screen next to it.
                 cancelIdleRelease()
@@ -657,7 +661,7 @@ object BackgroundOperation {
             val cur = display
             val s = _state.value
             if (cur != null && !cur.released) {
-                if (s.ownerSessionId != sid) throw busy(s.ownerSessionId)
+                if (s.ownerSessionId != sid) throw busy(s.ownerSessionId, sid)
                 return cur
             }
             // A previous process of this app may have left its screen in the Shizuku service: adopt it.
@@ -833,7 +837,9 @@ object BackgroundOperation {
     @Volatile var ownerFreesInMs: (String) -> Long? = { null }
 
     /** 1.1: BUSY says who owns the screen, when it will be free by itself, and how the owner frees it now. */
-    private fun busy(owner: String?): ActionError = ActionError("BUSY",
+    private fun busy(owner: String?, sid: String): ActionError = com.kilon.agentvscreen.host.Needs.refused(sid, owner).let { busyError(owner) }
+
+    private fun busyError(owner: String?): ActionError = ActionError("BUSY",
         data = org.json.JSONObject().put("owner", owner ?: org.json.JSONObject.NULL)
             .put("frees_in_s", owner?.let { ownerFreesInMs(it) }?.let { (it + 999) / 1000 } ?: org.json.JSONObject.NULL),
         message =
@@ -853,7 +859,7 @@ object BackgroundOperation {
         synchronized(lock) {
             val s = _state.value
             if (display != null && s.ownerSessionId != null && s.ownerSessionId != sid && tasks.containsKey(s.ownerSessionId))
-                throw busy(s.ownerSessionId)
+                throw busy(s.ownerSessionId, sid)
         }
         releaseScreen(reason ?: if (landscape) tr("按横屏重建副屏（应用横屏运行，避免旋转导致画面溢出/拉伸）", "Rebuilt the screen in landscape (the app runs landscape; avoids overflow / stretching from rotation)") else tr("按竖屏重建副屏", "Rebuilt the screen in portrait"))
         return acquire(sid, create = true, landscape = landscape, scale = scale)

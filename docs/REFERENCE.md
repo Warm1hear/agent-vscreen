@@ -134,13 +134,14 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 
 权限范围: `operate`
 
-### `teach "<要演示什么>" [--name <名字>] [--wait <时长>] [--async]`
+### `teach "<要演示什么>" [--name <名字>] [--wait <时长>] [--again] [--async]`
 
 请用户在副屏上亲手做一遍（示教）：手机上弹出请求，用户接管副屏操作、做完审阅，存成这个应用的一段。返回段名和步骤；之后 act "use 段名 参数…" 照做。用户输入的字默认变成参数 {1} {2}…，用的时候按顺序填。
 适合说不清、反复失败、或用户自己更清楚怎么做的流程。先 launch 到要演示的应用。
 
 - `--name <名字>` 建议的段名（用户可以改）
 - `--wait <时长>` 最多等多久（默认 50s，最长 5m；没做完是 ASK_PENDING，之后重发同一条 teach 取结果）
+- `--again` 请用户重新演示一遍（不加时，同一条 teach 已有结果就原样返回，不会再问用户）
 - `--async` 不等它做完：马上返回任务号，之后 task <号> 取结果（长操作、怕连接超时时用）
 
 权限范围: `operate`
@@ -247,6 +248,7 @@ look x1,y1,x2,y2 的旧写法：放大看一块区域（图边上标着副屏坐
 | code | next | 含义 |
 |---|---|---|
 | `OK` | `none` | 按预期完成。 |
+| `CHECKPOINT` | `look` | 段跑到 check 检查点停下了，等你看一眼画面：没问题就按回执里的命令接着跑（use 段名 … from N），不对就先改好再接着跑。 |
 | `STEP_MISSED` | `look` | 一步做了，但没等到它期待的结果（until 超时、wait 超时、输入没进去）。这段停在那一步，后面的没做。看截图再决定。 |
 | `NOT_FOUND` | `look` | 画面上没有你写的字、编号或段名。返回里列了相近的字和输入框的坐标。 |
 | `AMBIGUOUS` | `fix_command` | 你写的字在画面上有好几处，没点。返回里列了每一处的坐标：改用坐标或 #N。 |
@@ -462,13 +464,14 @@ An answer is information, not permission: payments still need the phone's confir
 
 scope: `operate`
 
-### `teach "<what to show>" [--name <name>] [--wait <duration>] [--async]`
+### `teach "<what to show>" [--name <name>] [--wait <duration>] [--again] [--async]`
 
 ask the user to do it once on the background screen (a lesson): a request appears on the phone, the user takes over the screen, does it, reviews it, and it is saved as a segment of the app. Returns the segment name and steps; then act "use <name> <values>…" runs it. Words the user typed become blanks {1} {2}… by default, filled in order when used.
 For flows that are hard to describe, keep failing, or the user knows better. launch the app to show first.
 
 - `--name <name>` suggested segment name (the user may change it)
 - `--wait <duration>` how long to wait (default 50s, at most 5m; not done yet is ASK_PENDING, send the same teach again later for the result)
+- `--again` ask the user to show it again (without it, a teach that already has a result returns that result and does not ask again)
 - `--async` do not wait for it: returns a task id at once, fetch the result later with task <id> (for long operations or short connection timeouts)
 
 scope: `operate`
@@ -575,6 +578,7 @@ scope: `look`
 | code | next | meaning |
 |---|---|---|
 | `OK` | `none` | Done as expected. |
+| `CHECKPOINT` | `look` | The run stopped at a check step for you to look at the screen: if it is right, go on with the command in the reply (use <name> … from N); if not, put it right first, then go on. |
 | `STEP_MISSED` | `look` | A step was done but what it expected never came (until / wait timed out, typed text did not land). The stretch stopped there and skipped the rest. Look at the screenshot before deciding. |
 | `NOT_FOUND` | `look` | The text, number or segment you named is not there. The reply lists similar text and input boxes with their points. |
 | `AMBIGUOUS` | `fix_command` | The text you named is on the screen several times; nothing was tapped. The reply lists every place with its point: use coordinates or #N. |

@@ -129,20 +129,48 @@ internal object VScreenMap {
 
     @Synchronized fun saveSegment(pkg: String, name: String, steps: String, start: JSONObject? = null, by: String? = com.kilon.agentvscreen.cmd.Call.current()?.tokenId): Segment {
         val m = load(pkg)
+        // 1.4.0-beta11 (rainbow: the agent tries a lesson and then edits its steps): rewriting a segment keeps where it
+        // starts and whom it was taught for. Before, `note save` over a taught lesson dropped its start, and the lesson
+        // then read as one taught before 1.4 ("teach it again").
+        val old = m.segments.firstOrNull { it.name == name }
         m.segments.removeAll { it.name == name }
-        val s = Segment(name, steps, System.currentTimeMillis(), 0, start, by)
+        val s = Segment(name, steps, System.currentTimeMillis(), 0, start ?: old?.start, old?.by ?: by)
         m.segments += s
         while (m.segments.size > MAX_SEGMENTS) m.segments.removeAt(0)
         save(m)
         return s
     }
 
+    private fun knownPkgs(): List<String> = dir()?.listFiles { f -> f.isFile && f.name.endsWith(".json") }.orEmpty().mapNotNull { f ->
+        runCatching { JSONObject(f.readText()).optString("package").ifEmpty { null } }.getOrNull()
+    }
+
     /** 1.3.0-beta15: every saved segment of every app (the app's "saved lessons" page), newest first. */
-    @Synchronized fun allSegments(): List<Pair<String, Segment>> {
-        val pkgs = dir()?.listFiles { f -> f.isFile && f.name.endsWith(".json") }.orEmpty().mapNotNull { f ->
-            runCatching { JSONObject(f.readText()).optString("package").ifEmpty { null } }.getOrNull()
-        }
-        return pkgs.flatMap { p -> load(p).segments.map { p to it } }.sortedByDescending { it.second.at }
+    @Synchronized fun allSegments(): List<Pair<String, Segment>> =
+        knownPkgs().flatMap { p -> load(p).segments.map { p to it } }.sortedByDescending { it.second.at }
+
+    /**
+     * 1.4.0-beta11 (rainbow: the agent's own experience and the user's lessons are one thing). Everything kept for each
+     * app, whoever kept it: segments (taught or saved), notes, and the app's habits (before / after / human pacing).
+     */
+    class Kept(val pkg: String, val segments: List<Segment>, val notes: List<Note>, val habits: Map<String, String>)
+
+    @Synchronized fun allKept(): List<Kept> = knownPkgs().map { p -> val m = load(p)
+        Kept(p, m.segments.sortedByDescending { it.at }, m.notes.sortedByDescending { it.at }, m.profile.filterKeys { it in setOf("before", "after", "human") })
+    }.filter { it.segments.isNotEmpty() || it.notes.isNotEmpty() || it.habits.isNotEmpty() }
+        .sortedByDescending { k -> maxOf(k.segments.maxOfOrNull { it.at } ?: 0L, k.notes.maxOfOrNull { it.at } ?: 0L) }
+
+    /**
+     * 1.4.0-beta11 (rainbow: one kind of experience, whoever made it). A segment an agent saved knows no start; the
+     * first time it runs through, the page it started from becomes its start, checked from then on like a lesson's.
+     */
+    @Synchronized fun learnStart(pkg: String, name: String, start: JSONObject) {
+        val m = load(pkg)
+        val i = m.segments.indexOfFirst { it.name == name }.takeIf { it >= 0 } ?: return
+        val s = m.segments[i]
+        if (s.start != null) return
+        m.segments[i] = Segment(s.name, s.steps, s.at, s.uses, start, s.by)
+        save(m)
     }
 
     @Synchronized fun markUsed(pkg: String, name: String) {

@@ -52,6 +52,8 @@ internal sealed class TeachEv {
     /** [whole]: the field now reads [text] (the full screen box mirrors the field); otherwise [text] was added. */
     class Typed(override val t: Long, val text: String, val whole: Boolean = false) : TeachEv()
     class Key(override val t: Long, val name: String) : TeachEv()
+    /** 1.4.0-beta11: "让 agent 看一下" pressed while recording: the agent checks here before the lesson goes on. */
+    class Check(override val t: Long, val what: String) : TeachEv()
 }
 
 /** One step written from what the user did, before the user reviews it. */
@@ -76,6 +78,8 @@ internal data class TeachLine(
     val pic: TeachPic? = null,
     /** 1.4.0-beta5: [at] as the steps write it (shares of the screen when its size was known). */
     val pos: String? = null,
+    /** 1.4.0-beta11: after this step the agent checks ([Teach.build] writes `check "<it>"`); null = no check. */
+    val check: String? = null,
 )
 
 /** 1.3.0 (rainbow): a small picture of the background screen while a lesson was recorded; [scale] maps screen pixels onto it. */
@@ -199,6 +203,17 @@ internal object Teach {
         ctx?.let { UserAsk.answer(it, p, false, org.json.JSONObject().put("kind", "handed_back")) }
     }
 
+    /** What a check marked while recording asks the agent by default (the review page lets the user say it better). */
+    val CHECK_DEFAULT: String get() = tr("看一下这一步之后对不对", "check that this step went right")
+
+    /** 1.4.0-beta11: "让 agent 看一下": after the step just recorded, the agent will check before the lesson goes on. */
+    fun markCheck() = synchronized(this) {
+        val r = rec?.takeIf { !it.paused } ?: return
+        flushTyping(r)
+        if (r.events.isEmpty() || r.events.last() is TeachEv.Check) return
+        r.events += TeachEv.Check(System.currentTimeMillis(), CHECK_DEFAULT)
+    }
+
     /** 撤掉上一步: the last thing recorded (or the typing not yet written) is dropped. */
     fun undo() = synchronized(this) {
         val r = rec ?: return
@@ -285,6 +300,9 @@ internal object Teach {
     /** While recording an agent's request: who asked and what (the full screen page shows it in full). */
     fun brief(): Pair<String?, String>? = rec?.let { r -> r.purpose?.takeIf { it.isNotBlank() }?.let { p -> (r.askId?.let { UserAsk.byId(it)?.tokenName }) to p } }
         ?: _prep.value?.let { UserAsk.byId(it) }?.let { a -> a.tokenName to a.title }
+
+    /** 1.4.0-beta11: the start of a segment as it would be kept, read from [displayId] now (null when unreadable). */
+    fun startHere(displayId: Int): org.json.JSONObject? = startJson(read(displayId))
 
     private fun read(id: Int): TeachSnap? {
         snapSource?.let { return it(id) }
@@ -392,6 +410,7 @@ internal object Teach {
     fun stop(ctx: Context?) {
         val r = synchronized(this) { rec?.let { flushTyping(it) }; rec.also { rec = null; current = null; typing = null; typingStart = null } } ?: return
         _count.value = null; _paused.value = false
+        val ctx = ctx?.applicationContext
         Thread({
             val end = runCatching { reader.submit<TeachSnap?> { read(r.displayId) }.get(4, TimeUnit.SECONDS) }.getOrNull()
             val endPic = runCatching { reader.submit<TeachPic?> { grab() }.get(2, TimeUnit.SECONDS) }.getOrNull()
@@ -453,16 +472,25 @@ internal object Teach {
     private const val PRESS_MS = 500L
 
     /** The words someone could read and a step could name. */
+    /**
+     * Words a step can name a place by. 1.4.0-beta11 (rainbow: tapping 1, 2, 8 on a calculator was written as "beside
+     * 百分比符号"): the recorder used its own stricter rule (letters required, numbers refused) while the step language
+     * reads `tap 8` as the word 8. Now the step parser decides: words are nameable when `tap <them>` reads back as
+     * exactly those words.
+     */
     private fun nameable(s: String) = s.length in 1..20 && s.none { it == ';' || it == '；' || it == '"' || it == '“' || it == '”' || it == '\'' || it == '\n' } &&
-        !s.startsWith("#") && s.any { it.isLetter() } && !Regex("\\s+(or|或)\\s+").containsMatchIn(s)
+        !Regex("\\s+(or|或)\\s+").containsMatchIn(s) && Steps.readsAsWords(s)
 
-    /** Words that make a good "it worked" sign: real words, not a clock or a counter. */
-    private fun sign(s: String) = s.length in 2..16 && nameable(s) && !s.contains(" until ")
+    /** Words that make a good "it worked" sign: real words, not a clock, a counter or a value being typed. */
+    private fun sign(s: String) = s.length in 2..16 && nameable(s) && s.any { it.isLetter() } && !s.contains(" until ")
 
     private fun texts(sn: TeachSnap?) = sn?.els.orEmpty().filter { !it.placeholder }
 
     /** The words of [sn] exactly once on the screen. */
     private fun unique(sn: TeachSnap?, text: String): Boolean = texts(sn).count { VScreenOcr.norm(it.text) == VScreenOcr.norm(text) } == 1
+
+    /** A check's words as one quoted argument (quotes and step separators inside become plain). */
+    private fun quoteCheck(s: String) = "\"" + s.replace(Regex("[\"“”;；\n]"), " ").trim() + "\""
 
     private fun quote(s: String) = if (s.any { it.isWhitespace() }) "\"$s\"" else s
 
@@ -472,8 +500,6 @@ internal object Teach {
         val e = under.firstOrNull() ?: return null
         val t = e.text.trim()
         if (!nameable(t) || !unique(sn, t)) return null
-        // A word alone that is a number pair would read as coordinates.
-        if (Regex("^[\\d\\s,，.]+$").matches(t)) return null
         return t
     }
 
@@ -530,7 +556,7 @@ internal object Teach {
         // The same row reaches across the screen (a switch at the right edge, its label at the left); elsewhere only
         // words close by (an icon under its caption).
         val reach = maxOf(240, w / 4)
-        val cands = texts(sn).filter { e -> val t = e.text.trim(); nameable(t) && unique(sn, t) && !Regex("^[\\d\\s,，.:%]+$").matches(t) }
+        val cands = texts(sn).filter { e -> val t = e.text.trim(); nameable(t) && unique(sn, t) }
             .map { e -> e to hypot((e.box.centerX() - x).toDouble(), (e.box.centerY() - y).toDouble()) }
         val row = cands.filter { (e, _) -> y in (e.box.top - 24)..(e.box.bottom + 24) }
         val best = (row.ifEmpty { cands.filter { it.second <= reach } }).minByOrNull { it.second }?.first ?: return null
@@ -556,12 +582,14 @@ internal object Teach {
                     kind = "type", typed = sb.toString(), secret = secret)
                 i++; continue
             }
-            val next = evs.getOrNull(i + 1)?.before ?: end
+            if (e is TeachEv.Check) { out.lastIndex.takeIf { it >= 0 }?.let { k -> out[k] = out[k].copy(check = e.what) }; i++; continue }
+            // The screen after this step: the next event's "before" (a check mark is not a screen).
+            val next = evs.drop(i + 1).firstOrNull { it !is TeachEv.Check }?.before ?: end
             when (e) {
                 is TeachEv.Key -> {
                     val c = changeCond(e.before, next)
                     out += TeachLine("key ${e.name}", c?.first, tr("按了 ${e.name}", "pressed ${e.name}") + (c?.let { "，" + it.second } ?: ""), "key", pic = e.pic,
-                        warn = if (c == null && next != null) tr("之后画面上没读到变化", "no change was read afterwards") else null)
+                        warn = if (next != null && e.before != null && sameScreen(e.before!!, next)) tr("之后画面上没读到变化", "no change was read afterwards") else null)
                 }
                 is TeachEv.Touch -> {
                     // 1.4.0-beta4: swipes are written down by what they were for, not by how far the finger went.
@@ -657,7 +685,9 @@ internal object Teach {
             val what = (if (press) tr("长按", "held") else tr("点了", "tapped")) + (words?.let { tr("「$it」", " \"$it\"") }
                 ?: anchor?.let { tr("「${it.first}」旁边", " beside \"${it.first}\"") } ?: " (${e.x}, ${e.y})")
             val warn = when {
-                c == null && next != null -> tr("之后画面上没读到变化：可能点空了，可以不勾这一步", "no change was read afterwards: it may have missed; you can untick it")
+                // 1.4.0-beta11: only when the screen really read the same. A change with no word fit to wait for (a
+                // number growing, a symbol added) is a change: the step simply has no `until`.
+                next != null && e.before != null && sameScreen(e.before!!, next) -> tr("之后画面上没读到变化：可能点空了，可以不勾这一步", "no change was read afterwards: it may have missed; you can untick it")
                 words == null && anchor != null -> null
                 words == null -> tr("那里和附近都没有能叫出名字的字，按屏幕比例的位置记", "no words name that place or its neighbours: kept as a point (share of the screen)")
                 else -> null
@@ -685,7 +715,7 @@ internal object Teach {
      * The segment text from the reviewed lines: [keep] the lines kept, [literal] the typing lines whose words are kept
      * as they were (others become {1}, {2} …). Returns the text and how many parameters it takes.
      */
-    internal fun build(lines: List<TeachLine>, keep: Set<Int>, literal: Set<Int>): Pair<String, Int> {
+    internal fun build(lines: List<TeachLine>, keep: Set<Int>, literal: Set<Int>, checks: Map<Int, String> = lines.withIndex().mapNotNull { (i, l) -> l.check?.let { i to it } }.toMap()): Pair<String, Int> {
         var p = 0
         // 1.3.0-beta18: the last typed text that became a parameter. A later tap named by words that contain it (the
         // search result the user picked, "声音 · 声音和触感" after typing "声音") depends on the parameter: with another
@@ -697,6 +727,7 @@ internal object Teach {
         // typed can't be what that step caused (the reading came after the typing): it is dropped. After it, the
         // words depend on the value: it becomes `change`.
         fun typedValue(i: Int, l: TeachLine) = l.typed?.takeIf { l.kind == "type" && i !in literal && !l.secret }?.let { VScreenOcr.norm(it) }?.takeIf { it.isNotEmpty() }
+        fun checkAfter(i: Int) = checks[i]?.trim()?.takeIf { it.isNotEmpty() }?.let { "; check " + quoteCheck(it) } ?: ""
         val values = lines.withIndex().filter { it.index in keep }.mapNotNull { (i, l) -> typedValue(i, l)?.let { i to it } }
         val steps = lines.withIndex().filter { it.index in keep }.map { (i, l) ->
             var until = l.until
@@ -706,7 +737,7 @@ internal object Teach {
                 // 1.4.0-beta4: the value a control was set to is a blank like typed words, unless kept as it was.
                 param = null
                 if (i !in literal) { paramN = ++p; until = until.replaceFirst("text:${l.typed} in ", "text:{$p} in ") }
-                return@map "${l.head} until $until"
+                return@map "${l.head} until $until" + checkAfter(i)
             }
             val head = if (l.kind == "type") {
                 if (i in literal && !l.secret && l.typed != null && l.typed.none { it == ';' || it == '；' || it == '\n' }) { param = null; "type ${l.typed}" }
@@ -720,7 +751,7 @@ internal object Teach {
                     rankOf(l.snap, q, l.at)?.let { k -> "tap *{$paramN}*@$k" } ?: "tap ${l.pos ?: "${l.at.first} ${l.at.second}"}"
                 } else l.head
             }
-            if (until != null) "$head until $until" else head
+            (if (until != null) "$head until $until" else head) + checkAfter(i)
         }
         return steps.joinToString("; ") to p
     }
@@ -761,11 +792,17 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
     val valid = 15 * 60_000L
     val wait = if (inTask && args.get("wait") == null) valid else bounded("wait", parseDuration(args.get("wait"), ASK_DEFAULT_WAIT_MS), 0L, if (inTask) valid else ASK_MAX_WAIT_MS)
     val key = "teach:$session:$what:${name.orEmpty()}"
+    // 1.4.0-beta11 (field test: the agent sent the same teach again to check, and the user was asked to show it a
+    // second time). The same teach is the same request: once saved, sending it again returns that segment again;
+    // only --again asks the user for a new showing. A declined request already told stays told (a new one is asked).
+    val again = args.hasFlag("again")
     val old = UserAsk.find(key, call?.tokenId ?: "main")?.takeIf { it.kind == UserAsk.Kind.TEACH }
+        ?.takeIf { o -> !(again && o.answer != null) && !(o.answer == false && o.used) }
+    val repeat = old?.answer == true && old.used
     val ask = if (old != null && (old.answer != null || old.live)) old else {
         BackgroundOperation.previewDisplayFor(session) ?: throw ActionError("NO_SCREEN", tr("示教在副屏上做，现在没有副屏：先 launch 要演示的应用", "The lesson is done on the background screen and there is none: launch the app to show first"))
         UserAsk.create(context, UserAsk.Kind.TEACH, key, what, tr("在副屏上做一遍，做完点“完成”，看一下再保存", "Do it once on the background screen, tap Done, check it and save"),
-            options = listOfNotNull(name), validMs = valid)
+            options = listOfNotNull(name), validMs = valid, reusable = true)
     }
     if (ask.answer == null) {
         call?.report(tr("请求已显示在手机上，等用户演示", "The request is on the phone; waiting for the user to show it"))
@@ -797,7 +834,22 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
     val pic = VScreenMap.picture(r.optString("app"), seg)?.let { f -> runCatching { android.graphics.BitmapFactory.decodeFile(f.path) }.getOrNull() }
         ?.let { ShotStore.save(context, it, "lesson") }
     pic?.let { data.put("picture", it) }
-    data.put("message", tr("用户演示完并存成了段「$seg」（${r.optString("app")}）。照做：act \"$use\"" + (if (n > 0) "（按顺序填 $n 个参数，是用户当时输入的字的位置）" else "") + "。步骤：${r.optString("steps")}" + (pic?.let { "。示教关键步骤缩略图（数字是步骤序号，红圈是点的位置）：$it" } ?: ""),
-        "The user showed it and saved it as segment \"$seg\" (${r.optString("app")}). Run it: act \"$use\"" + (if (n > 0) " (fill $n values in order: where the user typed)" else "") + ". Steps: ${r.optString("steps")}" + (pic?.let { ". Thumbnails of the key steps (numbers are step numbers, red rings are taps): $it" } ?: "")))
+    // 1.4.0-beta11 (rainbow: the agent should try the recording once, then make it general by hand). What the user
+    // showed is one run with this run's values; the agent turns it into a segment that holds next time.
+    val startSeen = VScreenMap.segment(r.optString("app"), seg)?.start?.let { st ->
+        val words = st.optJSONArray("words")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty()
+        (st.optString("activity").takeIf { it.isNotEmpty() && it != "null" }?.substringAfterLast('.') ?: r.optString("app")) +
+            (if (words.isNotEmpty()) tr("，页面上有「${words.joinToString("」「")}」", ", a page showing \"${words.joinToString("\", \"")}\"") else "")
+    }
+    val next = tr("先试一遍再交差：回到起点" + (startSeen?.let { "（$it）" } ?: "") + "，act \"$use\" 跑一次，看结果对不对。" +
+            "然后把只对这一次成立的地方改通用：这次的具体值换成参数（tap {1}）或通配（tap *关键字*、text:结果*）；要等的画面加 until；有时才弹的窗用 try 或 if 包住。" +
+            "改好用 note save $seg \"整段步骤\" 存回（起点核对保留），再跑一遍确认。note show $seg 看现在的步骤。",
+        "Try it once before you report back: go to the start" + (startSeen?.let { " ($it)" } ?: "") + ", run act \"$use\" and check the result. " +
+            "Then make what only held this time general: this run's values become blanks (tap {1}) or wildcards (tap *keyword*, text:Result*); add until where a screen must come; wrap popups that only sometimes show in try or if. " +
+            "Save it back with note save $seg \"<all steps>\" (the start check is kept) and run it again. note show $seg shows the steps now.")
+    data.put("next", next)
+    if (repeat) data.put("again", false).put("note", tr("这一段之前已经交给过你，这次没有再请用户演示。要用户重新演示一遍，加 --again。", "This segment was already given to you; the user was not asked again. To have the user show it again, add --again."))
+    data.put("message", (if (repeat) tr("（同一条 teach 已有结果，原样返回）", "(This teach already has its result; returned as is) ") else "") + tr("用户演示完并存成了段「$seg」（${r.optString("app")}）。照做：act \"$use\"" + (if (n > 0) "（按顺序填 $n 个参数，是用户当时输入的字的位置）" else "") + "。步骤：${r.optString("steps")}" + (pic?.let { "。示教关键步骤缩略图（数字是步骤序号，红圈是点的位置）：$it" } ?: ""),
+        "The user showed it and saved it as segment \"$seg\" (${r.optString("app")}). Run it: act \"$use\"" + (if (n > 0) " (fill $n values in order: where the user typed)" else "") + ". Steps: ${r.optString("steps")}" + (pic?.let { ". Thumbnails of the key steps (numbers are step numbers, red rings are taps): $it" } ?: "")) + "\n" + next)
     return ok(args, data)
 }

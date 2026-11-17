@@ -235,7 +235,8 @@ internal object VScreenRules {
             parts += tr("事件：$woke", "event: $woke")
         }
         if (s.notify || woke?.let { it == "Rejected" || it.startsWith(tr("失败", "Failed")) } == true) {
-            val okN = VScreenHandoff.alert(ctx, 7300 + (s.name.hashCode() and 0xff), tr("盯守「${s.name}」看到了", "Watch \"${s.name}\" saw it"), parts.joinToString("\n"))
+            val okN = VScreenHandoff.alert(ctx, 7300 + (s.name.hashCode() and 0xff), tr("盯守「${s.name}」看到了", "Watch \"${s.name}\" saw it"), parts.joinToString("\n"),
+                com.kilon.agentvscreen.host.Needs.open(ctx, com.kilon.agentvscreen.host.Needs.Page.RECORDS, 3))
             if (!okN) parts += tr("（通知没发出去：", " (notification not sent: ") + (VScreenHandoff.notifyBlocked(ctx) ?: tr("发送失败", "sending failed")) + tr("）", ")")
         }
         l.lastFire = parts.joinToString(tr("；", "; "))
@@ -308,6 +309,7 @@ internal object VScreenRules {
                     .setContentText(body.lineSequence().first())
                     .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                     .setOngoing(true)
+                    .setContentIntent(com.kilon.agentvscreen.host.Needs.open(ctx, com.kilon.agentvscreen.host.Needs.Page.HOME, 4))
                     .addAction(0, tr("全部停止", "Stop all"), stop)
                     .build()
             }

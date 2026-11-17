@@ -23,6 +23,7 @@ internal object Codes {
     val all: List<Code> = listOf(
         Code("OK", Next.NONE, "按预期完成。", "Done as expected."),
         // the step language
+        Code("CHECKPOINT", Next.LOOK, "段跑到 check 检查点停下了，等你看一眼画面：没问题就按回执里的命令接着跑（use 段名 … from N），不对就先改好再接着跑。", "The run stopped at a check step for you to look at the screen: if it is right, go on with the command in the reply (use <name> … from N); if not, put it right first, then go on."),
         Code("STEP_MISSED", Next.LOOK, "一步做了，但没等到它期待的结果（until 超时、wait 超时、输入没进去）。这段停在那一步，后面的没做。看截图再决定。", "A step was done but what it expected never came (until / wait timed out, typed text did not land). The stretch stopped there and skipped the rest. Look at the screenshot before deciding."),
         Code("NOT_FOUND", Next.LOOK, "画面上没有你写的字、编号或段名。返回里列了相近的字和输入框的坐标。", "The text, number or segment you named is not there. The reply lists similar text and input boxes with their points."),
         Code("AMBIGUOUS", Next.FIX, "你写的字在画面上有好几处，没点。返回里列了每一处的坐标：改用坐标或 #N。", "The text you named is on the screen several times; nothing was tapped. The reply lists every place with its point: use coordinates or #N."),
