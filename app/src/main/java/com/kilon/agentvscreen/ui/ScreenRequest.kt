@@ -260,8 +260,8 @@ internal fun LessonStrip(session: String, k: Float, withHead: Boolean = false) {
                 Text(tr("先在副屏上走到要开始的页面，这时的操作不会被记下。到了再点“开始示范”。", "First get to the page where it starts on the screen; nothing is written down yet. Then tap Start."),
                     color = Color(0x99FFFFFF), fontSize = (11.5f * k).sp)
                 Row(horizontalArrangement = Arrangement.spacedBy((6 * k).dp)) {
-                    GlassPill(tr("开始示范", "Start"), true, k, Modifier.weight(1f)) { Teach.startPrepared(session) }
-                    GlassPill(tr("不教", "Skip"), false, k) { UserAsk.answer(ctx, l.askId, false); Teach.cancelPrep(); BackgroundOperation.userResume() }
+                    GlassPill(tr("开始示范", "Start"), true, k, Modifier.weight(2f)) { Teach.startPrepared(session) }
+                    GlassPill(tr("不教", "Skip"), false, k, Modifier.weight(1f)) { UserAsk.answer(ctx, l.askId, false); Teach.cancelPrep(); BackgroundOperation.userResume() }
                 }
             }
             is com.kilon.agentvscreen.cmd.Lesson.Recording -> {
@@ -271,11 +271,12 @@ internal fun LessonStrip(session: String, k: Float, withHead: Boolean = false) {
                     ?: if (l.paused) tr("暂停中，操作不会被记下。", "Paused: nothing is written down.")
                     else tr("照常操作就行，每一步都会记下。点错了可以撤掉；要调整又不想被记下就先暂停。", "Just do it; every step is written down. Undo a slip; pause to fix something without it being recorded."),
                     color = if (l.askEnded != null) Palette.asking else Color(0x99FFFFFF), fontSize = (11.5f * k).sp)
+                // Small controls share one row; 完成 has a row of its own, so it is whole however narrow the window is.
                 Row(horizontalArrangement = Arrangement.spacedBy((6 * k).dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (!l.paused) GlassPill(tr("撤销", "Undo"), false, k) { Teach.undo() }
-                    GlassPill(if (l.paused) tr("继续", "Resume") else tr("暂停", "Pause"), false, k) { Teach.setPaused(!l.paused) }
-                    GlassPill(tr("完成", "Done"), true, k, Modifier.weight(1f)) { Teach.finish(ctx); Surface.openReview(ctx) }
+                    if (!l.paused) GlassPill(tr("撤销", "Undo"), false, k, Modifier.weight(1f)) { Teach.undo() }
+                    GlassPill(if (l.paused) tr("继续", "Resume") else tr("暂停", "Pause"), false, k, Modifier.weight(1f)) { Teach.setPaused(!l.paused) }
                 }
+                GlassPill(tr("完成", "Done"), true, k, Modifier.fillMaxWidth()) { Teach.finish(ctx); Surface.openReview(ctx) }
                 // 1.4.0-beta11 (rainbow): mark that the agent should look here before the lesson goes on (said better on the save page).
                 if (!l.paused) GlassPill(tr("这一步后让 agent 看一下", "Have the agent check after this step"), false, k, Modifier.fillMaxWidth()) {
                     Teach.markCheck(); android.widget.Toast.makeText(ctx, tr("记下了：agent 会在这一步之后看一下，保存时可以写它看什么", "Marked: the agent checks after this step; say what on the save page"), android.widget.Toast.LENGTH_SHORT).show()

@@ -168,7 +168,14 @@ fun AppRoot(host: AppHost, firstPage: Route?, snack: SnackbarHostState, firstTab
     val pager = rememberPagerState(initialPage = firstTab, pageCount = { 4 })
     val scope = rememberCoroutineScope()
     val stack = rememberNavBackStack<Route>(Route.Main)
-    val nav = remember(stack) { Nav(stack) { i -> scope.launch { pager.animateScrollToPage(i) } } }
+    // 1.4.0-beta11 (rainbow: from the first tab straight to the third or fourth stuttered): animating across several
+    // pages composed and drew every page in between. Jump next to the target at once, then slide the last page only.
+    val toTab: (Int) -> Unit = { i -> scope.launch {
+        val from = pager.currentPage
+        if (kotlin.math.abs(i - from) > 1) pager.scrollToPage(if (i > from) i - 1 else i + 1)
+        pager.animateScrollToPage(i)
+    } }
+    val nav = remember(stack) { Nav(stack) { i -> toTab(i) } }
     LaunchedEffect(firstPage) { if (firstPage != null && firstPage != Route.Main) nav.go(firstPage) }
     // 1.4.0-beta11: a notification tapped while the app is open goes to its page (tab, then the page if it has one).
     val asked by MainActivity.pageRequests.collectAsState()
@@ -205,6 +212,7 @@ fun AppRoot(host: AppHost, firstPage: Route?, snack: SnackbarHostState, firstTab
 /** The three tabs, swiped or picked in the floating bar; the bar blurs the tab behind it. */
 @Composable
 private fun MainTabs(pager: androidx.compose.foundation.pager.PagerState) {
+    val nav = LocalNav.current
     val scope = rememberCoroutineScope()
     val surface = MiuixTheme.colorScheme.surface
     val backdrop = if (Glass.blurOk) rememberLayerBackdrop { drawRect(surface); drawContent() } else null
@@ -228,7 +236,7 @@ private fun MainTabs(pager: androidx.compose.foundation.pager.PagerState) {
                     val needs = i == 0 && (pendingAsks().isNotEmpty() || (app.items.isNotEmpty() && !app.allOk))
                     val badge: (@Composable () -> Unit)? = if (needs) { { Dot(Palette.stopped) } } else null
                     FloatingNavigationBarItem(
-                        selected = pager.currentPage == i, onClick = { scope.launch { pager.animateScrollToPage(i) } },
+                        selected = pager.currentPage == i, onClick = { nav.tab(i) },
                         icon = icon, label = label,
                         // A dot on 现在 while something there needs the user.
                         badge = badge,

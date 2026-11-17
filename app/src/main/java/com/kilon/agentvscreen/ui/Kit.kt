@@ -161,12 +161,22 @@ fun SwitchRow(title: String, sub: String? = null, checked: Boolean, help: String
 fun Note(t: String, color: Color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier: Modifier = Modifier) =
     Text(t, fontSize = 12.sp, lineHeight = 17.sp, color = color, modifier = modifier.fillMaxWidth())
 
-/** A pill button for dark glass: the main one in the accent gradient, the rest as quiet glass chips. */
+/**
+ * A pill button for dark glass: the main one in the accent gradient, the rest as quiet glass chips.
+ * 1.4.0-beta11 (rainbow: 完成 and 让 agent 看一下 were cut in half on the narrow floating window): the label never
+ * draws past the pill. It used to be unwrapped and allowed to overflow, so a row of pills wider than its card pushed
+ * the last one out of view. Now the label shrinks to fit (down to 9 sp) and only then ends in "…".
+ */
 @Composable
 fun GlassPill(label: String, primary: Boolean, k: Float = 1f, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
         modifier.clip(RoundedCornerShape(50)).then(if (primary) Modifier.background(Glass.accent) else Modifier.background(Glass.darkChip).border(1.dp, Color(0x26FFFFFF), RoundedCornerShape(50)))
-            .clickable(onClick = onClick).padding(horizontal = (14 * k).dp, vertical = (7 * k).dp),
+            .clickable(onClick = onClick).padding(horizontal = (12 * k).dp, vertical = (7 * k).dp),
         contentAlignment = Alignment.Center,
-    ) { Text(label, color = Color.White, fontSize = (12.5f * k).sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, overflow = TextOverflow.Visible) }
+    ) {
+        androidx.compose.foundation.text.BasicText(label,
+            style = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = (12.5f * k).sp, fontWeight = FontWeight.SemiBold),
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = (9 * k).sp, maxFontSize = (12.5f * k).sp))
+    }
 }
