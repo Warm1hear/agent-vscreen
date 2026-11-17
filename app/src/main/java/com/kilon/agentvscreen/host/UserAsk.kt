@@ -50,6 +50,9 @@ object UserAsk {
         @Volatile var reply: JSONObject? = null
         @Volatile var answeredAt = 0L
         @Volatile var used = false
+        /** 1.4.0-beta12: what the user said to the agent while showing a lesson (the lesson goes on). */
+        val said = java.util.concurrent.CopyOnWriteArrayList<String>()
+        @Volatile var saidSeen = 0
         /** Open: not answered, and within its time, or taken by a lesson under way (which has no time limit). */
         val live: Boolean get() = answer == null && (System.currentTimeMillis() - at < validMs || id == heldId)
     }
@@ -121,6 +124,19 @@ object UserAsk {
     }
 
     fun markUsed(a: Ask) = synchronized(lock) { a.used = true; publish() }
+
+    /**
+     * 1.4.0-beta12 (rainbow: 示教中“说一句”有问题): a word to the agent in the middle of a lesson is a message, not an
+     * answer. Before, it answered (ended) the request: the agent got USER_FEEDBACK while the user went on recording a
+     * lesson that no longer answered anything, and every later send of the same teach returned that feedback again.
+     * Now the request stays open, the agent hears it at once (events) and in its next teach reply.
+     */
+    fun say(ctx: Context, id: Int, text: String): Boolean {
+        val a = synchronized(lock) { asks.firstOrNull { it.id == id && it.answer == null } } ?: return false
+        a.said += text.trim().take(300)
+        told(ctx, a, tr("用户在示教中对你说：「${text.trim().take(300)}」（示教还在继续）", "While showing the lesson the user told you: \"${text.trim().take(300)}\" (the lesson goes on)"))
+        return true
+    }
 
     /** The user's answer (notification action, the card in the app, or the answer page). */
     fun answer(ctx: Context, id: Int, allow: Boolean, reply: JSONObject? = null) {

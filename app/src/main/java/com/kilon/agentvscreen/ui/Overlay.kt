@@ -899,7 +899,7 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
             if (showing) androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().eatTouches().glassDark(RoundedCornerShape((18 * k).dp))
                 .padding(horizontal = (12 * k).dp, vertical = (11 * k).dp)
                 .onSizeChanged { sz -> if (sz.height.toFloat() != Overlay.cardH.floatValue) { Overlay.cardH.floatValue = sz.height.toFloat() }; Overlay.fitGroup() }) {
-                LessonStrip(owner, k, withHead = true)
+                LessonStrip(owner, k, withHead = true, onSay = { Surface.openLive(octx, say = true) })
             }
             else if (asking == null && rv != null) ReviewQuick(rv, k, Modifier.fillMaxWidth()
                 .onSizeChanged { sz -> if (sz.height.toFloat() != Overlay.cardH.floatValue) { Overlay.cardH.floatValue = sz.height.toFloat() }; Overlay.fitGroup() })

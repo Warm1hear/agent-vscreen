@@ -28,7 +28,9 @@ object Surface {
     fun reviewIntent(ctx: Context) = intent(ctx, Pane.REVIEW)
 
     /** 全屏 / 查看副屏: the live screen (a lesson being recorded goes on there). */
-    fun openLive(ctx: Context) = MainDisplay.start(ctx, liveIntent(ctx))
+    fun openLive(ctx: Context, say: Boolean = false) = MainDisplay.start(ctx, liveIntent(ctx).putExtra(SAY, say))
+    /** Open the live pane with the request card's 说一句 box open (from the floating window, which cannot type). */
+    const val SAY = "say"
     /** 去保存 / 完成: the lesson's save pane. Works without a screen. */
     fun openReview(ctx: Context) = MainDisplay.start(ctx, reviewIntent(ctx))
 }

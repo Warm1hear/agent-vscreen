@@ -873,6 +873,8 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
     val again = args.hasFlag("again")
     val old = UserAsk.find(key, call?.tokenId ?: "main")?.takeIf { it.kind == UserAsk.Kind.TEACH }
         ?.takeIf { o -> !(again && o.answer != null) && !(o.answer == false && o.used) }
+        // 1.4.0-beta12: words instead of a lesson were told once; the same teach sent again (adjusted) asks again.
+        ?.takeIf { o -> !(o.used && o.reply?.optString("kind") == "feedback") }
     val repeat = old?.answer == true && old.used
     val ask = if (old != null && (old.answer != null || old.live)) old else {
         BackgroundOperation.previewDisplayFor(session) ?: throw ActionError("NO_SCREEN", tr("示教在副屏上做，现在没有副屏：先 launch 要演示的应用", "The lesson is done on the background screen and there is none: launch the app to show first"))
@@ -887,8 +889,11 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
         if (UserAsk.taken(ask)) throw ActionError("CANCELLED", tr("调用方断开了；用户已经在演示，请求留着。之后把同一条 teach 原样再发一次取结果", "The caller went away; the user is already showing it, so the request stays. Send the same teach again later for the result"))
         UserAsk.withdraw(context, ask); throw ActionError("CANCELLED", tr("调用方断开了，请求已从手机上撤下", "The caller went away; the request was taken off the phone"))
     }
+    // 1.4.0-beta12: what the user said while showing it, not yet told to this agent.
+    val heard = ask.said.drop(ask.saidSeen).also { ask.saidSeen = ask.said.size }
+    val heardLine = if (heard.isEmpty()) "" else tr("用户在示教中说：「${heard.joinToString("」「")}」。", "While showing it the user said: \"${heard.joinToString("\", \"")}\". ")
     when (ask.answer) {
-        null -> if (UserAsk.taken(ask)) throw ActionError("ASK_PENDING", when {
+        null -> if (UserAsk.taken(ask)) throw ActionError("ASK_PENDING", heardLine + when {
             Teach.result?.askId == ask.id -> tr("用户已经录好，正在看一遍再保存。过一会儿把同一条 teach 原样再发一次取结果（等待时不会过期）", "The user has recorded it and is checking it before saving. Send the same teach again in a while for the result (it does not expire while they work)")
             Teach.recAskId() == ask.id -> tr("用户正在演示（已记 ${Teach.steps ?: 0} 步）。过一会儿把同一条 teach 原样再发一次取结果（等待时不会过期）", "The user is showing it (${Teach.steps ?: 0} steps so far). Send the same teach again in a while for the result (it does not expire while they work)")
             else -> tr("用户正在副屏上走到起点，还没开始演示。过一会儿把同一条 teach 原样再发一次（等待时不会过期）", "The user is getting to the start on the screen. Send the same teach again in a while (it does not expire while they work)")
@@ -924,7 +929,8 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
             "Save it back with note save $seg \"<all steps>\" (the start check is kept) and run it again. note show $seg shows the steps now.")
     data.put("next", next)
     if (repeat) data.put("again", false).put("note", tr("这一段之前已经交给过你，这次没有再请用户演示。要用户重新演示一遍，加 --again。", "This segment was already given to you; the user was not asked again. To have the user show it again, add --again."))
-    data.put("message", (if (repeat) tr("（同一条 teach 已有结果，原样返回）", "(This teach already has its result; returned as is) ") else "") + tr("用户演示完并存成了段「$seg」（${r.optString("app")}）。照做：act \"$use\"" + (if (n > 0) "（按顺序填 $n 个参数，是用户当时输入的字的位置）" else "") + "。步骤：${r.optString("steps")}" + (pic?.let { "。示教关键步骤缩略图（数字是步骤序号，红圈是点的位置）：$it" } ?: ""),
+    if (ask.said.isNotEmpty()) data.put("said", org.json.JSONArray(ask.said))
+    data.put("message", heardLine + (if (repeat) tr("（同一条 teach 已有结果，原样返回）", "(This teach already has its result; returned as is) ") else "") + tr("用户演示完并存成了段「$seg」（${r.optString("app")}）。照做：act \"$use\"" + (if (n > 0) "（按顺序填 $n 个参数，是用户当时输入的字的位置）" else "") + "。步骤：${r.optString("steps")}" + (pic?.let { "。示教关键步骤缩略图（数字是步骤序号，红圈是点的位置）：$it" } ?: ""),
         "The user showed it and saved it as segment \"$seg\" (${r.optString("app")}). Run it: act \"$use\"" + (if (n > 0) " (fill $n values in order: where the user typed)" else "") + ". Steps: ${r.optString("steps")}" + (pic?.let { ". Thumbnails of the key steps (numbers are step numbers, red rings are taps): $it" } ?: "")) + "\n" + next)
     return ok(args, data)
 }

@@ -138,7 +138,10 @@ class FullscreenActivity : PageActivity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent); teachAsk.value = intent.getIntExtra("teach_ask", -1); askOpen.value = intent.getIntExtra("ask", askOpen.value)
         paneOf(intent)?.let { pane.value = it; Surface.report(it) }
+        sayNow.value = intent.getBooleanExtra(Surface.SAY, false); if (sayNow.value) BriefPlace.ball = false
     }
+    /** 1.4.0-beta12: opened from the floating window's 说一句: the card opens with its box. */
+    private val sayNow = mutableStateOf(false)
     override fun onStart() { super.onStart(); Surface.report(pane.value) }
     override fun onStop() { Surface.report(null); super.onStop() }
 
@@ -154,6 +157,7 @@ class FullscreenActivity : PageActivity() {
         teachAsk.value = intent.getIntExtra("teach_ask", -1)
         askOpen.value = intent.getIntExtra("ask", -1)
         paneOf(intent)?.let { pane.value = it }
+        sayNow.value = intent.getBooleanExtra(Surface.SAY, false); if (sayNow.value) BriefPlace.ball = false
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         bars(true)
@@ -397,7 +401,7 @@ class FullscreenActivity : PageActivity() {
 
             // 1.3.0-beta14: what the agent asked to be shown, in full, while the user shows it.
             if (showCard && !BriefPlace.ball && !BriefPlace.bottom) RequestCard(req, session, recording, prepId != null && !recording, teachN ?: 0, paused, takenOver, mark, ::markReply,
-                Modifier.padding(start = 14.dp, end = 14.dp, bottom = 4.dp), onFold = { BriefPlace.ball = true }, onMove = { BriefPlace.bottom = true }, atBottom = false)
+                Modifier.padding(start = 14.dp, end = 14.dp, bottom = 4.dp), onFold = { BriefPlace.ball = true }, onMove = { BriefPlace.bottom = true }, atBottom = false, startSaying = sayNow.value)
             }
 
             // 1.4.0-beta7 (rainbow: the card over the page could not be moved; earlier versions folded it into a button
@@ -424,7 +428,7 @@ class FullscreenActivity : PageActivity() {
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding().navigationBarsPadding().padding(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (showCard && !BriefPlace.ball && BriefPlace.bottom) RequestCard(req, session, recording, prepId != null && !recording, teachN ?: 0, paused, takenOver, mark, ::markReply,
-                    onFold = { BriefPlace.ball = true }, onMove = { BriefPlace.bottom = false }, atBottom = true)
+                    onFold = { BriefPlace.ball = true }, onMove = { BriefPlace.bottom = false }, atBottom = true, startSaying = sayNow.value)
                 if (typing) {
                     // 1.3.0-beta14: this box mirrors the focused field on the screen: it starts with what the field
                     // reads, and every change (typing, deleting with the keyboard's own key) goes there as it happens.

@@ -84,10 +84,10 @@ internal fun feedback(ctx: Context, a: UserAsk.Ask, text: String) =
 internal fun RequestCard(a: UserAsk.Ask?, session: String, recording: Boolean, prep: Boolean, steps: Int, paused: Boolean, takenOver: Boolean,
                          mark: MarkState, send: (() -> JSONObject?), modifier: Modifier = Modifier,
                          /** 1.4.0-beta7: fold into a ball the user can drag aside / move the card to the other edge (lost when the pages merged). */
-                         onFold: (() -> Unit)? = null, onMove: (() -> Unit)? = null, atBottom: Boolean = false) {
+                         onFold: (() -> Unit)? = null, onMove: (() -> Unit)? = null, atBottom: Boolean = false, startSaying: Boolean = false) {
     val ctx = LocalContext.current
     var open by remember { mutableStateOf(true) }
-    var saying by remember(a?.id) { mutableStateOf(false) }
+    var saying by remember(a?.id, startSaying) { mutableStateOf(startSaying) }
     var said by remember(a?.id) { mutableStateOf("") }
     val shape = RoundedCornerShape(if (open) 22.dp else 50.dp)
     Column(
@@ -131,10 +131,14 @@ internal fun RequestCard(a: UserAsk.Ask?, session: String, recording: Boolean, p
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GlassPill(tr("发给 agent", "Send to the agent"), true, 1f, Modifier.weight(1f)) {
                     if (said.isBlank()) return@GlassPill
-                    // 1.4.0-beta11: words while recording pause it and keep the steps (saved as yours); while
-                    // getting ready the request ends with them and the screen goes back.
-                    if (recording) Teach.setPaused(true)
-                    else if (takenOver && (prep || kind == UserAsk.Kind.TEACH)) BackgroundOperation.userResume()
+                    // 1.4.0-beta12: during a lesson (getting ready or recording) the words are a message to the agent;
+                    // the lesson and its request go on. Before a lesson starts they answer the request instead.
+                    if (recording || prep) {
+                        if (UserAsk.say(ctx, a.id, said)) android.widget.Toast.makeText(ctx, tr("已发给 agent，示教继续", "Sent to the agent; the lesson goes on"), android.widget.Toast.LENGTH_SHORT).show()
+                        said = ""; saying = false
+                        return@GlassPill
+                    }
+                    if (takenOver && kind == UserAsk.Kind.TEACH) BackgroundOperation.userResume()
                     feedback(ctx, a, said)
                 }
                 GlassPill(tr("算了", "Never mind"), false, 1f) { saying = false }
@@ -248,7 +252,7 @@ private fun Skip(onClick: () -> Unit) =
  * the save pane: the only way a lesson leads to a page, and it is the user's own tap.
  */
 @Composable
-internal fun LessonStrip(session: String, k: Float, withHead: Boolean = false) {
+internal fun LessonStrip(session: String, k: Float, withHead: Boolean = false, onSay: (() -> Unit)? = null) {
     val ctx = LocalContext.current
     val lesson by Teach.lesson.collectAsState()
     Column(verticalArrangement = Arrangement.spacedBy((6 * k).dp)) {
@@ -284,5 +288,8 @@ internal fun LessonStrip(session: String, k: Float, withHead: Boolean = false) {
             }
             else -> {}
         }
+        // 1.4.0-beta12: the floating window cannot type: 说一句 opens the screen page with the box open.
+        if (onSay != null && lesson.askId != null && (lesson is com.kilon.agentvscreen.cmd.Lesson.Ready || lesson is com.kilon.agentvscreen.cmd.Lesson.Recording))
+            Say(onClick = onSay)
     }
 }
