@@ -244,15 +244,10 @@ object BackgroundOperation {
         VScreenMap.init(context)
         VScreenRules.init(context)
         VScreenAwake.init(context)
-        // 1.3: apps muted on the background screen get their sound back when it goes, and after a crash (once the
-        // privileged connection is back and no screen is up).
+        // Apps muted on the background screen: the screen service owns their sound and gives it back by itself (also when
+        // this app dies or is uninstalled); a release here only makes it immediate.
         VScreenMute.init(context)
-        onScreenReleased { VScreenMute.restoreAll() }
-        if (VScreenMute.mutedNow().isNotEmpty()) Thread {
-            val t = android.os.SystemClock.elapsedRealtime()
-            while (android.os.SystemClock.elapsedRealtime() - t < 600_000L && _state.value.connection != Connection.READY) Thread.sleep(2_000)
-            if (display == null) runCatching { VScreenMute.restoreAll() }
-        }.apply { isDaemon = true; name = "vscreen-unmute" }.start()
+        onScreenReleased { Thread { runCatching { VScreenMute.restoreAll() } }.apply { isDaemon = true; name = "vscreen-unmute" }.start() }
         runCatching {
             val home = context.packageManager.resolveActivity(
                 android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_HOME), 0,

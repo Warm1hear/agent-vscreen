@@ -199,6 +199,12 @@ internal object VScreenRemoteDisplay {
         }) { ApsRestored(it.readFloat(), it.readInt() != 0, it.readString() ?: "") }
 
     /** Keep-alive for the orphan reaper; cheap, fire-and-forget. */
+    /** 1.4.0-beta11: the service owns the sound of apps on our screens (see VScreenDisplayService.Sound). */
+    fun soundMute(pkg: String): Result<Int> = call(VScreenDisplayService.SOUND, { it.writeInt(0); it.writeString(pkg) }) { it.readInt() }
+    fun soundGive(pkg: String): Result<Unit> = call(VScreenDisplayService.SOUND, { it.writeInt(1); it.writeString(pkg) }) { }
+    fun soundGiveAll(): Result<Unit> = call(VScreenDisplayService.SOUND, { it.writeInt(3) }) { }
+    fun soundList(): Result<List<String>> = call(VScreenDisplayService.SOUND, { it.writeInt(2) }) { r -> List(r.readInt()) { r.readString().orEmpty() } }
+
     fun touch(displayId: Int) {
         if (binder?.isBinderAlive != true) return
         call(VScreenDisplayService.TOUCH, { it.writeInt(displayId) }) { }
