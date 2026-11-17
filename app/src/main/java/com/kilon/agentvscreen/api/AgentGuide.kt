@@ -188,7 +188,7 @@ ${ApiConfig.mcpJson(base, token)}
 
 ### 二、怎么写一段
 - 目标三种写法：`tap 登录`（画面上的字）、`tap #3`（【现在】列表的编号）、`tap 540 1200`（坐标，截图边上有刻度）。字会变或有好几处一样的字时用编号或坐标。
-- 步骤：tap | press（长按）| swipe x1 y1 x2 y2 | drag | scroll down/up | type 文字（先 tap 输入框）| key back/enter | wait 条件 | wait 2s | use 段名。
+- 步骤：tap | press（长按）| swipe x1 y1 x2 y2 | drag | scroll down/up | type 文字（先 tap 输入框；`type "文字" slow` 逐字输入，给边打边搜的框）| key back/enter，组合键 key ctrl+a / shift+tab | wait 条件 | wait 2s | use 段名。
 - 字里 `*` 是任意字（`tap *蓝牙*` 点含“蓝牙”的那项），`字@2` 是从上往下第 2 处。流程：`try 一步`（没找到就跳过）、`if text:关闭 { tap 关闭 } else { … }`、`repeat 5 { scroll down }`、`repeat { scroll down } until text:到底了`。存成段：`note save 名字 "步骤"`（不执行，示教的段也能这样改写），用 `use 名字 参数`。示教存的段带一张关键步骤缩略图：teach 的回复里附上，之后用 `note show 名字` 再看。
 - 条件：text:字（出现）| gone:字（消失）| change（画面变了）| stable（稳定）| app:包名或界面名。
 - 例：`vscreen act "tap 搜索; type 耳机; key enter until text:综合"`。
@@ -224,7 +224,7 @@ No adb or wireless debugging is needed; don't set them up. With no screen, just 
 
 ### 2. Writing a stretch
 - Three ways to name a target: `tap Login` (text on the screen), `tap #3` (number in the [Now] list), `tap 540 1200` (coordinates; the screenshot has rulers). When text changes or appears in several places, use the number or coordinates.
-- Steps: tap | press (long press) | swipe x1 y1 x2 y2 | drag | scroll down/up | type text (tap the input box first) | key back/enter | wait <condition> | wait 2s | use <segment>.
+- Steps: tap | press (long press) | swipe x1 y1 x2 y2 | drag | scroll down/up | type text (tap the input box first; `type "text" slow` types one character at a time, for search-as-you-type boxes) | key back/enter, shortcuts key ctrl+a / shift+tab | wait <condition> | wait 2s | use <segment>.
 - `*` in words is any characters (`tap *Bluetooth*` taps the item holding it), `words@2` is the 2nd place from the top. Flow: `try <step>` (skipped if not found), `if text:Close { tap Close } else { … }`, `repeat 5 { scroll down }`, `repeat { scroll down } until text:End`. Save as a segment: `note save <name> "steps"` (not run; rewrites a taught one too), run with `use <name> <values>`. A taught segment keeps a contact sheet of its key steps: attached to the teach reply, and again with `note show <name>`.
 - Conditions: text:word (appears) | gone:word (disappears) | change (the picture changed) | stable (settled) | app:package or screen name.
 - Example: `vscreen act "tap Search; type headphones; key enter until text:Results"`.

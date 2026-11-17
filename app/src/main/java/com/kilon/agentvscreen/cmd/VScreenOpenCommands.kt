@@ -234,7 +234,8 @@ internal fun VScreenOffloadHandler.stopCmd(sid: String?, args: OffloadArgs): Nat
     val s = sid ?: throw ActionError("NO_SESSION", tr("没有会话（请求头 X-VScreen-Session）", "No session (header X-VScreen-Session)"))
     val force = args.hasFlag("force")
     val main0 = mainWatch(s)
-    val pkgArg = args.positional.getOrNull(0)
+    // 1.4.0-beta13 (test: `stop 计算器` -> CLOSE_FAILED): an app name is resolved like launch does, not taken for a package.
+    val pkgArg = args.positional.getOrNull(0)?.let { VScreenKnowledge.resolveApp(it) ?: it }
     if (pkgArg != null && force && VScreenShell.isProtected(pkgArg)) throw ActionError("PROTECTED_APP", tr("$pkgArg 是 Agent-VScreen 自己、桌面或系统界面，不能 force-stop", "$pkgArg is Agent-VScreen itself, the launcher or system UI, and cannot be force-stopped"))
     if (force) {
         val target = pkgArg ?: runCatching { BackgroundOperation.previewDisplayFor(s)?.let { VScreenShell.topPackage(it.displayId) } }.getOrNull() ?: "?"

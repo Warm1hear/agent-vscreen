@@ -141,7 +141,10 @@ internal fun a11yRaw(d: VScreenDisplay): List<El> {
         val visible = node.visible
         val text = if (visible) node.words?.takeIf { !isJunkLabel(it) } else null
         val actionable = n.isClickable || n.isEditable || n.isCheckable || n.isScrollable
-        val b = node.box
+        // 1.4.0-beta13 (test L18a): the system gives bounds in INPUT space; everything we read, show and tap is in the
+        // upright frame space. They differ when the logical display is letterboxed in the picture (a rotated app on a
+        // screen built the other way); unmapped, a tap on "9" was named "beside 9" and element taps were mapped twice.
+        val b = d.toFrame(node.box)
         val inside = visible && b.width() > 0 && b.height() > 0 && b.centerX() in 0 until d.width && b.centerY() in 0 until d.height
         val area = b.width().toLong() * b.height()
         val big = area > screenArea / 4

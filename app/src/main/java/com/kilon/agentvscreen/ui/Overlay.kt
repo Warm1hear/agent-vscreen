@@ -50,7 +50,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragIndicator
-import androidx.compose.material.icons.filled.OpenInFull
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
@@ -863,7 +863,8 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
             // Full screen and close, top right. Same places in every state.
             // 1.3.0-beta18: the same height as the title pill, on the same line (rainbow).
             Row(Modifier.align(Alignment.TopEnd).padding(end = (7 * k).dp, top = (7 * k).dp), horizontalArrangement = Arrangement.spacedBy((5 * k).dp)) {
-                RoundBtn(Icons.Filled.OpenInFull, tr("全屏", "Full screen"), chip, k) { Overlay.openFull() }
+                // 1.4.0-beta13 (test L2: the bare ↗ was not read as "full screen"): the standard full screen mark, named.
+                LabelBtn(Icons.Filled.Fullscreen, tr("全屏", "Full"), chip, k) { Overlay.openFull() }
                 RoundBtn(Icons.Filled.Close, if (mode == Mode.ACTING || mode == Mode.STANDBY || mode == Mode.TAKEOVER) tr("隐藏小窗", "Hide window") else tr("关闭副屏", "Close screen"),
                     chip, k) { Overlay.closeTapped() }
             }
@@ -1002,6 +1003,17 @@ private fun PictureLayer(owner: String, k: Float, picture: (@Composable (String)
             }
             Icon(Icons.Filled.PanTool, null, tint = Color.White, modifier = Modifier.offset { IntOffset(holdAt.x.roundToInt() - 24, holdAt.y.roundToInt() - 24) }.size(16.dp))
         }
+    }
+}
+
+@Composable
+private fun LabelBtn(icon: ImageVector, label: String, bg: Color, k: Float, onClick: () -> Unit) {
+    Row(
+        Modifier.height(CHIP_H * k).clip(RoundedCornerShape(50)).background(bg).clickable(onClick = onClick).padding(start = (7 * k).dp, end = (9 * k).dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy((3 * k).dp),
+    ) {
+        Icon(icon, null, tint = Color.White, modifier = Modifier.size((14 * k).dp))
+        Text(label, color = Color.White, fontSize = (11 * k).sp, maxLines = 1)
     }
 }
 

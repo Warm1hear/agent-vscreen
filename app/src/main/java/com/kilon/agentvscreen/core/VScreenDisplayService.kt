@@ -133,17 +133,29 @@ class VScreenDisplayService : Binder {
         fun mute(pkg: String): Int = synchronized(muted) {
             if (pkg.isBlank()) return 0
             if (pkg in muted) return 2
-            val before = runCatching { parsePlayAudio(sh("cmd", "appops", "get", pkg, "PLAY_AUDIO")) }.getOrNull() ?: return 0
-            if (before == "ignore") return 0
+            // 1.4.0-beta13: the package's own record (the UID's is printed first on some ROMs and is not what we change).
+            val now = runCatching { PlayAudio.parse(sh("cmd", "appops", "get", pkg, "PLAY_AUDIO")) }.getOrNull() ?: return 0
+            if (PlayAudio.silent(now)) return 0
+            val before = now.pkg ?: "default"
             if (!setMode(pkg, "ignore")) return 0
             muted[pkg] = before; save(); watch()
             1
         }
 
+        /**
+         * 1.4.0-beta13 (rainbow: the sound did not come back): back to `allow` on BOTH records, then read both. Some ROMs
+         * treat an explicit `default` as muted, so `default` is never written; nothing but an app that played before
+         * is muted, so `allow` is what it had in effect.
+         */
         fun give(pkg: String) = synchronized(muted) {
-            val before = muted[pkg] ?: return
-            val back = if (before == "allow" || before == "default" || before == "foreground") before else "default"
-            if (setMode(pkg, back) || !installed(pkg)) muted.remove(pkg)
+            if (pkg !in muted) return
+            val ok = runCatching {
+                val uid = sh("cmd", "package", "list", "packages", "-U", pkg).lines().firstOrNull { it.trim().startsWith("package:$pkg ") || it.trim() == "package:$pkg" }
+                    ?.let { Regex("uid:(\\d+)").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+                val out = sh("sh", "-c", PlayAudio.giveBack(0, pkg, uid))
+                PlayAudio.parseScan(out).firstOrNull()?.let { !PlayAudio.silent(it.modes) } ?: false
+            }.getOrDefault(false)
+            if (ok || !installed(pkg)) muted.remove(pkg)
             save()
         }
 
@@ -200,7 +212,7 @@ class VScreenDisplayService : Binder {
             System.exit(0)
             return true
         }
-        if (code !in CREATE..SOUND) return super.onTransact(code, data, reply, flags)
+        if (code !in CREATE..INJECT_COMBO) return super.onTransact(code, data, reply, flags)
         data.enforceInterface(DESCRIPTOR)
         val out = reply ?: return true
         try {
@@ -238,6 +250,11 @@ class VScreenDisplayService : Binder {
                 INJECT_KEY -> {
                     val id = data.readInt(); val key = data.readInt(); val longPress = data.readInt() != 0
                     out.writeInt(0); out.writeInt(if (injectKey(id, key, longPress)) 1 else 0)
+                }
+                INJECT_COMBO -> {
+                    val id = data.readInt(); val key = data.readInt(); val n = data.readInt()
+                    val mods = IntArray(n) { data.readInt() }
+                    out.writeInt(0); out.writeInt(if (injectCombo(id, key, mods)) 1 else 0)
                 }
                 INJECT_TEXT -> {
                     val id = data.readInt(); val text = data.readString().orEmpty()
@@ -457,6 +474,30 @@ class VScreenDisplayService : Binder {
         val up = KeyEvent(now, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, code, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
             0, InputDevice.SOURCE_KEYBOARD)
         return inject(up, displayId) && ok
+    }
+
+    /**
+     * 1.4.0-beta13 (rainbow: agents use keyboard shortcuts): a key with modifiers, the way a hardware keyboard sends it:
+     * each modifier goes down (the meta state growing with it), the key goes down and up with the full meta state,
+     * then the modifiers come up in reverse. Apps that read the meta state of the key and apps that track the
+     * modifier keys themselves both see Ctrl+A.
+     */
+    private fun injectCombo(displayId: Int, code: Int, mods: IntArray): Boolean {
+        fun metaOf(m: Int) = when (m) {
+            KeyEvent.KEYCODE_CTRL_LEFT -> KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
+            KeyEvent.KEYCODE_SHIFT_LEFT -> KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON
+            KeyEvent.KEYCODE_ALT_LEFT -> KeyEvent.META_ALT_ON or KeyEvent.META_ALT_LEFT_ON
+            else -> 0
+        }
+        val now = SystemClock.uptimeMillis()
+        fun ev(action: Int, k: Int, meta: Int) = KeyEvent(now, SystemClock.uptimeMillis(), action, k, 0, meta, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD)
+        var meta = 0
+        var ok = true
+        for (m in mods) { meta = meta or metaOf(m); ok = inject(ev(KeyEvent.ACTION_DOWN, m, meta), displayId) && ok }
+        ok = inject(ev(KeyEvent.ACTION_DOWN, code, meta), displayId) && ok
+        ok = inject(ev(KeyEvent.ACTION_UP, code, meta), displayId) && ok
+        for (m in mods.reversed()) { meta = meta and metaOf(m).inv(); ok = inject(ev(KeyEvent.ACTION_UP, m, meta), displayId, if (m == mods.first()) 1 else 0) && ok }
+        return ok
     }
 
     /**
@@ -772,17 +813,20 @@ class VScreenDisplayService : Binder {
         const val INJECT_TEXT = FIRST_CALL_TRANSACTION + 17
         /** 1.4.0-beta11 (protocol 11): op 0 MUTE pkg -> 0/1/2, op 1 GIVE pkg, op 2 LIST -> n, n x pkg, op 3 GIVE_ALL. */
         const val SOUND = FIRST_CALL_TRANSACTION + 18
+        /** 1.4.0-beta13 (protocol 12): in displayId, keyCode, n, n x modifier keyCode  out: status, injected(0/1). */
+        const val INJECT_COMBO = FIRST_CALL_TRANSACTION + 19
         /** Apps the service silenced, so a service that was killed gives them back on its next start. Shell-owned. */
         const val FILE = "/data/local/tmp/agent-vscreen-muted.json"
         /** "allow" / "ignore" / "default" … as `appops get` says it, or null when it cannot be read. */
+        /** The package's own PLAY_AUDIO record ("default" when it has none); null when the output says nothing. */
         fun parsePlayAudio(out: String): String? =
-            Regex("PLAY_AUDIO:\\s*([a-z_]+)").find(out)?.groupValues?.get(1) ?: if (out.contains("No operations", true)) "default" else null
+            PlayAudio.parse(out).pkg ?: if (out.contains("No operations", true) || out.contains("PLAY_AUDIO")) "default" else null
         /** A held finger with no update for this long is lifted by the service. */
         const val FINGER_MAX_IDLE_MS = 30_000L
         /** A display nobody touched for this long (app gone) is released. */
         const val ORPHAN_MS = 20 * 60_000L
         /** Bump when the protocol changes, so Shizuku restarts an old service process. */
-        const val PROTOCOL = 11
+        const val PROTOCOL = 12
         /** Shizuku's reserved "destroy user service" transaction. */
         const val DESTROY_CODE = 16777115
         private const val SHELL_PKG = "com.android.shell"

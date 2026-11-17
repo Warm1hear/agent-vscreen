@@ -34,9 +34,9 @@ object VScreenMute {
         // Before beta11 the app kept its own list (files/vscreen/muted.json): give those back once, through the shell.
         legacy()?.takeIf { it.isNotEmpty() }?.let { old ->
             Thread {
-                val left = old.filterNot { (p, before) ->
-                    val back = if (before == "allow" || before == "default" || before == "foreground") before else "default"
-                    runCatching { VScreenShell.run(arrayOf("appops", "set", p, "PLAY_AUDIO", back), 4_000L).exitCode == 0 }.getOrDefault(false)
+                val left = old.filterNot { (p, _) ->
+                    runCatching { VScreenShell.run(arrayOf("sh", "-c", PlayAudio.giveBack(0, p, null)), 6_000L).let { r ->
+                        PlayAudio.parseScan(r.combined).firstOrNull()?.let { !PlayAudio.silent(it.modes) } == true } }.getOrDefault(false)
                 }
                 if (left.isEmpty()) legacyFile()?.delete()
                 else AppLogger.warning(TAG, "could not give back ${left.keys}")
@@ -89,28 +89,34 @@ object VScreenMute {
         known = emptySet()
     }
 
-    /** The apps the system says are silenced now (PLAY_AUDIO ignore), whoever did it; null when it cannot be asked. */
-    internal fun parseSilenced(out: String): List<String> =
-        out.lines().map { it.trim() }.filter { Regex("^[a-zA-Z][\\w]*(\\.[\\w]+)+$").matches(it) }.distinct()
+    /** What a repair found and did. [denied]: the system refused the shell (a ROM setting the user must turn on). */
+    data class Repair(val fixed: List<PlayAudio.Hit>, val failed: List<PlayAudio.Hit>, val denied: Boolean)
 
-    fun silenced(): List<String>? = runCatching {
-        val r = VScreenShell.run(arrayOf("cmd", "appops", "query-op", "PLAY_AUDIO", "ignore"), 6_000L)
-        if (r.exitCode != 0) null else parseSilenced(r.combined)
+    /** Every silenced app of every user the shell can read (both records, read one by one: query-op misses them). */
+    fun silenced(): List<PlayAudio.Hit>? = runCatching {
+        val r = VScreenShell.run(arrayOf("sh", "-c", PlayAudio.SCAN), 90_000L)
+        PlayAudio.parseScan(r.combined).filter { PlayAudio.silent(it.modes) }.takeIf { r.combined.contains("@@") }
     }.getOrNull()
 
     /**
-     * 1.4.0-beta12 (rainbow: can turning the switch off fix it, and is there another way): give back EVERY app the
-     * system has silenced, not only the ones this install remembers. An app muted by an older version (whose record
-     * was lost with an uninstall) is in no list we keep, so a repair asks the system itself. Called by turning
-     * 副屏静音 off and by the 恢复被静音的应用 row. Returns the apps given back, or null without the privileged
-     * connection. An app on the background screen right now is muted again by the next action while the switch is on.
+     * 1.4.0-beta12, rebuilt in beta13 (rainbow: it reported success and the app stayed silent). Gives back EVERY app the
+     * system has silenced, whoever did it: the service's own list first, then a full reading of every package of every
+     * user, and each silenced one gets `allow` on its package and UID records, read again to confirm. Called by
+     * turning 副屏静音 off and by 恢复被静音的应用. Null without the privileged connection. A player that was already
+     * playing stays quiet until the app plays again (the caller says so). An app on the background screen right now is
+     * muted again by the next action while the switch is on.
      */
-    fun repair(): List<String>? {
+    fun repair(): Repair? {
         runCatching { VScreenRemoteDisplay.soundGiveAll() }
         known = emptySet()
-        val left = silenced() ?: return null
-        return left.filter { p -> runCatching { VScreenShell.run(arrayOf("appops", "set", p, "PLAY_AUDIO", "default"), 4_000L).exitCode == 0 }.getOrDefault(false) }
-            .also { if (it.isNotEmpty()) AppLogger.info(TAG, "repair gave back $it") }
+        val bad = silenced() ?: return null
+        if (bad.isEmpty()) return Repair(emptyList(), emptyList(), false)
+        val out = runCatching { VScreenShell.run(arrayOf("sh", "-c", bad.joinToString("; ") { PlayAudio.giveBack(it.user, it.pkg, it.uid) }), 60_000L).combined }.getOrDefault("")
+        val after = PlayAudio.parseScan(out).associateBy { it.user to it.pkg }
+        val (ok, no) = bad.partition { h -> after[h.user to h.pkg]?.let { !PlayAudio.silent(it.modes) } == true }
+        if (ok.isNotEmpty()) AppLogger.info(TAG, "repair gave back ${ok.map { "${it.user}/${it.pkg}" }}")
+        if (no.isNotEmpty()) AppLogger.warning(TAG, "repair could not give back ${no.map { "${it.user}/${it.pkg}" }}: ${out.take(300)}")
+        return Repair(ok, no, PlayAudio.denied(out))
     }
 
     fun mutedNow(): Set<String> = known

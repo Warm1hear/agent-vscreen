@@ -110,6 +110,10 @@ internal object VScreenRemoteDisplay {
     fun injectKey(displayId: Int, keyCode: Int, longPress: Boolean = false): Result<Boolean> =
         call(VScreenDisplayService.INJECT_KEY, { it.writeInt(displayId); it.writeInt(keyCode); it.writeInt(if (longPress) 1 else 0) }) { it.readInt() != 0 }
 
+    /** 1.4.0-beta13: a key with modifier keys held (see VScreenDisplayService.injectCombo). */
+    fun injectCombo(displayId: Int, keyCode: Int, mods: List<Int>): Result<Boolean> =
+        call(VScreenDisplayService.INJECT_COMBO, { it.writeInt(displayId); it.writeInt(keyCode); it.writeInt(mods.size); mods.forEach { m -> it.writeInt(m) } }) { it.readInt() != 0 }
+
     /** 1.2: characters typed as key events on [displayId] (ASCII; see VScreenDisplayService.injectText). */
     fun injectText(displayId: Int, text: String): Result<Boolean> =
         call(VScreenDisplayService.INJECT_TEXT, { it.writeInt(displayId); it.writeString(text) }) { it.readInt() != 0 }

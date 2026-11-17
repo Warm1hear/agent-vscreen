@@ -36,8 +36,13 @@ internal object VScreenMap {
 
     /** [start]: 1.4.0-beta4, a taught lesson's starting page (Teach.startJson); null for agent-saved segments and older lessons. */
     /** [by]: 1.4.0-beta7, the agent (token id) that saved it or asked for the lesson; lessons are shared, the source is said. */
-    class Segment(val name: String, val steps: String, val at: Long, var uses: Int, val start: JSONObject? = null, val by: String? = null) {
-        fun json(): JSONObject = JSONObject().put("name", name).put("steps", steps).put("at", at).put("uses", uses).also { o -> start?.let { o.put("start", it) }; by?.let { o.put("by", it) } }
+    class Segment(val name: String, val steps: String, val at: Long, var uses: Int, val start: JSONObject? = null, val by: String? = null,
+                  /** 1.4.0-beta13 (test B8): the user showed it (a lesson), as opposed to an agent writing it with note save. */
+                  val taught: Boolean = false,
+                  /** 1.4.0-beta13 (test B6): the teach request it answered ("what:name"), so the same teach finds it again. */
+                  val asked: String? = null) {
+        fun json(): JSONObject = JSONObject().put("name", name).put("steps", steps).put("at", at).put("uses", uses).also { o -> start?.let { o.put("start", it) }; by?.let { o.put("by", it) }
+            if (taught) o.put("taught", true); asked?.let { o.put("asked", it) } }
     }
 
     class AppMap(val pkg: String) {
@@ -66,7 +71,8 @@ internal object VScreenMap {
             val o = JSONObject(f.readText())
             m.seq = o.optInt("seq")
             arr(o, "notes").forEach { n -> m.notes += Note(n.getInt("id"), n.getString("text"), n.optLong("at"), n.optString("by").ifEmpty { null }, n.optString("app_version").ifEmpty { null }) }
-            arr(o, "segments").forEach { s -> m.segments += Segment(s.getString("name"), s.getString("steps"), s.optLong("at"), s.optInt("uses"), s.optJSONObject("start"), s.optString("by").takeIf { it.isNotEmpty() }) }
+            arr(o, "segments").forEach { s -> m.segments += Segment(s.getString("name"), s.getString("steps"), s.optLong("at"), s.optInt("uses"), s.optJSONObject("start"), s.optString("by").takeIf { it.isNotEmpty() },
+                s.optBoolean("taught"), s.optString("asked").takeIf { it.isNotEmpty() }) }
             o.optJSONObject("profile")?.let { p -> p.keys().forEach { k0 ->
                 val k = LEGACY_KEYS[k0] ?: k0
                 PROFILE_KEYS[k]?.invoke(p.optString(k0))?.let { v -> if (k !in m.profile || k == k0) m.profile[k] = v } } }
@@ -127,14 +133,16 @@ internal object VScreenMap {
     /** 1.4.0-beta4: a lesson taught before lessons kept their starting page (it has a contact sheet but no start). */
     fun oldLesson(pkg: String, s: Segment): Boolean = s.start == null && pictureFile(pkg, s.name)?.isFile == true
 
-    @Synchronized fun saveSegment(pkg: String, name: String, steps: String, start: JSONObject? = null, by: String? = com.kilon.agentvscreen.cmd.Call.current()?.tokenId): Segment {
+    @Synchronized fun saveSegment(pkg: String, name: String, steps: String, start: JSONObject? = null, by: String? = com.kilon.agentvscreen.cmd.Call.current()?.tokenId,
+                                  taught: Boolean = false, asked: String? = null): Segment {
         val m = load(pkg)
         // 1.4.0-beta11 (rainbow: the agent tries a lesson and then edits its steps): rewriting a segment keeps where it
         // starts and whom it was taught for. Before, `note save` over a taught lesson dropped its start, and the lesson
         // then read as one taught before 1.4 ("teach it again").
         val old = m.segments.firstOrNull { it.name == name }
         m.segments.removeAll { it.name == name }
-        val s = Segment(name, steps, System.currentTimeMillis(), 0, start ?: old?.start, old?.by ?: by)
+        val s = Segment(name, steps, System.currentTimeMillis(), 0, start ?: old?.start, old?.by ?: by,
+            taught || old?.taught == true || (old != null && oldLesson(pkg, old)), asked ?: old?.asked)
         m.segments += s
         while (m.segments.size > MAX_SEGMENTS) m.segments.removeAt(0)
         save(m)
@@ -144,6 +152,13 @@ internal object VScreenMap {
     private fun knownPkgs(): List<String> = dir()?.listFiles { f -> f.isFile && f.name.endsWith(".json") }.orEmpty().mapNotNull { f ->
         runCatching { JSONObject(f.readText()).optString("package").ifEmpty { null } }.getOrNull()
     }
+
+    /** 1.4.0-beta13: the user showed it (kept as taught, or a lesson from before the mark: it has a contact sheet). */
+    fun isTaught(pkg: String, s: Segment): Boolean = s.taught || pictureFile(pkg, s.name)?.isFile == true
+
+    /** 1.4.0-beta13 (test B6): the segment saved for this teach request, newest first; null when none is kept any more. */
+    @Synchronized fun forTeach(asked: String): Pair<String, Segment>? =
+        knownPkgs().flatMap { p -> load(p).segments.filter { it.asked == asked }.map { p to it } }.maxByOrNull { it.second.at }
 
     /** 1.3.0-beta15: every saved segment of every app (the app's "saved lessons" page), newest first. */
     @Synchronized fun allSegments(): List<Pair<String, Segment>> =
@@ -169,7 +184,7 @@ internal object VScreenMap {
         val i = m.segments.indexOfFirst { it.name == name }.takeIf { it >= 0 } ?: return
         val s = m.segments[i]
         if (s.start != null) return
-        m.segments[i] = Segment(s.name, s.steps, s.at, s.uses, start, s.by)
+        m.segments[i] = Segment(s.name, s.steps, s.at, s.uses, start, s.by, s.taught, s.asked)
         save(m)
     }
 

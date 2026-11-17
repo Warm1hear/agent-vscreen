@@ -323,6 +323,9 @@ internal object Teach {
     fun brief(): Pair<String?, String>? = rec?.let { r -> r.purpose?.takeIf { it.isNotBlank() }?.let { p -> (r.askId?.let { UserAsk.byId(it)?.tokenName }) to p } }
         ?: prepId?.let { UserAsk.byId(it) }?.let { a -> a.tokenName to a.title }
 
+    /** 1.4.0-beta13: a teach request's key without who sent it ("what:name"): the same request from any session. */
+    fun askedOf(key: String): String = key.removePrefix("teach:").substringAfter(':')
+
     /** 1.4.0-beta11: the start of a segment as it would be kept, read from [displayId] now (null when unreadable). */
     fun startHere(displayId: Int): org.json.JSONObject? = startJson(read(displayId))
 
@@ -875,7 +878,18 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
         ?.takeIf { o -> !(again && o.answer != null) && !(o.answer == false && o.used) }
         // 1.4.0-beta12: words instead of a lesson were told once; the same teach sent again (adjusted) asks again.
         ?.takeIf { o -> !(o.used && o.reply?.optString("kind") == "feedback") }
-    val repeat = old?.answer == true && old.used
+    // 1.4.0-beta13 (test B6: the same teach sent again an hour later, or after the app restarted, asked the user
+    // again): the request in memory is short-lived; what lasts is the segment it produced. A saved lesson remembers the
+    // request it answered, so the same teach finds it whoever sends it and whenever.
+    val kept = if (old == null && !again) VScreenMap.forTeach(Teach.askedOf(key)) else null
+    val repeat = (old?.answer == true && old.used) || kept != null
+    var heardLine = ""
+    var said: List<String> = emptyList()
+    val r = if (kept != null) {
+        val (app, sg) = kept
+        org.json.JSONObject().put("kind", "teach").put("name", sg.name).put("app", app).put("steps", sg.steps)
+            .put("params", Regex("\\{(\\d)\\}").findAll(sg.steps).maxOfOrNull { it.groupValues[1].toInt() } ?: 0)
+    } else {
     val ask = if (old != null && (old.answer != null || old.live)) old else {
         BackgroundOperation.previewDisplayFor(session) ?: throw ActionError("NO_SCREEN", tr("示教在副屏上做，现在没有副屏：先 launch 要演示的应用", "The lesson is done on the background screen and there is none: launch the app to show first"))
         UserAsk.create(context, UserAsk.Kind.TEACH, key, what, tr("在副屏上做一遍，做完点“完成”，看一下再保存", "Do it once on the background screen, tap Done, check it and save"),
@@ -891,7 +905,8 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
     }
     // 1.4.0-beta12: what the user said while showing it, not yet told to this agent.
     val heard = ask.said.drop(ask.saidSeen).also { ask.saidSeen = ask.said.size }
-    val heardLine = if (heard.isEmpty()) "" else tr("用户在示教中说：「${heard.joinToString("」「")}」。", "While showing it the user said: \"${heard.joinToString("\", \"")}\". ")
+    said = ask.said.toList()
+    heardLine = if (heard.isEmpty()) "" else tr("用户在示教中说：「${heard.joinToString("」「")}」。", "While showing it the user said: \"${heard.joinToString("\", \"")}\". ")
     when (ask.answer) {
         null -> if (UserAsk.taken(ask)) throw ActionError("ASK_PENDING", heardLine + when {
             Teach.result?.askId == ask.id -> tr("用户已经录好，正在看一遍再保存。过一会儿把同一条 teach 原样再发一次取结果（等待时不会过期）", "The user has recorded it and is checking it before saving. Send the same teach again in a while for the result (it does not expire while they work)")
@@ -899,12 +914,13 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
             else -> tr("用户正在副屏上走到起点，还没开始演示。过一会儿把同一条 teach 原样再发一次（等待时不会过期）", "The user is getting to the start on the screen. Send the same teach again in a while (it does not expire while they work)")
         }) else throw ActionError("ASK_PENDING", tr("请求已显示在手机上（通知、副屏小窗和 App 首页），用户 ${wait / 1000} 秒内还没做完。告诉用户去手机上演示；之后把同一条 teach 原样再发一次就能拿到结果（${ask.validMs / 60_000} 分钟内有效）",
             "The request is on the phone (notification, the floating window and the app's home page); the user has not finished within ${wait / 1000} s. Tell the user to show it on the phone; then send the same teach again for the result (valid for ${ask.validMs / 60_000} minutes)"))
-        false -> { UserAsk.markUsed(ask); UserAsk.endedWhy(ask)?.let { why -> throw ActionError("ASK_DECLINED", tr("副屏已经关闭（$why），示教请求结束了：$what。要演示请先 launch 应用再发 teach", "The background screen was closed ($why), so the lesson request ended: $what. launch the app first, then send teach again")) }
+        false -> { UserAsk.markUsed(ask); UserAsk.endedWhy(ask)?.let { why -> throw ActionError("ASK_DECLINED", tr("副屏关了，没有示范：$what（$why）。要示范先 launch 应用，再发 teach", "The screen closed, so nothing was shown: $what ($why). launch the app first, then send teach")) }
             if (ask.reply?.optString("kind") == "handed_back") throw ActionError("ASK_DECLINED", tr("用户没开始示范就把副屏交还给你了，这次不示范：$what。看一眼现在的画面，问用户想怎么办，不要原样再发", "The user handed the screen back before showing anything, so no lesson this time: $what. Look at the screen and ask the user what they want; don't send the same again"))
             throw ActionError("ASK_DECLINED", tr("用户没有演示（或丢弃了录下的步骤）：$what", "The user did not show it (or discarded the recording): $what")) }
         true -> UserAsk.markUsed(ask)
     }
-    val r = ask.reply ?: org.json.JSONObject()
+    ask.reply ?: org.json.JSONObject()
+    }
     feedbackOf(r)?.let { throw it }
     val seg = r.optString("name"); val n = r.optInt("params")
     val use = "use $seg" + (1..n).joinToString("") { " <$it>" }
@@ -929,7 +945,7 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
             "Save it back with note save $seg \"<all steps>\" (the start check is kept) and run it again. note show $seg shows the steps now.")
     data.put("next", next)
     if (repeat) data.put("again", false).put("note", tr("这一段之前已经交给过你，这次没有再请用户演示。要用户重新演示一遍，加 --again。", "This segment was already given to you; the user was not asked again. To have the user show it again, add --again."))
-    if (ask.said.isNotEmpty()) data.put("said", org.json.JSONArray(ask.said))
+    if (said.isNotEmpty()) data.put("said", org.json.JSONArray(said))
     data.put("message", heardLine + (if (repeat) tr("（同一条 teach 已有结果，原样返回）", "(This teach already has its result; returned as is) ") else "") + tr("用户演示完并存成了段「$seg」（${r.optString("app")}）。照做：act \"$use\"" + (if (n > 0) "（按顺序填 $n 个参数，是用户当时输入的字的位置）" else "") + "。步骤：${r.optString("steps")}" + (pic?.let { "。示教关键步骤缩略图（数字是步骤序号，红圈是点的位置）：$it" } ?: ""),
         "The user showed it and saved it as segment \"$seg\" (${r.optString("app")}). Run it: act \"$use\"" + (if (n > 0) " (fill $n values in order: where the user typed)" else "") + ". Steps: ${r.optString("steps")}" + (pic?.let { ". Thumbnails of the key steps (numbers are step numbers, red rings are taps): $it" } ?: "")) + "\n" + next)
     return ok(args, data)

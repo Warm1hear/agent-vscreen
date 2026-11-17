@@ -245,9 +245,17 @@ private fun MainTabs(pager: androidx.compose.foundation.pager.PagerState) {
             }
         },
     ) { pad ->
+        // 1.4.0-beta13 (rainbow: switching tabs still stutters). Two costs met in the frames of a switch: a tab composed
+        // for the first time mid-slide (only the neighbours were kept), and every tab's top bar blurring its page live
+        // while three pages move under the bar's own blur. All four tabs are now composed once the app has drawn its
+        // first page, and a tab's bar blurs only when content is scrolled under it and the pager is still (MiuixPage).
+        var keep by remember { mutableStateOf(1) }
+        val moving = remember(pager) { { pager.isScrollInProgress } }
+        LaunchedEffect(Unit) { delay(700); keep = 3 }
         Box(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier) {
+            CompositionLocalProvider(LocalPagerMoving provides moving) {
             HorizontalPager(
-                state = pager, beyondViewportPageCount = 1, verticalAlignment = Alignment.Top,
+                state = pager, beyondViewportPageCount = keep, verticalAlignment = Alignment.Top,
                 flingBehavior = PagerDefaults.flingBehavior(state = pager),
             ) { page ->
                 val bottom = pad.calculateBottomPadding()
@@ -258,9 +266,13 @@ private fun MainTabs(pager: androidx.compose.foundation.pager.PagerState) {
                     else -> SettingsTab(bottom)
                 }
             }
+            }
         }
     }
 }
+
+/** Whether the tabs are sliding (read lazily): pages skip their bar's live blur meanwhile. */
+val LocalPagerMoving = androidx.compose.runtime.staticCompositionLocalOf<() -> Boolean> { { false } }
 
 @Composable
 fun Dot(c: Color, size: Dp = 8.dp) = Box(Modifier.size(size).clip(CircleShape).background(c))
@@ -285,13 +297,17 @@ fun MiuixPage(
     val surface = MiuixTheme.colorScheme.surface
     val backdrop: LayerBackdrop? = if (Glass.blurOk) rememberLayerBackdrop { drawRect(surface); drawContent() } else null
     val bar = MiuixScrollBehavior()
+    val scroll = rememberScrollState()
+    val moving = LocalPagerMoving.current
+    // 1.4.0-beta13: blur only what is there to blur: content scrolled under the bar, and not while the tabs slide.
+    val blurNow by remember(backdrop) { androidx.compose.runtime.derivedStateOf { backdrop != null && scroll.value > 0 && !moving() } }
     Scaffold(
         topBar = {
-            Box(if (backdrop != null) Modifier.textureBlur(backdrop = backdrop, shape = RectangleShape, blurRadius = 25f,
+            Box(if (blurNow && backdrop != null) Modifier.textureBlur(backdrop = backdrop, shape = RectangleShape, blurRadius = 25f,
                 colors = BlurDefaults.blurColors(blendColors = listOf(BlendColorEntry(color = surface.copy(0.8f))))) else Modifier) {
                 TopAppBar(
                     title = title, subtitle = subtitle, scrollBehavior = bar,
-                    color = if (backdrop != null) Color.Transparent else surface,
+                    color = if (blurNow) Color.Transparent else surface,
                     navigationIcon = {
                         if (back) IconButton(onClick = { nav.back() }, modifier = Modifier.padding(start = 16.dp)) {
                             Icon(MiuixIcons.Back, tr("返回", "Back"))
@@ -304,7 +320,7 @@ fun MiuixPage(
     ) { pad ->
         Box(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier) {
             Column(
-                Modifier.fillMaxSize().overScrollVertical().nestedScroll(bar.nestedScrollConnection).verticalScroll(rememberScrollState())
+                Modifier.fillMaxSize().overScrollVertical().nestedScroll(bar.nestedScrollConnection).verticalScroll(scroll)
                     .padding(top = pad.calculateTopPadding(), bottom = maxOf(bottom, pad.calculateBottomPadding()) + 24.dp),
             ) { content() }
         }

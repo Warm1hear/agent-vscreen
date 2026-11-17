@@ -24,6 +24,24 @@ private fun VScreenOffloadHandler.noteApp(sid: String?): String {
     throw ActionError("NO_APP", tr("不知道记到哪个应用：先 launch 应用", "no app to keep it for: launch an app first"))
 }
 
+/**
+ * 1.4.0-beta13 (test B8: every segment read "saved for Muse", the user's lessons too): where a segment came from, as
+ * an agent reads it: the user showed it (and for whom), or an agent wrote it.
+ */
+internal fun segmentFrom(pkg: String, s: VScreenMap.Segment): String {
+    val who = s.by?.let { com.kilon.agentvscreen.api.Agents.name(it) }
+    return if (VScreenMap.isTaught(pkg, s)) tr("用户示教的", "taught by the user") + (who?.let { tr("，为 $it", ", for $it") } ?: "")
+    else who?.let { tr("$it 存的", "saved by $it") } ?: tr("agent 存的", "saved by an agent")
+}
+
+/** Where a segment starts, as an agent reads it (null: not known yet). */
+internal fun segmentStart(s: VScreenMap.Segment): String? = s.start?.let { st ->
+    val app = st.optString("app").takeIf { it.isNotEmpty() && it != "null" }
+    val act = st.optString("activity").takeIf { it.isNotEmpty() && it != "null" }?.substringAfterLast('.')
+    val words = st.optJSONArray("words")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty()
+    listOfNotNull(app, act).joinToString(" / ") + (if (words.isNotEmpty()) tr("，页面上有「${words.joinToString("」「")}」", ", a page showing \"${words.joinToString("\", \"")}\"") else "")
+}
+
 /** Everything written down about [pkg], as lines. */
 internal fun noteLines(pkg: String, verNow: String? = null): List<String> {
     val m = VScreenMap.load(pkg)
@@ -31,7 +49,7 @@ internal fun noteLines(pkg: String, verNow: String? = null): List<String> {
     val name = VScreenKnowledge.label(pkg)?.let { "$it（$pkg）" } ?: pkg
     out += if (I18n.en) "[$name]" else "【$name】"
     if (m.notes.isEmpty()) out += tr("笔记：无", "Notes: none") else { out += tr("笔记：", "Notes:"); m.notes.forEach { out += "  ${it.id}. ${it.text}" + noteOrigin(it, verNow) } }
-    if (m.segments.isEmpty()) out += tr("段：无", "Segments: none") else { out += tr("段（act \"use 名字\"）：", "Segments (act \"use name\"):"); m.segments.forEach { out += "  ${it.name} = ${it.steps}" + tr("（用过 ${it.uses} 次）", " (used ${it.uses} times)") + (it.by?.let { b -> tr("（为 ${com.kilon.agentvscreen.api.Agents.name(b)} 存的）", " (saved for ${com.kilon.agentvscreen.api.Agents.name(b)})") } ?: "") +
+    if (m.segments.isEmpty()) out += tr("段：无", "Segments: none") else { out += tr("段（act \"use 名字\"）：", "Segments (act \"use name\"):"); m.segments.forEach { out += "  ${it.name} = ${it.steps}" + tr("（用过 ${it.uses} 次）", " (used ${it.uses} times)") + "（" + segmentFrom(pkg, it) + "）" +
         (if (VScreenMap.picture(pkg, it.name) != null) tr("（有示教缩略图：note show ${it.name}）", " (lesson thumbnails: note show ${it.name})") else "") } }
     val p = m.profile
     val none = tr("没记", "not kept")
@@ -87,7 +105,9 @@ internal fun VScreenOffloadHandler.noteCmd(sid: String?, args: OffloadArgs): Nat
                 VScreenMap.pictureStale(pkg, name) -> tr("示教缩略图（步骤后来改写过，图是改写前录的，序号可能对不上）：$pic", "Lesson thumbnails (the steps were rewritten later; the picture is from before, numbers may not match): $pic")
                 else -> tr("示教缩略图（数字是步骤序号，红圈是点的位置，最后一格是结束时）：$pic", "Lesson thumbnails (numbers are step numbers, red rings are taps, the last cell is the end): $pic")
             }
-            return text((listOf(tr("段“$name”（$pkg，用过 ${seg.uses} 次）：", "Segment \"$name\" ($pkg, used ${seg.uses} times):")) + lines + picLine).joinToString("\n"))
+            val startLine = segmentStart(seg)?.let { tr("起点：$it（use 前先核对，不在这里一步不做）", "Start: $it (checked before use; elsewhere nothing is done)") }
+                ?: tr("起点：还不知道（第一次从头顺利跑完时记下，之后 use 前核对）", "Start: not known yet (kept the first time it runs through from step 1, then checked before use)")
+            return text((listOf(tr("段“$name”（$pkg，${segmentFrom(pkg, seg)}，用过 ${seg.uses} 次）：", "Segment \"$name\" ($pkg, ${segmentFrom(pkg, seg)}, used ${seg.uses} times):"), startLine) + lines + picLine).joinToString("\n"))
         }
         first == "human" -> {
             val v = p.getOrNull(1)?.lowercase()

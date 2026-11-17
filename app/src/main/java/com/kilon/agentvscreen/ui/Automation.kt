@@ -434,7 +434,7 @@ internal fun LessonsList(tick: Int) {
 /** Who a segment came from: the user's lesson (it has a contact sheet) for an agent, or an agent's own. */
 internal fun segmentSource(pkg: String, s: VScreenMap.Segment): String {
     val who = s.by?.let { com.kilon.agentvscreen.api.Agents.name(it) }
-    return if (VScreenMap.pictureFile(pkg, s.name)?.isFile == true) tr("你示教的", "taught by you") + (who?.let { tr("（为 $it）", " (for $it)") } ?: "")
+    return if (VScreenMap.isTaught(pkg, s)) tr("你示教的", "taught by you") + (who?.let { tr("（为 $it）", " (for $it)") } ?: "")
     else (who?.let { tr("$it 存的", "saved by $it") } ?: tr("agent 存的", "saved by an agent"))
 }
 

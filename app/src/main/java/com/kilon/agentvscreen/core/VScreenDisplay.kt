@@ -123,6 +123,17 @@ class VScreenDisplay private constructor(
         return ((x - ox) / s).coerceIn(0f, iw - 1f) to ((y - oy) / s).coerceIn(0f, ih - 1f)
     }
 
+    /** 1.4.0-beta13: input pixel -> frame (agent) pixel, the inverse of [toInput], for bounds the system reports. */
+    fun toFrame(r: android.graphics.Rect): android.graphics.Rect {
+        val iw = inputWidth.takeIf { it > 0 } ?: width
+        val ih = inputHeight.takeIf { it > 0 } ?: height
+        val fw = width; val fh = height
+        if (iw == fw && ih == fh) return r
+        val s = minOf(fw.toFloat() / iw, fh.toFloat() / ih)
+        val ox = (fw - iw * s) / 2f; val oy = (fh - ih * s) / 2f
+        return android.graphics.Rect((r.left * s + ox).toInt(), (r.top * s + oy).toInt(), (r.right * s + ox).toInt(), (r.bottom * s + oy).toInt())
+    }
+
     /** Human description of frame space vs input space, for results and `screen info`. */
     fun geometryJson(): org.json.JSONObject {
         val iw = inputWidth.takeIf { it > 0 } ?: width

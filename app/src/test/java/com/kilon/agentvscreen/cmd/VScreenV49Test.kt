@@ -63,7 +63,9 @@ class VScreenV49Test {
         refused { Steps.parse("key launchmissiles") }
         // 1.2: no home / recents on the background screen, by name or by keycode.
         assertTrue(refused { Steps.parse("key home") }.message.orEmpty().contains("没有 home 键"))
-        refused { Steps.parse("key 3") }
+        refused { Steps.parse("key 26") }
+        // 1.4.0-beta13: one digit is the digit key (key 3 types 3), never keycode 3.
+        assertEquals("3", Steps.parse("key 3").text)
         assertEquals("66", Steps.parse("key 66").text)
         assertEquals("stable", Steps.parse("wait stable").until!![0].kind.key)
         assertEquals("still", Steps.parse("wait still").until!![0].kind.key)

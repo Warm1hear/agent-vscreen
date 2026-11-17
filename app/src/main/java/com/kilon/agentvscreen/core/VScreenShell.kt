@@ -299,6 +299,7 @@ internal object VScreenShell {
     interface Injector {
         fun gesture(displayId: Int, x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int, holdMs: Int): Result<Boolean>
         fun key(displayId: Int, code: Int): Result<Boolean>
+        fun combo(displayId: Int, code: Int, mods: List<Int>): Result<Boolean> = Result.failure(UnsupportedOperationException("combo"))
         fun text(displayId: Int, text: String): Result<Boolean>
         fun pointer(displayId: Int, op: Int, pointerId: Int, x: Float, y: Float): Result<Pair<Boolean, Int>>
     }
@@ -307,6 +308,7 @@ internal object VScreenShell {
         override fun gesture(displayId: Int, x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int, holdMs: Int) =
             VScreenRemoteDisplay.injectDrag(displayId, x1, y1, x2, y2, durationMs, holdMs)
         override fun key(displayId: Int, code: Int) = VScreenRemoteDisplay.injectKey(displayId, code)
+        override fun combo(displayId: Int, code: Int, mods: List<Int>) = VScreenRemoteDisplay.injectCombo(displayId, code, mods)
         override fun text(displayId: Int, text: String) = VScreenRemoteDisplay.injectText(displayId, text)
         override fun pointer(displayId: Int, op: Int, pointerId: Int, x: Float, y: Float) = VScreenRemoteDisplay.pointer(displayId, op, pointerId, x, y)
     }
@@ -361,11 +363,43 @@ internal object VScreenShell {
 
     data class KeyResult(val outcome: Outcome, val method: String)
 
-    /** The keycode of a key name ([KEYS]) or of a number; null when it is neither. */
-    fun keyCode(key: String): Int? = key.trim().lowercase().let { KEYS[it] ?: it.toIntOrNull()?.takeIf { c -> c in 1..400 && c !in FORBIDDEN_KEYS } }
+    /**
+     * The keycode of a key name ([KEYS]), a letter, a digit, f1–f12, or a number; null when it is none of them.
+     * 1.4.0-beta13: letters and digits too, for shortcuts (`key ctrl+a`).
+     */
+    fun keyCode(key: String): Int? = key.trim().lowercase().let { k ->
+        KEYS[k] ?: when {
+            k.length == 1 && k[0] in 'a'..'z' -> 29 + (k[0] - 'a')
+            Regex("f([1-9]|1[0-2])").matches(k) -> 130 + k.drop(1).toInt()
+            else -> k.toIntOrNull()?.let { n -> if (k.length == 1) 7 + n else n.takeIf { c -> c in 1..400 && c !in FORBIDDEN_KEYS } }
+        }
+    }
+
+    /** Modifier names a shortcut may use, and the key each one is. Meta / Win is left out: its shortcuts are the system's (home, recents) on the MAIN screen. */
+    val MODIFIERS: Map<String, Int> = linkedMapOf("ctrl" to 113, "control" to 113, "shift" to 59, "alt" to 57)
+
+    /** `ctrl+shift+z` → (key, modifiers); null when it is not a shortcut. Throws with the reason when it is one we refuse. */
+    fun combo(key: String): Pair<Int, List<Int>>? {
+        val parts = key.trim().lowercase().split('+').map { it.trim() }
+        if (parts.size < 2 || parts.any { it.isEmpty() }) return null
+        val bad = parts.dropLast(1).filter { it !in MODIFIERS }
+        if (bad.isNotEmpty()) throw IllegalArgumentException(if (bad.any { it in setOf("meta", "win", "cmd", "super") })
+            tr("不支持 ${bad.first()} 组合键：它的快捷键属于系统（桌面、多任务），会作用在用户的主屏上", "${bad.first()} shortcuts are not supported: they belong to the system (home, recents) and act on the user's main screen")
+            else tr("不认识的修饰键 ${bad.joinToString()}（可用：ctrl shift alt）", "unknown modifier ${bad.joinToString()} (available: ctrl shift alt)"))
+        val code = keyCode(parts.last()) ?: throw IllegalArgumentException(tr("组合键里不认识的键 ${parts.last()}", "unknown key ${parts.last()} in the shortcut"))
+        if (parts.last() in setOf("tab", "esc", "escape") && "alt" in parts) throw IllegalArgumentException(tr("不支持 alt+${parts.last()}：这是系统切换应用的快捷键，会作用在主屏上", "alt+${parts.last()} is not supported: it is the system's app switcher and acts on the main screen"))
+        return code to parts.dropLast(1).map { MODIFIERS.getValue(it) }.distinct()
+    }
+
+    /** Whether [key] is a key or a shortcut we can press; the reason when not. */
+    fun keyProblem(key: String): String? = runCatching { if (keyCode(key) != null || combo(key) != null) null else "" }.getOrElse { it.message ?: "" }
 
     /** Key event on [displayId], injected with the display id set. */
     fun keyWithMethod(displayId: Int, key: String): KeyResult {
+        if (key.length > 1 && '+' in key) {
+            val c = runCatching { combo(key) }.getOrElse { return KeyResult(fail("INVALID_ARGS", it.message ?: key), "none") }
+            if (c != null) return KeyResult(injected(tr("组合键 $key", "shortcut $key"), displayId, injector.combo(displayId, c.first, c.second)), "inject")
+        }
         val code = keyCode(key)
             ?: return KeyResult(fail("INVALID_ARGS", tr("未知按键 $key（可用：${KEYS.keys.joinToString(" ")} 或数字 keycode；没有 home / 多任务键）", "Unknown key $key (available: ${KEYS.keys.joinToString(" ")} or a numeric keycode; there is no home / recents key)")), "none")
         return KeyResult(injected(tr("按键 $key", "key $key"), displayId, injector.key(displayId, code)), "inject")

@@ -59,6 +59,9 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.layout.ime
 import com.kilon.agentvscreen.core.VScreenTyping
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
@@ -430,46 +433,33 @@ class FullscreenActivity : PageActivity() {
                 if (showCard && !BriefPlace.ball && BriefPlace.bottom) RequestCard(req, session, recording, prepId != null && !recording, teachN ?: 0, paused, takenOver, mark, ::markReply,
                     onFold = { BriefPlace.ball = true }, onMove = { BriefPlace.bottom = false }, atBottom = true, startSaying = sayNow.value)
                 if (typing) {
-                    // 1.3.0-beta14: this box mirrors the focused field on the screen: it starts with what the field
-                    // reads, and every change (typing, deleting with the keyboard's own key) goes there as it happens.
-                    val fr = remember { FocusRequester() }
+                    // 1.4.0-beta13 (rainbow): no box of ours: the keyboard button brings up the user's own keyboard,
+                    // connected to an invisible editor that writes what the keyboard commits into the screen's focused
+                    // field (FieldMirror, as the 1.3 box did). Closing the keyboard ends typing.
                     val mirror = remember(session) { FieldMirror(session) }
-                    var field by remember { mutableStateOf(TextFieldValue("")) }
-                    var secret by remember { mutableStateOf(false) }
-                    var none by remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) {
+                    var view by remember { mutableStateOf<ScreenImeView?>(null) }
+                    LaunchedEffect(view) {
+                        val v = view ?: return@LaunchedEffect
                         val f = withContext(Dispatchers.IO) { BackgroundOperation.state.value.displayId?.let { VScreenTyping.fieldNow(it) } }
-                        mirror.adopt(f); none = f == null; secret = f?.password == true
-                        field = TextFieldValue(f?.text.orEmpty(), TextRange(f?.text?.length ?: 0))
-                        fr.requestFocus()
+                        mirror.adopt(f); v.secret = f?.password == true; v.reset(f?.text.orEmpty()); v.open()
+                        if (f == null) toast(tr("先在副屏上点一下要输入的框，再打字", "Tap the input box on the screen, then type"))
                         // Follow the field when it changes by itself (another box tapped, the app cleared or filled it).
                         while (true) {
                             delay(800)
                             if (mirror.busy()) continue
                             val g = withContext(Dispatchers.IO) { BackgroundOperation.state.value.displayId?.let { VScreenTyping.fieldNow(it) } }
-                            none = g == null
-                            if (g != null && mirror.follow(g)) { secret = g.password; field = TextFieldValue(g.text, TextRange(g.text.length)) }
+                            if (g != null && mirror.follow(g)) { v.secret = g.password; v.reset(g.text) }
                         }
                     }
-                    DisposableEffect(Unit) { onDispose { Teach.commitTyping() } }
-                    fun enter() { Teach.commitTyping(); vscreenUserInput(session) { Teach.key("enter"); VScreenShell.key(it, "enter") } }
-                    Row(Modifier.fillMaxWidth().eatTouches().glassDark(RoundedCornerShape(24.dp)).padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Box(Modifier.weight(1f)) {
-                            if (field.text.isEmpty()) Text(if (none) tr("先在副屏上点一下输入框", "Tap an input box on the screen first") else tr("和副屏的输入框同步", "Synced with the screen's input box"),
-                                color = Color(0x88FFFFFF), fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            BasicTextField(field, { v -> field = v; if (v.text != mirror.sent) mirror.push(v.text) }, Modifier.fillMaxWidth().focusRequester(fr), singleLine = true,
-                                textStyle = TextStyle(color = Color.White, fontSize = 15.sp), cursorBrush = SolidColor(Palette.standby),
-                                visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go), keyboardActions = KeyboardActions(onGo = { enter() }))
-                        }
-                        Circle(Icons.AutoMirrored.Filled.Backspace, tr("删除", "Delete"), Color(0x22FFFFFF)) {
-                            val t = field.text
-                            if (t.isNotEmpty()) { val n = t.dropLast(1); field = TextFieldValue(n, TextRange(n.length)); mirror.push(n) }
-                            else vscreenUserInput(session) { Teach.key("del"); VScreenShell.key(it, "del") }
-                        }
-                        Circle(Icons.AutoMirrored.Filled.KeyboardReturn, tr("回车", "Enter"), Palette.brandA) { enter() }
-                    }
+                    // The keyboard went away (its own hide key, back): typing is over.
+                    val imeUp = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+                    var wasUp by remember { mutableStateOf(false) }
+                    LaunchedEffect(imeUp) { if (imeUp) wasUp = true else if (wasUp) { delay(250); typing = false } }
+                    DisposableEffect(Unit) { onDispose { Teach.commitTyping(); view?.close() } }
+                    AndroidView({ c -> ScreenImeView(c,
+                        onText = { t -> mirror.push(t) },
+                        onKey = { k -> if (k == "enter") Teach.commitTyping(); vscreenUserInput(session) { Teach.key(k); VScreenShell.key(it, k) } },
+                    ).also { view = it } }, Modifier.size(1.dp).alpha(0f))
                 }
                 Row(Modifier.onSizeChanged { rowH = it.height.toFloat() }.eatTouches().clip(RoundedCornerShape(30.dp)).background(Color(0xE612141C)).padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -532,7 +522,7 @@ private fun Pill(label: String, icon: ImageVector, bg: Color, fg: Color, onClick
 private val typingLane = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "vscreen-typing").apply { isDaemon = true } }
 
 /** 1.3.0-beta14: keeps the full screen box and the screen's focused field the same. */
-private class FieldMirror(private val session: String) {
+internal class FieldMirror(private val session: String) {
     /** What the screen's field reads, as far as we know. */
     @Volatile var sent = ""
     private var start = ""

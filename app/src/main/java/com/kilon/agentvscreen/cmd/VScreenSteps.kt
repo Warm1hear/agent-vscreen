@@ -103,7 +103,10 @@ internal object Steps {
     const val MAX_STEPS = 40
 
     /** 1.2: key names come from the one key table (VScreenShell.KEYS); a number is a keycode. */
-    private fun isKey(k: String): Boolean = com.kilon.agentvscreen.core.VScreenShell.keyCode(k) != null
+    /** 1.4.0-beta13: `type "…" slow`: the gap between characters by default, and the most characters. */
+    const val SLOW_TYPE_MS = 120L
+    const val SLOW_TYPE_MAX = 200
+    private fun isKey(k: String): Boolean = com.kilon.agentvscreen.core.VScreenShell.keyProblem(k) == null
     private val KEY_NAMES: String get() = com.kilon.agentvscreen.core.VScreenShell.KEYS.keys.joinToString(" ")
 
     /**
@@ -388,16 +391,27 @@ internal object Steps {
                 Step(raw, StepKind.SCROLL, target = t, text = dir, until = until, untilMs = untilMs)
             }
             "type", "type+", "输入" -> {
-                val body = rawAfterVerb(raw, toks0[0]).let { r ->
+                var bodyRaw = rawAfterVerb(raw, toks0[0]).let { r ->
                     if (until != null) r.substring(0, r.lastIndexOf("until").coerceAtLeast(0)).trimEnd() else r
-                }.let { unquote(it) }
+                }
+                // 1.4.0-beta13 (rainbow): `type "文字" slow [200ms]` types it one character at a time, so input
+                // listeners (suggestions, search as you type) react as to a person typing. Only after quoted text, so
+                // words ending in "slow" are never taken for it. Without slow: all at once, as before.
+                var slowMs: Long? = null
+                Regex("""^(["'“「].*["'”」])\s+slow(?:\s+(\d+)\s*ms)?$""").find(bodyRaw)?.let { m ->
+                    bodyRaw = m.groupValues[1]; slowMs = (m.groupValues[2].toLongOrNull() ?: SLOW_TYPE_MS).coerceIn(30L, 1500L)
+                }
+                val body = unquote(bodyRaw)
                 if (body.isEmpty()) bad(raw, tr("type 后面写要输入的文字", "write the text to type after type"))
-                Step(raw, StepKind.TYPE, text = body, append = verb == "type+", until = until, untilMs = untilMs)
+                if (slowMs != null && body.length > SLOW_TYPE_MAX) bad(raw, tr("逐字输入最多 $SLOW_TYPE_MAX 个字；长文字去掉 slow 一次输入", "typing slowly takes at most $SLOW_TYPE_MAX characters; type long text at once (without slow)"))
+                Step(raw, StepKind.TYPE, text = body, append = verb == "type+", until = until, untilMs = untilMs, ms = slowMs)
             }
             "key", "press-key", "按键" -> {
                 val k = args.firstOrNull()?.lowercase() ?: bad(raw, tr("key 后面写键名：$KEY_NAMES", "write a key name after key: $KEY_NAMES"))
                 if (k == "home" || k == "app_switch" || k == "recent" || k == "recents") bad(raw, tr("没有 $k 键：副屏没有桌面和多任务界面（它们在用户的主屏上）。要离开当前应用用 stop，要开别的应用用 launch", "there is no $k key: the background screen has no launcher or recents (those are on the user's main screen). To leave the app use stop; to open another use launch"))
-                if (!isKey(k)) bad(raw, tr("不认识的键 $k（可用：$KEY_NAMES，或数字 keycode）", "unknown key $k (available: $KEY_NAMES, or a numeric keycode)"))
+                // 1.4.0-beta13: shortcuts too: ctrl / shift / alt + a key (`key ctrl+a`, `key shift+tab`).
+                if (!isKey(k)) bad(raw, com.kilon.agentvscreen.core.VScreenShell.keyProblem(k)?.takeIf { it.isNotEmpty() }
+                    ?: tr("不认识的键 $k（可用：$KEY_NAMES、字母、数字、f1–f12，组合键写 ctrl+a、shift+tab）", "unknown key $k (available: $KEY_NAMES, letters, digits, f1–f12; shortcuts as ctrl+a, shift+tab)"))
                 Step(raw, StepKind.KEY, text = k, until = until, untilMs = untilMs)
             }
             "back" -> Step(raw, StepKind.KEY, text = "back", until = until, untilMs = untilMs)

@@ -24,7 +24,7 @@
 做一段操作（最多 40 步，用 ; 或换行分开），返回四段。不带步骤 = 看一眼（等画面稳定，最多 3 秒）。
 步骤：
       tap 目标 | press 目标 [时长，如 1.2s；纯数字是毫秒] | swipe x1 y1 x2 y2 [时长] | drag x1 y1 x2 y2 [x3 y3 …] [时长]
-      scroll up|down|left|right [#N | x y] | type 文字 | type+ 文字（追加） | key 键名 | back | enter
+      scroll up|down|left|right [#N | x y] | type 文字 | type+ 文字（追加） | type "文字" slow [200ms]（逐字输入） | key 键名 | key ctrl+a（组合键：ctrl/shift/alt + 键） | back | enter
       wait <条件> [or <条件>] [最长时长] | wait 2s | use 段名
       目标 = x y | #N（上次【现在】列表里的编号）| 画面上的字（先找完全一样的，再找包含的；只写一个数＝点画面上的这个数字）
       字里可写 *（任意字，整段字要对上：*蓝牙* 含蓝牙，共*条 以共开头以条结尾），text:/gone: 条件也一样；字@N = 从上往下第 N 处（@-1 最后一处）；字 +dx,+dy = 字旁边那一点（图标、开关）；坐标可写屏幕比例 50% 80%（换屏幕尺寸也点同一处）
@@ -354,7 +354,7 @@ scope: `operate` · runs in the screen queue
 do a stretch of steps (up to 40, separated by ; or newlines), returns four blocks. No steps = take a look (waits for the picture to settle, up to 3 s).
 steps:
       tap <target> | press <target> [duration, e.g. 1.2s; a bare number is ms] | swipe x1 y1 x2 y2 [duration] | drag x1 y1 x2 y2 [x3 y3 …] [duration]
-      scroll up|down|left|right [#N | x y] | type <text> | type+ <text> (append) | key <name> | back | enter
+      scroll up|down|left|right [#N | x y] | type <text> | type+ <text> (append) | type "<text>" slow [200ms] (one character at a time) | key <name> | key ctrl+a (shortcut: ctrl/shift/alt + key) | back | enter
       wait <condition> [or <condition>] [max duration] | wait 2s | use <segment>
       target = x y | #N (number in the last [Now] list) | text on the screen (exact match first, then contains; a single number = tap that number on the screen)
       words may hold * (any characters; the whole text must match: *Wi-Fi* holds Wi-Fi), in text:/gone: conditions too; words@N = the N-th place from the top (@-1 the last); words +dx,+dy = the point that far beside them (an icon, a switch); coordinates may be shares of the screen, 50% 80% (same place on any screen size)

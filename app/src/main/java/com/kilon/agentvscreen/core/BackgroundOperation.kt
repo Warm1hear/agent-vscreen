@@ -1015,6 +1015,9 @@ object BackgroundOperation {
     }
 
     /** The live screen for the preview of [sessionId], or null. */
+    /** 1.4.0-beta13: the live screen with this id (its geometry maps system bounds to frame space), or null. */
+    fun displayById(id: Int): VScreenDisplay? = display?.takeIf { it.displayId == id && !it.released }
+
     fun previewDisplayFor(sessionId: String): VScreenDisplay? {
         val s = _state.value
         if (s.ownerSessionId != sessionId) return null

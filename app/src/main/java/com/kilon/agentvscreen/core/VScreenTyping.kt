@@ -65,7 +65,9 @@ object VScreenTyping {
             ?.takeIf { it.isEditable }?.let { return it }
         val edits = A11yTree.snapshot(displayId).editables()
         edits.firstOrNull { it.focused }?.let { return it.info }
-        if (at != null) return edits.filter { it.box.contains(at.first, at.second) }.minByOrNull { it.box.width().toLong() * it.box.height() }?.info
+        // 1.4.0-beta13: [at] is a frame point; the bounds are input space (see VScreenDisplay.toFrame).
+        val d = BackgroundOperation.displayById(displayId)
+        if (at != null) return edits.filter { (d?.toFrame(it.box) ?: it.box).contains(at.first, at.second) }.minByOrNull { it.box.width().toLong() * it.box.height() }?.info
         return null
     }
 

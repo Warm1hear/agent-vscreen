@@ -49,14 +49,17 @@ object Abilities {
 
     // 1.4.0-beta1 (34): every line was rewritten as "when the user … → I …", so every ability counts as changed in 34.
     val all: List<Ability> = listOf(
-        Ability("operate", 1, 34,
+        Ability("operate", 1, 46,
             "用户要我在手机上做任何事：打开某个应用、查信息、比价、看某页内容、填表、发帖、测试应用……",
             "the user wants anything done on the phone: open an app, look something up, read a page, fill a form, test an app…",
             "`vscreen launch <应用>` 打开并看，`vscreen act \"<步骤>\"` 点、滑、输入、按键，每次都返回截图和元素列表",
             "`vscreen launch <app>` opens it and looks, `vscreen act \"<steps>\"` taps, swipes, types and presses keys; every reply has a screenshot and the elements",
             "按第一到第四节的循环做。长操作加 `--async`，之后 `vscreen task <号> --wait 60s` 取结果。让用户知道你在做什么：`vscreen title \"在搜耳机\"`。做完：`vscreen done`（副屏让出，页面保留）；`vscreen stop` 关掉副屏上的应用，`vscreen release` 立即释放副屏。不知道包名：`vscreen apps 关键词`。",
             "Follow the loop in sections 1–4. Add `--async` for long work and fetch it with `vscreen task <id> --wait 60s`. Let the user see what you are doing: `vscreen title \"searching headphones\"`. When finished: `vscreen done` (screen freed, page kept); `vscreen stop` closes the app on the screen, `vscreen release` frees the screen at once. Unknown package: `vscreen apps <keyword>`.",
-            listOf("launch", "act", "title", "done", "stop", "release", "apps", "task")),
+            listOf("launch", "act", "title", "done", "stop", "release", "apps", "task"),
+            // 1.4.0-beta13 (46): shortcuts and typing one character at a time.
+            "act 新增：组合键 `key ctrl+a`、`key ctrl+c`、`key shift+tab`（ctrl/shift/alt + 键）；`type \"文字\" slow`（可加 `200ms`）逐字输入，给边打边搜、逐字校验的输入框，不加 slow 仍是一次输入。",
+            "act now has shortcuts `key ctrl+a`, `key ctrl+c`, `key shift+tab` (ctrl/shift/alt + a key), and `type \"text\" slow` (optionally `200ms`) to type one character at a time for search-as-you-type or per-character boxes; without slow it is typed at once as before."),
         // 1.4.0-beta10 (rainbow: agents with their own scheduled tasks never thought of booking the phone; it is not
         // woken by their timers). The trigger is now ANY timer the agent sets up that will use the phone, whoever asked.
         Ability("schedule", 14, 43,

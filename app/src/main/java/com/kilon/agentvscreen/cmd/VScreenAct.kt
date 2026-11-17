@@ -427,7 +427,9 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
             try {
                 inner.forEachIndexed { i, st -> if (i + 1 >= fromN) { at.at = i + 1; runOne(st, "$label.${i + 1}", depth + 1, quick, own) } }
             } finally { useStack.remove(at) }
-            if (startSeen != null && missed == null && outcome == "done" && stoppedBy == null && checkpoint == null) app?.let { VScreenMap.learnStart(it, name, startSeen) }
+            // 1.4.0-beta13 (test B8: a segment run to its check and then on `from N` never learned its start): stopping at
+            // its own check is the flow working, so the page it started from is its start as well.
+            if (startSeen != null && missed == null && stoppedBy == null && (checkpoint != null || outcome == "done")) app?.let { VScreenMap.learnStart(it, name, startSeen) }
             return
         }
         if (step.kind == StepKind.CHECK) {
@@ -933,7 +935,22 @@ private fun VScreenOffloadHandler.doAction(sid: String, d: VScreenDisplay, step:
                 tr("手指从 ($sx,$sy) 拖到 ($ex,$ey)", "finger dragged ($sx,$sy) → ($ex,$ey)") + (if (hu != null) Human.said(pause ?: 0) else "")
             }
             StepKind.TYPE -> {
-                val f = if (hu == null || step.text!!.length > 60)
+                val slow = step.ms
+                val f = if (slow != null) {
+                    // 1.4.0-beta13: one character at a time with a gap (code points, so an emoji is one), first as asked
+                    // (replace or add), then added; each character is its own input event for the app's listeners.
+                    val chars = step.text!!.codePoints().toArray().map { String(Character.toChars(it)) }
+                    var tf = com.kilon.agentvscreen.core.VScreenTyping.typeFact(dd.displayId, chars[0], step.append, tappedAt, if (tappedAt != null) ctx.focusBefore else null)
+                    var i = 1
+                    while (i < chars.size && tf.field != null) {
+                        if (tf.password && i == 1) { /* a password box shows nothing as you type: still one at a time */ }
+                        Thread.sleep(hu?.let { (slow * (0.6 + Math.random() * 0.8)).toLong() } ?: slow)
+                        tf = com.kilon.agentvscreen.core.VScreenTyping.typeFact(dd.displayId, chars[i], true)
+                        i++
+                    }
+                    if (i < chars.size) tf = com.kilon.agentvscreen.core.VScreenTyping.typeFact(dd.displayId, chars.drop(i).joinToString(""), true)
+                    tf
+                } else if (hu == null || step.text!!.length > 60)
                     com.kilon.agentvscreen.core.VScreenTyping.typeFact(dd.displayId, step.text!!, step.append, tappedAt, if (tappedAt != null) ctx.focusBefore else null)
                 else {
                     // Human pacing: a few characters at a time; the first piece as asked (replace or add), then added. No

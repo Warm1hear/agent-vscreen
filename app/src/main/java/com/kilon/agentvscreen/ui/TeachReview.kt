@@ -167,7 +167,8 @@ private fun StepRow(i: Int, l: TeachLine, kept: Boolean, lit: Boolean, params: I
 
 private fun save(ctx: android.content.Context, r: Teach.Result, name: String, steps: String, params: Int, keep: Set<Int>) {
     val app = r.app ?: return
-    VScreenMap.saveSegment(app, name, steps, r.start, com.kilon.agentvscreen.api.Agents.ofSession(r.session))
+    VScreenMap.saveSegment(app, name, steps, r.start, com.kilon.agentvscreen.api.Agents.ofSession(r.session), taught = true,
+        asked = (r.ask ?: r.askId?.let { com.kilon.agentvscreen.host.UserAsk.byId(it) })?.key?.let { Teach.askedOf(it) })
     // 1.3.0: the lesson's contact sheet, kept with the segment (before the answer: the agent's reply attaches it).
     Teach.sheet(r, keep)?.let { VScreenMap.savePicture(app, name, it); it.recycle() } ?: VScreenMap.pictureFile(app, name)?.delete()
     if (r.askId != null || r.ask != null) {
