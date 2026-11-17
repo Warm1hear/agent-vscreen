@@ -242,6 +242,15 @@ class FullscreenActivity : PageActivity() {
         // 1.4.0-beta5: every new request opens unfolded. The folded ball was kept from an earlier request (and folded
         // by itself during a lesson), so a lesson's Start and a text question's Send were hidden behind it.
         LaunchedEffect(req?.id, recording, prepId) { BriefPlace.ball = false; BriefPlace.open = true }
+        // 1.4.0-beta15 (rainbow): once there was time to read it (longer text, longer time), the card shrinks by itself
+        // to the ball at the top right, out of the picture's way; a tap on the ball opens it again. Not while the user
+        // is writing a reply in it.
+        LaunchedEffect(req?.id, recording, prepId, sayNow.value) {
+            val r = req ?: return@LaunchedEffect
+            if (sayNow.value) return@LaunchedEffect
+            delay((2_500L + (r.title.length + r.detail.length) * 80L).coerceIn(4_000L, 12_000L))
+            if (!sayNow.value) BriefPlace.ball = true
+        }
         val mark = remember { MarkState() }
         val marking = req != null && !recording && (req.kind == UserAsk.Kind.POINT || req.kind == UserAsk.Kind.AREA) && !mark.finding && !takenOver
         var picSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }

@@ -83,7 +83,9 @@ internal fun VScreenOffloadHandler.status(sid: String?, args: OffloadArgs): Nati
         .put("needs_adb", false)
         .put("accessibility_connected", a11y)
         .put("host", com.kilon.agentvscreen.host.Liveness.json()
-            .put("http_error", com.kilon.agentvscreen.host.HostService.server?.lastError ?: JSONObject.NULL))
+            .put("http_error", com.kilon.agentvscreen.host.HostService.server?.lastError ?: JSONObject.NULL)
+            .put("port", com.kilon.agentvscreen.host.HostService.server?.boundPort ?: 0)
+            .put("port_note", com.kilon.agentvscreen.host.HostService.server?.portNote ?: JSONObject.NULL))
         .put("accessibility_auto", com.kilon.agentvscreen.host.A11yHeal.let { h -> when {
             h.userOff(context) -> tr("用户关掉了，不再自动打开", "turned off by the user, not turned on again automatically")
             h.blocked(context) -> tr("系统拦截写入：要在 系统设置 › 无障碍 里手动打开", "the system blocks the write: turn it on by hand in Settings › Accessibility")

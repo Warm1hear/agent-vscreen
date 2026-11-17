@@ -89,54 +89,82 @@ class ApiServer(private val ctx: Context) {
     @Volatile private var retry: Thread? = null
     @Volatile var bindFailures = 0; private set
 
+    /**
+     * 1.4.0-beta15 (rainbow: the service retried a taken port 51 times and nothing could be tested; "what if it is some
+     * other service on my phone"). The port the user set is the one agents are told, not one the service must win: when
+     * something else holds it (another app, a clone of this app in a parallel space, an old process of ours), the
+     * service takes the next free port of [ApiConfig.PORT_SPAN] at once. The CLI and the Operit package look along the
+     * same span and accept only the instance that proves it holds their token (`/v2/ping?me=&n=`), and the built-in
+     * Tailscale node keeps answering on the set port and forwards to wherever the service is. Nobody is killed.
+     */
     fun start(port: Int) {
         stop()
+        if (!bindAny(port)) retryBind(port)
         if (ApiConfig.tailnet) startTailnet(port)
-        if (!bindLocal(port)) retryBind(port)
+    }
+
+    /** The port the service listens on right now (0: none); [ApiConfig.port] is the one agents are told. */
+    @Volatile var boundPort = 0; private set
+    /** Not an error: the set port was taken, another one is used (shown as a plain note). */
+    @Volatile var portNote: String? = null; private set
+
+    private fun bindAny(port: Int): Boolean {
+        val taken = ArrayList<String>()
+        for (p in port until port + ApiConfig.PORT_SPAN) {
+            if (p > 65535) break
+            if (bindLocal(p)) {
+                portNote = if (p == port) null else tr("端口 $port 被${taken.firstOrNull() ?: "别的程序"}占着，已改用 $p；agent 会自己找到，不用重新接入",
+                    "Port $port is held by ${taken.firstOrNull() ?: "another program"}, so $p is used; agents find it by themselves, nothing to set up again")
+                if (p != port) AppLogger.warning(TAG, "port $port taken (${taken.joinToString()}), listening on $p")
+                com.kilon.agentvscreen.host.Tailnet.retarget(ctx, p)
+                onChange?.invoke()
+                return true
+            }
+            taken += holderOf(p)
+        }
+        bindFailures++
+        portBusy = true
+        lastError = tr("端口 $port 到 ${port + ApiConfig.PORT_SPAN - 1} 都被占着（${taken.distinct().joinToString("、")}）：在“接入”里换一组端口，或关掉占着它们的应用；每 30 秒会自己再试",
+            "Ports $port to ${port + ApiConfig.PORT_SPAN - 1} are all taken (${taken.distinct().joinToString(", ")}): pick other ports under Connect, or close the apps holding them; tried again every 30 s")
+        onChange?.invoke()
+        return false
     }
 
     /**
      * Bind 127.0.0.1:[port]. SO_REUSEADDR must be set BEFORE bind (setting it on a bound socket does nothing), so a
      * restart never trips over connections of the previous run still in TIME_WAIT.
      */
-    private fun bindLocal(port: Int, owner: String? = null): Boolean {
+    private fun bindLocal(port: Int): Boolean {
         val ss = ServerSocket()
         try {
             ss.reuseAddress = true
             ss.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), port), 50)
         } catch (e: Exception) {
             com.kilon.agentvscreen.host.quiet("ApiServer:104") { ss.close() }
-            bindFailures++
-            lastError = tr("端口 $port 被占用：${owner ?: "正在查是谁占着"}，正在自动重试（第 $bindFailures 次）", "Port $port is taken: ${owner ?: "checking by whom"}; retrying automatically (attempt $bindFailures)")
-            AppLogger.warning(TAG, "bind $port: ${e.message} — ${owner ?: "?"}")
-            onChange?.invoke()
+            AppLogger.info(TAG, "bind $port: ${e.message}")
             return false
         }
-        server = ss; lastError = null; portBusy = false
-        if (bindFailures > 0) AppLogger.info(TAG, "port $port free again after $bindFailures failed tries")
-        bindFailures = 0
+        server = ss; boundPort = port; lastError = null; portBusy = false; bindFailures = 0
         Thread({ acceptLoop(ss) }, "vscreen-http-accept").apply { isDaemon = true }.start()
         AppLogger.info(TAG, "listening on 127.0.0.1:$port")
-        onChange?.invoke()
         return true
     }
 
-    /**
-     * The port is taken. Almost always by our own previous process that is still going away (after an update, a crash
-     * restart, or a kill while frozen): it lets go within seconds to a minute. So keep trying (1 s, 2 s, 4 s … 15 s),
-     * and say who holds it, so the user is never left with a dead server and no hint.
-     */
+    /** Every port of the span taken: try the whole span again every 30 s, quietly (no attempt counter on screen). */
     private fun retryBind(port: Int) {
         retry = Thread({
-            var wait = 1_000L
             while (!Thread.currentThread().isInterrupted && server == null) {
-                val who = portOwner(port)
-                try { Thread.sleep(wait) } catch (_: InterruptedException) { break }
-                if (bindLocal(port, who)) break
-                wait = (wait * 2).coerceAtMost(15_000L)
+                try { Thread.sleep(30_000) } catch (_: InterruptedException) { break }
+                if (bindAny(port)) break
             }
         }, "vscreen-http-rebind").apply { isDaemon = true }.also { it.start() }
     }
+
+    /**
+     * Who holds 127.0.0.1:[port], in the user's words: read from the kernel's socket table through Shizuku (which app,
+     * which user: a parallel space or clone shows as its own user), else asked over the port itself.
+     */
+    private fun holderOf(port: Int): String = runCatching { PortHolder.name(ctx, port) }.getOrNull() ?: portOwner(port)
 
     /** Who holds 127.0.0.1:[port] — asked over the port itself (not on the main thread). */
     private fun portOwner(port: Int): String = try {
@@ -161,7 +189,7 @@ class ApiServer(private val ctx: Context) {
 
     fun stop() {
         retry?.interrupt(); retry = null
-        runCatching { server?.close() }; server = null
+        runCatching { server?.close() }; server = null; boundPort = 0; portNote = null
         tailWatch?.interrupt(); tailWatch = null
         runCatching { tailServer?.close() }; tailServer = null; tailAddress = null
     }
@@ -177,8 +205,9 @@ class ApiServer(private val ctx: Context) {
                 val want = tailnetAddress()
                 if (want?.hostAddress != tailAddress) {
                     runCatching { tailServer?.close() }; tailServer = null; tailAddress = null
+                    // 1.4.0-beta15: the set port on the tailnet address, else the one the service took locally.
                     if (want != null) runCatching {
-                        val ss = ServerSocket(port, 50, want).apply { reuseAddress = true }
+                        val ss = runCatching { ServerSocket(port, 50, want) }.getOrElse { ServerSocket(boundPort.takeIf { it > 0 } ?: throw it, 50, want) }.apply { reuseAddress = true }
                         tailServer = ss; tailAddress = want.hostAddress
                         AppLogger.info(TAG, "also listening on tailnet ${want.hostAddress}:$port")
                         Thread({ acceptLoop(ss) }, "vscreen-http-tail").apply { isDaemon = true }.start()
@@ -388,6 +417,11 @@ class ApiServer(private val ctx: Context) {
         requests++
         when (r.path) {
             "/", "/v1/ping", "/v2/ping" -> return Resp.json(JSONObject().put("ok", true).put("app", "agent-vscreen")
+                // 1.4.0-beta15: proof that this instance holds the caller's token (the CLI looks along the port span and
+                // takes only the one that answers this): sha256hex(K \n n \n ping \n K). Says nothing to anyone else.
+                .also { o -> val kid = r.q("me"); val n = r.q("n")
+                    if (kid != null && n != null && n.length in 8..64 && n.all { it.isLetterOrDigit() })
+                        Tokens.byId(kid)?.let { t -> o.put("you", Tokens.sha256("${t.key}\n$n\nping\n${t.key}")) } }
                 .put("version", BuildConfig.VERSION_NAME).put("code", BuildConfig.VERSION_CODE).put("pid", android.os.Process.myPid())
                 .put("time", System.currentTimeMillis() / 1000).put("api", JSONArray(listOf("v2", "v1")))
                 // 1.3: ready + the codes of what blocks (no details before the token is checked).

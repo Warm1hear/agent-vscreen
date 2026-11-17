@@ -126,7 +126,7 @@ internal fun SchedulesCards(tick: Int, showEmpty: Boolean = true) {
             else -> e.spec.times.joinToString("  ") { hm(it) }
         }
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MiuixTheme.colorScheme.primary.copy(alpha = 0.06f))
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f))
                 .clickable { editing = e }.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -207,10 +207,10 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
                         val on = d.days and (1 shl i) != 0
                         Box(
                             Modifier.size(36.dp).clip(CircleShape)
-                                .background(if (on) Glass.accent else Brush.linearGradient(listOf(MiuixTheme.colorScheme.primary.copy(alpha = 0.08f), MiuixTheme.colorScheme.primary.copy(alpha = 0.08f))))
+                                .background(if (on) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.secondaryContainer)
                                 .clickable { val n = d.days xor (1 shl i); if (n != 0) d = d.copy(days = n) },
                             contentAlignment = Alignment.Center,
-                        ) { Text(l, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (on) Color.White else MiuixTheme.colorScheme.onSurfaceVariantSummary) }
+                        ) { Text(l, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (on) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceVariantSummary) }
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -235,12 +235,10 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
                 Spacer(Modifier.weight(1f))
                 LinkButton(onClick = onClose) { Text(tr("取消", "Cancel")) }
                 Spacer(Modifier.width(6.dp))
-                Box(
-                    Modifier.clip(RoundedCornerShape(50)).background(Glass.accent).clickable {
-                        try { Wake.edit(ctx, e.name, d.text(), d.forMin, d.on); onClose() }
-                        catch (x: Wake.BadSpec) { error = x.message }
-                    }.padding(horizontal = 22.dp, vertical = 10.dp),
-                ) { Text(tr("保存", "Save"), color = Color.White, fontWeight = FontWeight.SemiBold) }
+                PrimaryButton(onClick = {
+                    try { Wake.edit(ctx, e.name, d.text(), d.forMin, d.on); onClose() }
+                    catch (x: Wake.BadSpec) { error = x.message }
+                }) { Text(tr("保存", "Save"), color = MiuixTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold) }
             }
         }
     }
@@ -256,20 +254,20 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
 @Composable
 private fun EditGroup(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MiuixTheme.colorScheme.primary)
+        Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         content()
     }
 }
 
 @Composable
 private fun Segmented(items: List<String>, selected: Int, onPick: (Int) -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(MiuixTheme.colorScheme.primary.copy(alpha = 0.08f)).padding(4.dp)) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(MiuixTheme.colorScheme.secondaryContainer).padding(4.dp)) {
         items.forEachIndexed { i, s ->
             Box(
-                Modifier.weight(1f).clip(RoundedCornerShape(50)).then(if (i == selected) Modifier.background(Glass.accent) else Modifier)
+                Modifier.weight(1f).clip(RoundedCornerShape(50)).then(if (i == selected) Modifier.background(MiuixTheme.colorScheme.surface) else Modifier)
                     .clickable { onPick(i) }.padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center,
-            ) { Text(s, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (i == selected) Color.White else MiuixTheme.colorScheme.onSurfaceVariantSummary) }
+            ) { Text(s, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (i == selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary) }
         }
     }
 }
@@ -277,7 +275,7 @@ private fun Segmented(items: List<String>, selected: Int, onPick: (Int) -> Unit)
 @Composable
 private fun TimeChip(label: String, onRemove: (() -> Unit)? = null, onClick: () -> Unit) {
     Row(
-        Modifier.clip(RoundedCornerShape(50)).background(MiuixTheme.colorScheme.primary.copy(alpha = 0.10f)).clickable(onClick = onClick)
+        Modifier.clip(RoundedCornerShape(50)).background(MiuixTheme.colorScheme.secondaryContainer).clickable(onClick = onClick)
             .padding(start = 16.dp, end = if (onRemove != null) 6.dp else 16.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -299,7 +297,7 @@ private fun Stepper(value: String, minus: () -> Unit, plus: () -> Unit) {
 
 @Composable
 private fun RoundIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    Box(Modifier.size(36.dp).clip(CircleShape).background(MiuixTheme.colorScheme.primary.copy(alpha = 0.10f)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(36.dp).clip(CircleShape).background(MiuixTheme.colorScheme.secondaryContainer).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Icon(icon, label, tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
     }
 }
@@ -373,7 +371,7 @@ internal fun LessonsList(tick: Int) {
             val on = key in picked
             val turn by androidx.compose.animation.core.animateFloatAsState(if (isOpen) 180f else 0f, label = "lesson")
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(MiuixTheme.colorScheme.primary.copy(alpha = if (on) 0.16f else 0.06f))
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(if (on) MiuixTheme.colorScheme.primary.copy(alpha = 0.14f) else MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f))
                     .clickable { if (picking) picked = if (on) picked - key else picked + key else open = if (isOpen) null else key }
                     .padding(horizontal = 14.dp, vertical = 12.dp).animateContentSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -398,7 +396,7 @@ internal fun LessonsList(tick: Int) {
                         Row(Modifier.padding(start = (depth * 18).dp), verticalAlignment = Alignment.Top) {
                             if (!closing) {
                                 no++
-                                Box(Modifier.size(22.dp).clip(CircleShape).background(Glass.accent, alpha = if (depth == 0) 1f else 0.55f), contentAlignment = Alignment.Center) {
+                                Box(Modifier.size(22.dp).clip(CircleShape).background(MiuixTheme.colorScheme.primary.copy(alpha = if (depth == 0) 1f else 0.55f)), contentAlignment = Alignment.Center) {
                                     Text("$no", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
                                 }
                                 Spacer(Modifier.width(10.dp))

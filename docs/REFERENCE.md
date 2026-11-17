@@ -143,7 +143,7 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 ### `teach "<要演示什么>" [--name <名字>] [--wait <时长>] [--again] [--async]`
 
 请用户在副屏上亲手做一遍（示教）：手机上弹出请求，用户接管副屏操作、做完审阅，存成这个应用的一段。返回段名和步骤；之后 act "use 段名 参数…" 照做。用户输入的字默认变成参数 {1} {2}…，用的时候按顺序填。
-适合说不清、反复失败、或用户自己更清楚怎么做的流程。先 launch 到要演示的应用。
+适合说不清、反复失败、或用户自己更清楚怎么做的流程。先 launch 到要演示的应用，再把页面整理回起始的样子（清掉自己输入的字、计算结果、弹窗），看一眼确认再发。
 
 - `--name <名字>` 建议的段名（用户可以改）
 - `--wait <时长>` 最多等多久（默认 50s，最长 5m；没做完是 ASK_PENDING，之后重发同一条 teach 取结果）
@@ -479,7 +479,7 @@ scope: `operate`
 ### `teach "<what to show>" [--name <name>] [--wait <duration>] [--again] [--async]`
 
 ask the user to do it once on the background screen (a lesson): a request appears on the phone, the user takes over the screen, does it, reviews it, and it is saved as a segment of the app. Returns the segment name and steps; then act "use <name> <values>…" runs it. Words the user typed become blanks {1} {2}… by default, filled in order when used.
-For flows that are hard to describe, keep failing, or the user knows better. launch the app to show first.
+For flows that are hard to describe, keep failing, or the user knows better. launch the app to show first, put the page back where it starts (clear words you typed, a result, a dialog) and look once to check before sending.
 
 - `--name <name>` suggested segment name (the user may change it)
 - `--wait <duration>` how long to wait (default 50s, at most 5m; not done yet is ASK_PENDING, send the same teach again later for the result)

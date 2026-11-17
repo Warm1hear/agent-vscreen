@@ -236,7 +236,32 @@ const agentVScreen = (function () {
         return NativeInterface.registerImageFromBase64(String(r.contentBase64), "image/jpeg");
     }
 
-    async function run(cfg, command, session) {
+    // 1.4.0-beta15: on this phone the service takes the first free port of the ten from the set one (another app, or
+    // a copy of the app in a parallel space, may hold it). The instance holding THIS token proves it on
+    // /v2/ping?me=<id>&n=<nonce> with sha256hex(K \n nonce \n ping \n K); the port found is kept for the next calls.
+    let foundUrl = null;
+    async function locate(cfg) {
+        if (!isLocal(cfg.url) || !cfg.token) return cfg;
+        if (foundUrl && foundUrl.from === cfg.url) return { url: foundUrl.url, token: cfg.token };
+        const m = /^(.*):(\d+)$/.exec(cfg.url);
+        if (!m) return cfg;
+        const tk = parseToken(cfg.token);
+        const key = sha256(tk.secret);
+        const nonce = randomId(16);
+        const want = sha256(key + "\n" + nonce + "\nping\n" + key);
+        for (let i = 0; i < 10; i += 1) {
+            const url = m[1] + ":" + (Number(m[2]) + i);
+            try {
+                const r = await Tools.Net.http({ url: url + "/v2/ping?me=" + encodeURIComponent(tk.id) + "&n=" + nonce, method: "GET", connect_timeout: 2, read_timeout: 2, validateStatus: false });
+                const d = JSON.parse(String((r && r.content) || "{}"));
+                if (d && d.you === want) { foundUrl = { from: cfg.url, url: url }; return { url: url, token: cfg.token }; }
+            } catch (e) { if (i === 0 && /timeout/i.test(String(e && e.message))) return cfg; }
+        }
+        return cfg;
+    }
+
+    async function run(cfg0, command, session) {
+        const cfg = await locate(cfg0);
         let res;
         try {
             // act can wait for minutes (wait / until / --watch); the server answers when the stretch ends.

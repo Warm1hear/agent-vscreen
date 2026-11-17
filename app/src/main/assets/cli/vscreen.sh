@@ -58,6 +58,28 @@ esac
 [ -z "$NOSIGN" ] && K=$(printf '%s' "$SECRET" | sha)
 hex() { od -An -v -tx1 | tr -d ' \n'; }
 
+# 1.4.0-beta15: on this phone the service takes the first free port of the ten from the set one (another app, or a
+# copy of the app in a parallel space, may hold the set port). Find it: the instance that holds THIS token answers
+# /v2/ping?me=<id>&n=<nonce> with sha256hex(K \n nonce \n ping \n K); nobody else can. A port that times out (a frozen
+# holder) ends the search: the wake-up below handles a frozen app.
+find_port() {
+  [ -n "$NOSIGN" ] || [ -z "$TOKEN" ] && return 0
+  case "$URL" in http://127.0.0.1:*|http://localhost:*) ;; *) return 0 ;; esac
+  _b=${URL%:*}; _p0=${URL##*:}; _p0=${_p0%%/*}
+  case "$_p0" in ''|*[!0-9]*) return 0 ;; esac
+  _n=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+  _w=$(printf '%s\n%s\nping\n%s' "$K" "$_n" "$K" | sha)
+  _i=0
+  while [ $_i -lt 10 ]; do
+    _p=$((_p0 + _i)); _i=$((_i + 1))
+    _r=$(c -s -m 2 "$_b:$_p/v2/ping?me=$KID&n=$_n" 2>/dev/null); _rc=$?
+    case "$_r" in *"\"you\":\"$_w\""*) [ $_p -ne $_p0 ] && URL="$_b:$_p"; return 0 ;; esac
+    [ $_rc -eq 28 ] && [ $_i -eq 1 ] && return 0
+  done
+  return 0
+}
+find_port
+
 # req METHOD TARGET BODYFILE HEADERFILE OUTFILE [curl args…]: one request, signed when possible. Returns curl's status;
 # 90 when the reply's proof is wrong.
 req() {

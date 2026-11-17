@@ -561,6 +561,7 @@ private fun ShieldSheet(show: Boolean, close: () -> Unit) {
                 tr("马上停下并退出通知栏，什么都叫不醒它，直到你回来选别的", "Stops now and leaves the shade; nothing wakes it until you choose again here"),
                 st == ServiceControl.State.BLOCKED, danger = true) { pick(ServiceControl.State.BLOCKED) }
             HostService.server?.lastError?.let { e -> Note(e, Palette.stopped, Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) }
+            if (HostService.server?.lastError == null) HostService.server?.portNote?.let { n -> Note(n, MiuixTheme.colorScheme.onSurfaceVariantSummary, Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) }
         }
     }
 }

@@ -216,6 +216,14 @@ object Tailnet {
     fun available(ctx: Context): Boolean = binary(ctx).canExecute()
 
     /** Called from HostService start and whenever the setting changes. */
+    /** The local port the running bridge forwards to (0: not started). */
+    @Volatile private var target = 0
+
+    /** 1.4.0-beta15: the service moved to another local port: a running bridge is restarted to forward there. */
+    fun retarget(ctx: Context, port: Int) {
+        if (wanted && target != 0 && target != port) { AppLogger.info(TAG, "local port now $port (was $target): restarting the bridge"); restart(ctx.applicationContext) }
+    }
+
     @Synchronized fun sync(ctx: Context) {
         if (ApiConfig.tailnetMode == Mode.BUILTIN) start(ctx.applicationContext) else stop("mode ${ApiConfig.tailnetMode}")
     }
@@ -312,7 +320,10 @@ object Tailnet {
         env["TSB_DIR"] = dir.absolutePath
         env["TSB_HOSTNAME"] = ApiConfig.tailnetHostname
         env["TSB_PORT"] = ApiConfig.port.toString()
-        env["TSB_TARGET"] = "127.0.0.1:${ApiConfig.port}"
+        // 1.4.0-beta15: peers keep reaching the set port; it is forwarded to the port the service really took.
+        val local = HostService.server?.boundPort?.takeIf { it > 0 } ?: ApiConfig.port
+        target = local
+        env["TSB_TARGET"] = "127.0.0.1:$local"
         env["TSB_SECRET"] = secret
         env["TSB_DNS"] = dnsServers(ctx).joinToString(",")
         env["HOME"] = dir.absolutePath

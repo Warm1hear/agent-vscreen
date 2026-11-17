@@ -67,7 +67,12 @@ object Glass {
     val darkEdge = Brush.verticalGradient(listOf(Color(0x73FFFFFF), Color(0x1AFFFFFF)))
     /** A button on dark glass that is not the main one. */
     val darkChip = Color(0x29FFFFFF)
-    /** The main action: brand violet into the asking orchid. */
+    /**
+     * The main action ON DARK GLASS over the live screen (floating window, full screen, answer sheet): brand violet into
+     * the asking orchid. 1.4.0-beta15 (rainbow: the schedule page's purple was too bright, pages did not share one
+     * design language): the app's own pages never use it; there the main action is [PrimaryButton] (the miuix theme
+     * colour), second actions [SoftButton] / secondaryContainer, text actions [LinkButton].
+     */
     val accent = Brush.horizontalGradient(listOf(Color(0xFF7B6CFF), Color(0xFFB57BFF)))
 }
 
