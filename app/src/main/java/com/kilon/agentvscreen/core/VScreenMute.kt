@@ -48,7 +48,7 @@ object VScreenMute {
         get() = ctx?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.getBoolean(K_ON, true) ?: true
         set(v) {
             ctx?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.edit()?.putBoolean(K_ON, v)?.apply()
-            if (!v) Thread { restoreAll() }.apply { isDaemon = true }.start()
+            if (!v) Thread { repair() }.apply { isDaemon = true }.start()
         }
 
     private fun legacyFile(): File? = ctx?.let { File(File(it.filesDir, "vscreen"), "muted.json") }
@@ -83,10 +83,34 @@ object VScreenMute {
         known = known - pkg
     }
 
-    /** Give every app its sound back (screen released, feature turned off). */
+    /** Give every app its sound back (screen released). */
     fun restoreAll() {
         if (VScreenRemoteDisplay.isConnected()) VScreenRemoteDisplay.soundGiveAll()
         known = emptySet()
+    }
+
+    /** The apps the system says are silenced now (PLAY_AUDIO ignore), whoever did it; null when it cannot be asked. */
+    internal fun parseSilenced(out: String): List<String> =
+        out.lines().map { it.trim() }.filter { Regex("^[a-zA-Z][\\w]*(\\.[\\w]+)+$").matches(it) }.distinct()
+
+    fun silenced(): List<String>? = runCatching {
+        val r = VScreenShell.run(arrayOf("cmd", "appops", "query-op", "PLAY_AUDIO", "ignore"), 6_000L)
+        if (r.exitCode != 0) null else parseSilenced(r.combined)
+    }.getOrNull()
+
+    /**
+     * 1.4.0-beta12 (rainbow: can turning the switch off fix it, and is there another way): give back EVERY app the
+     * system has silenced, not only the ones this install remembers. An app muted by an older version (whose record
+     * was lost with an uninstall) is in no list we keep, so a repair asks the system itself. Called by turning
+     * 副屏静音 off and by the 恢复被静音的应用 row. Returns the apps given back, or null without the privileged
+     * connection. An app on the background screen right now is muted again by the next action while the switch is on.
+     */
+    fun repair(): List<String>? {
+        runCatching { VScreenRemoteDisplay.soundGiveAll() }
+        known = emptySet()
+        val left = silenced() ?: return null
+        return left.filter { p -> runCatching { VScreenShell.run(arrayOf("appops", "set", p, "PLAY_AUDIO", "default"), 4_000L).exitCode == 0 }.getOrDefault(false) }
+            .also { if (it.isNotEmpty()) AppLogger.info(TAG, "repair gave back $it") }
     }
 
     fun mutedNow(): Set<String> = known

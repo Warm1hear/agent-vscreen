@@ -55,4 +55,10 @@ class V140Beta11Test {
         assertTrue(Teach.lesson.value is Lesson.None || Teach.lesson.value is Lesson.Review)
         assertNull(Lesson.None.askId)
     }
+
+    @Test
+    fun silencedAppsAreReadFromQueryOp() {
+        val out = "com.tencent.qqmusic\ncom.ss.android.ugc.aweme\n  com.example.video  \nNo operations.\n"
+        assertEquals(listOf("com.tencent.qqmusic", "com.ss.android.ugc.aweme", "com.example.video"), com.kilon.agentvscreen.core.VScreenMute.parseSilenced(out))
+    }
 }

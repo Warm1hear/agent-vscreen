@@ -139,6 +139,26 @@ fun SettingsTab(bottom: Dp) {
             var mute by remember { mutableStateOf(com.kilon.agentvscreen.core.VScreenMute.enabled) }
             SwitchPreference(checked = mute, onCheckedChange = { mute = it; com.kilon.agentvscreen.core.VScreenMute.enabled = it },
                 title = tr("副屏静音", "Mute the screen"), summary = tr("副屏里的应用不出声", "Its apps make no sound"))
+            // 1.4.0-beta12: one tap gives back the sound of every app the system has silenced (also ones an older version left).
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            var fixing by remember { mutableStateOf(false) }
+            ArrowPreference(title = tr("恢复被静音的应用", "Unmute silenced apps"), summary = tr("某个应用一直没声音时点这里", "If an app stays silent, tap here"),
+                endActions = { if (fixing) Value(tr("处理中", "Working")) }, onClick = {
+                    if (fixing) return@ArrowPreference
+                    fixing = true
+                    Thread {
+                        val got = com.kilon.agentvscreen.core.VScreenMute.repair()
+                        val names = got?.map { p -> runCatching { ctx.packageManager.getApplicationLabel(ctx.packageManager.getApplicationInfo(p, 0)).toString() }.getOrDefault(p) }
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            fixing = false
+                            android.widget.Toast.makeText(ctx, when {
+                                names == null -> tr("需要 Shizuku 已连接才能恢复", "Needs Shizuku connected")
+                                names.isEmpty() -> tr("没有被静音的应用", "No app is silenced")
+                                else -> tr("已恢复 ${names.size} 个应用的声音：${names.joinToString("、")}", "Sound back for ${names.size}: ${names.joinToString(", ")}")
+                            }, android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }.apply { isDaemon = true }.start()
+                })
             val idleSave by com.kilon.agentvscreen.core.VScreenStore.idlePowerSave.collectAsState()
             SwitchPreference(checked = idleSave, onCheckedChange = { BackgroundOperation.setIdlePowerSave(it) },
                 title = tr("空闲省电", "Idle power saving"), summary = tr("一轮结束后暂停渲染", "Pause rendering between turns"))
