@@ -107,6 +107,7 @@ sealed interface Route : NavKey {
     @Serializable data object Rules : Route
     @Serializable data object Schedules : Route
     @Serializable data object Lessons : Route
+    @Serializable data object Sound : Route
     @Serializable data object Log : Route
     @Serializable data object Diag : Route
     @Serializable data object Help : Route
@@ -199,6 +200,7 @@ fun AppRoot(host: AppHost, firstPage: Route?, snack: SnackbarHostState, firstTab
                 entry<Route.Rules>(swipeDismiss = swipe) { RulesPage() }
                 entry<Route.Schedules>(swipeDismiss = swipe) { SchedulesPage() }
                 entry<Route.Lessons>(swipeDismiss = swipe) { LessonsPage() }
+                entry<Route.Sound>(swipeDismiss = swipe) { SoundPage() }
                 entry<Route.Log>(swipeDismiss = swipe) { LogPage() }
                 entry<Route.Diag>(swipeDismiss = swipe) { DiagPage() }
                 entry<Route.Help>(swipeDismiss = swipe) { HelpPage() }

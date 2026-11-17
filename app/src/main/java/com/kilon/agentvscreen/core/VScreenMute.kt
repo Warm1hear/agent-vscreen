@@ -48,7 +48,8 @@ object VScreenMute {
         get() = ctx?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.getBoolean(K_ON, true) ?: true
         set(v) {
             ctx?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.edit()?.putBoolean(K_ON, v)?.apply()
-            if (!v) Thread { repair() }.apply { isDaemon = true }.start()
+            // 1.4.0-beta13: off gives back what the screen muted; apps muted by hand stay as the user set them.
+            if (!v) Thread { runCatching { VScreenRemoteDisplay.soundGiveAll() }; known = emptySet() }.apply { isDaemon = true }.start()
         }
 
     private fun legacyFile(): File? = ctx?.let { File(File(it.filesDir, "vscreen"), "muted.json") }
@@ -68,9 +69,12 @@ object VScreenMute {
         val c = ctx ?: return emptyList()
         if (!enabled) return emptyList()
         val here = runCatching { VScreenHandoff.tasksOn(displayId).map { it.pkg } }.getOrNull() ?: return emptyList()
-        val want = here.filter { it != c.packageName && it != mainTop && !VScreenShell.isProtected(it) }.toSet()
+        val want = here.filter { it != c.packageName && it != mainTop && !VScreenShell.isProtected(it) && it !in plays() }.toSet()
         val held = VScreenRemoteDisplay.soundList().getOrNull()?.toSet() ?: return emptyList()
-        val newly = want.filter { it !in held && VScreenRemoteDisplay.soundMute(it).getOrNull() == 1 }
+        val codes = want.filter { it !in held }.associateWith { VScreenRemoteDisplay.soundMute(it).getOrNull() ?: 0 }
+        val newly = codes.filterValues { it == 1 || it == 3 }.keys.toList()
+        // 1.4.0-beta13: silenced, but a player it already had keeps playing until the app plays again (said, not hidden).
+        heard = codes.filterValues { it == 3 }.keys.toList()
         newly.forEach { AppLogger.info(TAG, "muted $it") }
         held.filter { it !in want }.forEach { VScreenRemoteDisplay.soundGive(it) }
         known = VScreenRemoteDisplay.soundList().getOrNull()?.toSet() ?: (held + newly)
@@ -114,10 +118,62 @@ object VScreenMute {
         val out = runCatching { VScreenShell.run(arrayOf("sh", "-c", bad.joinToString("; ") { PlayAudio.giveBack(it.user, it.pkg, it.uid) }), 60_000L).combined }.getOrDefault("")
         val after = PlayAudio.parseScan(out).associateBy { it.user to it.pkg }
         val (ok, no) = bad.partition { h -> after[h.user to h.pkg]?.let { !PlayAudio.silent(it.modes) } == true }
+        put(K_MANUAL, manual() - ok.filter { it.user == 0 }.map { it.pkg }.toSet())
         if (ok.isNotEmpty()) AppLogger.info(TAG, "repair gave back ${ok.map { "${it.user}/${it.pkg}" }}")
         if (no.isNotEmpty()) AppLogger.warning(TAG, "repair could not give back ${no.map { "${it.user}/${it.pkg}" }}: ${out.take(300)}")
         return Repair(ok, no, PlayAudio.denied(out))
     }
 
     fun mutedNow(): Set<String> = known
+
+    // ── 1.4.0-beta13 (rainbow: a place to mute and unmute apps by hand, and agents can do it too) ──
+
+    private const val K_MANUAL = "manual"
+    private const val K_PLAYS = "plays"
+    private fun set(k: String): Set<String> = ctx?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.getStringSet(k, emptySet())?.toSet() ?: emptySet()
+    private fun put(k: String, v: Set<String>) { ctx?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.edit()?.putStringSet(k, v)?.apply() }
+
+    /** Apps muted by hand (the user or an agent): muted everywhere until unmuted; the screen never gives them back. */
+    fun manual(): Set<String> = set(K_MANUAL)
+    /** Apps that keep their sound on the background screen too. */
+    fun plays(): Set<String> = set(K_PLAYS)
+
+    private fun uidOf(pkg: String): Int? = runCatching {
+        VScreenShell.run(arrayOf("cmd", "package", "list", "packages", "-U", pkg), 4_000L).combined.lines()
+            .firstOrNull { it.trim().startsWith("package:$pkg ") }?.let { Regex("uid:(\\d+)").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+    }.getOrNull()
+
+    /** What changing one app's sound did: ok, the modes read after, and why not when refused. */
+    data class Change(val ok: Boolean, val modes: PlayAudio.Modes?, val why: String? = null)
+
+    private fun apply(script: String, want: (PlayAudio.Modes) -> Boolean): Change {
+        val r = runCatching { VScreenShell.run(arrayOf("sh", "-c", script), 8_000L) }.getOrNull() ?: return Change(false, null, "no-shizuku")
+        val m = PlayAudio.parseScan(r.combined).firstOrNull()?.modes
+        return Change(m != null && want(m), m, if (PlayAudio.denied(r.combined)) "denied" else null)
+    }
+
+    /** Mute [pkg] everywhere (package and its own UID record), kept until [unmute]. */
+    fun mute(pkg: String): Change {
+        val uid = uidOf(pkg)?.takeIf { it >= 10_000 }
+        return apply(PlayAudio.silence(0, pkg, uid)) { PlayAudio.silent(it) }.also { if (it.ok) { put(K_MANUAL, manual() + pkg); put(K_PLAYS, plays() - pkg) } }
+    }
+
+    /** Give [pkg] its sound back on both records (whoever muted it). */
+    fun unmute(pkg: String): Change {
+        runCatching { if (VScreenRemoteDisplay.isConnected()) VScreenRemoteDisplay.soundGive(pkg) }
+        return apply(PlayAudio.giveBack(0, pkg, uidOf(pkg))) { !PlayAudio.silent(it) }.also { if (it.ok) put(K_MANUAL, manual() - pkg) }
+    }
+
+    /** [pkg] keeps (true) or loses (false) its sound while on the background screen. */
+    fun setPlays(pkg: String, on: Boolean) {
+        put(K_PLAYS, if (on) plays() + pkg else plays() - pkg)
+        if (on && pkg in known) restore(pkg)
+    }
+
+    /** One app's state now: its two records, and whether it can be heard. */
+    fun state(pkg: String): PlayAudio.Modes? = runCatching { PlayAudio.parse(VScreenShell.run(arrayOf("cmd", "appops", "get", pkg, "PLAY_AUDIO"), 4_000L).combined) }.getOrNull()
+
+    /** Apps muted by the last [sync] whose sound already playing was still heard. */
+    @Volatile var heard: List<String> = emptyList()
+        private set
 }

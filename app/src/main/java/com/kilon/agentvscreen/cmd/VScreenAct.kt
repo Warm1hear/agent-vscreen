@@ -103,6 +103,16 @@ internal class Probe(private val h: VScreenOffloadHandler, private val d: VScree
 
     fun close() { base?.recycle(); base = null; prev?.recycle(); prev = null }
 
+    /**
+     * 1.4.0-beta13 (test: `repeat … until` ran one round more than needed): a short window could end before any reading
+     * of the screen AFTER the round existed, and "not there" was concluded from no evidence. When words are asked for,
+     * one reading newer than this probe is awaited (up to [waitMs]) and judged before saying no.
+     */
+    fun judgeFresh(waitMs: Long): String? {
+        if (wantsText) VScreenPerception.reading(d.displayId, since, waitMs)
+        return poll()
+    }
+
     private fun scaled(c: Cond, b: Bitmap): Rect? = c.area?.let { r ->
         val k = b.width.toDouble() / maxOf(1, d.width)
         Rect((r.left * k).toInt(), (r.top * k).toInt(), maxOf((r.left * k).toInt() + 1, (r.right * k).toInt()), maxOf((r.top * k).toInt() + 1, (r.bottom * k).toInt()))
@@ -382,7 +392,7 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
     /** An if / repeat check: [conds] within [ms] on the screen as it is (not "since an action"). null = stopped. */
     fun check(conds: List<Cond>, ms: Long, label: String, raw: String): WaitOut? {
         val p = Probe(this, d, conds)
-        val w = try { waitOn(d, p, ms, stop) } finally { p.close() }
+        val w = try { waitOn(d, p, ms, stop).let { w0 -> if (w0.met == null && w0.stopped == null) p.judgeFresh(3_000L)?.let { WaitOut(it, null, w0.ms) } ?: w0 else w0 } } finally { p.close() }
         if (w.stopped != null) { stoppedBy = w.stopped; stoppedAt = label; put(StepOut(label, raw, "stopped", tr("$label ${s1(w.ms)} 时停止条件 ${w.stopped}", "$label stop condition ${w.stopped} at ${s1(w.ms)}"))); return null }
         return w
     }
@@ -1051,7 +1061,10 @@ internal fun VScreenOffloadHandler.mainWatch(sid: String?, vararg extra: String?
 /** 1.3: silence what is on the background screen (VScreenMute); a line for the notes when an app was just muted. */
 internal fun VScreenOffloadHandler.muteNote(d: VScreenDisplay): String? = runCatching {
     com.kilon.agentvscreen.core.VScreenMute.sync(d.displayId, mainTop()?.substringBefore('/')).takeIf { it.isNotEmpty() }?.let { m ->
-        tr("副屏上的 ${m.joinToString("、")} 已静音：它的声音不会从手机放出来（离开副屏时恢复）", "${m.joinToString(", ")} on the background screen is muted: its sound does not come out of the phone (given back when it leaves the screen)")
+        tr("副屏上的 ${m.joinToString("、")} 已静音：它的声音不会从手机放出来（离开副屏时恢复）", "${m.joinToString(", ")} on the background screen is muted: its sound does not come out of the phone (given back when it leaves the screen)") +
+            com.kilon.agentvscreen.core.VScreenMute.heard.takeIf { it.isNotEmpty() }?.let { h ->
+                tr("。但 ${h.joinToString("、")} 正在放的声音系统没有立刻停：这台手机要等它重新开始播放才静音，需要的话暂停再播放一次，并告诉用户", ". But what ${h.joinToString(", ")} is already playing was not stopped by the system: on this phone it goes quiet only when playback starts again; pause and play once if needed, and tell the user")
+            }.orEmpty()
     }
 }.getOrNull()
 

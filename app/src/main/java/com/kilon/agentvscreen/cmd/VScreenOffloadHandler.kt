@@ -47,7 +47,7 @@ class VScreenOffloadHandler(internal val context: Context) : NativeOffloadHandle
         internal val lastElements = HashMap<String, ElSet>()
 
         /** Commands that do not read the app on the screen themselves (act and launch check the app rules per step). */
-        internal val RULE_FREE = setOf("status", "apps", "release", "stop", "fix", "help", "handoff", "note", "keep", "schedule", "ask", "teach", "launch", "act", "events", "done", "title", "task", "diag")
+        internal val RULE_FREE = setOf("status", "apps", "sound", "release", "stop", "fix", "help", "handoff", "note", "keep", "schedule", "ask", "teach", "launch", "act", "events", "done", "title", "task", "diag")
 
         /**
          * 1.2: the screen queue. There is one background screen; commands that work on it run one at a time, in the
@@ -222,6 +222,7 @@ class VScreenOffloadHandler(internal val context: Context) : NativeOffloadHandle
         "handoff" -> handoffCmd(sid, args)
         "status" -> status(sid, args)
         "apps" -> apps(args)
+        "sound" -> soundCmd(args)
         "events" -> eventsCmd(sid, args)
         "task" -> Tasks.command(sid ?: DEFAULT_SESSION, args)
         "done" -> doneCmd(sid)

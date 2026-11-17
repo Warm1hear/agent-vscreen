@@ -149,8 +149,10 @@ internal fun entriesOfEls(els: List<El>, screenW: Int, screenH: Int, fixed: List
     fun isFixed(e: El) = fixed.any { f -> Math.abs(f.centerX() - e.box.centerX()) <= 16 && Math.abs(f.centerY() - e.box.centerY()) <= 16 }
     // 1.4.0-beta8 (test: a settings list began with "搜索设置项 · 语音搜索"): an input box and what sits inside it (its
     // hint, its mic button) are a control, not content.
-    val inputs = els.filter { it.editable || it.placeholder }.map { it.box }
-    fun inInput(e: El) = e.editable || e.placeholder || inputs.any { it.contains(e.box.centerX(), e.box.centerY()) }
+    // 1.4.0-beta13 (test: still "设置语音搜索" first): also a search box that is not a text field (a bar that opens the
+    // search page), known by its view id or class, the platform's own naming.
+    val inputs = els.filter { it.editable || it.placeholder || it.search }.map { it.box }
+    fun inInput(e: El) = e.editable || e.placeholder || e.search || inputs.any { it.contains(e.box.centerX(), e.box.centerY()) }
     val live = els.filter { !isFixed(it) && (it.kind == ElKind.TEXT && it.text.isNotBlank()) && !inInput(it) }
     val area = screenW.toLong() * screenH
     val cards = live.filter { it.fromA11y && it.clickable && it.box.width().toLong() * it.box.height() in (area / 60)..(area / 2) }

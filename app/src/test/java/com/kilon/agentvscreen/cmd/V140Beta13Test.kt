@@ -57,6 +57,9 @@ class V140Beta13Test {
         assertTrue(PA.silent(PA.parse("Uid mode: PLAY_AUDIO: default\nPLAY_AUDIO: allow\n")))
         assertTrue(!PA.silent(PA.parse("Uid mode: PLAY_AUDIO: allow\nPLAY_AUDIO: allow\n")))
         assertTrue(!PA.silent(PA.parse("No operations.\n")))
+        // AOSP plays only on exactly MODE_ALLOWED: an explicit package `default` mutes as well (what older repairs wrote).
+        assertTrue(PA.silent(PA.parse("PLAY_AUDIO: default\n")))
+        assertTrue(!PA.silent(PA.parse("PLAY_AUDIO: foreground\n")))
         assertEquals("ignore", com.kilon.agentvscreen.core.VScreenDisplayService.parsePlayAudio(honor))
     }
 
@@ -73,5 +76,30 @@ class V140Beta13Test {
         assertTrue(after.size == 1 && !PA.silent(after[0].modes))
         assertTrue(PA.giveBack(128, "tv.danmaku.bili", 12810234).contains("--user 128 --uid 12810234 PLAY_AUDIO allow"))
         assertTrue(PA.denied("java.lang.SecurityException: uid 2000 does not have android.permission.MANAGE_APP_OPS_MODES"))
+    }
+
+    @Test fun theShellScriptsParse() {
+        val PA = com.kilon.agentvscreen.core.PlayAudio
+        for (script in listOf(PA.SCAN, PA.giveBack(0, "a.b", 10123), PA.giveBack(10, "a.b", null))) {
+            val p = ProcessBuilder("sh", "-n", "-c", script).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().readText()
+            assertEquals(out, 0, p.waitFor())
+        }
+    }
+
+    /** rainbow: HTTP, MCP and CLI must be the same. All three end in one argv for one handler; check the typed form. */
+    @Test fun typedCallsGiveTheSameArgvAsTheCommandLine() {
+        val split = com.kilon.agentvscreen.api.ApiServer::splitCommand
+        fun typed(cmd: String, args: String?, opts: org.json.JSONObject = org.json.JSONObject()) = CommandSpec.argvOf(CommandSpec.of(cmd)!!, args, opts)
+        assertEquals(split("act \"tap 1; key ctrl+a; type \\\"hi\\\" slow 200ms\" --human"),
+            typed("act", "tap 1; key ctrl+a; type \"hi\" slow 200ms", org.json.JSONObject().put("human", true)))
+        assertEquals(split("sound mute 微信"), typed("sound", "mute 微信"))
+        assertEquals(split("sound plays com.example.music on"), typed("sound", "plays com.example.music on"))
+        assertEquals(split("stop 计算器"), typed("stop", "计算器"))
+        // Every option of every command is in its typed tool's schema.
+        for (c in CommandSpec.commands) {
+            val props = CommandSpec.inputSchema(c).getJSONObject("properties")
+            for (o in c.allOpts.filter { !it.deprecated }) assertTrue("${c.name} --${o.name}", props.has(o.name.replace('-', '_')))
+        }
     }
 }

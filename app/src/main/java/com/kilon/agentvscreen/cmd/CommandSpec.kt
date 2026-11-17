@@ -180,6 +180,13 @@ internal object CommandSpec {
             listOf(Opt("note", Kind.VALUE, "说明", "text", "out 时给用户的通知里写什么", "what the notification to the user says on out")),
             scopeOf = { a -> if (a.positional.firstOrNull()?.lowercase() == "in") Scope.SYSTEM else Scope.OPERATE },
             scopeNoteZh = "in 需要 system", scopeNoteEn = "in needs system"),
+        // 1.4.0-beta13 (rainbow: agents can mute and unmute apps too, the same as the app's 应用静音 page).
+        Cmd("sound", "[list] | mute <应用> | unmute <应用> | plays <应用> on|off | screen on|off", "[list] | mute <app> | unmute <app> | plays <app> on|off | screen on|off",
+            listOf("应用静音：list 列出现在没声音的应用（谁静的）、手动静音的、在副屏里也出声的、副屏静音开没开；mute 让应用在所有屏幕上都不出声（直到 unmute）；unmute 恢复声音；plays 设这个应用在副屏里也出声；screen 开关副屏静音。已经在播放的声音要等应用重新播放才变。"),
+            listOf("app sound: list shows the apps silent now (and by whom), the ones muted by hand, the ones that keep sound on the screen, and whether screen muting is on; mute silences an app on every screen (until unmute); unmute gives its sound back; plays lets an app keep its sound on the screen; screen turns screen muting on or off. Sound already playing changes only when the app plays again."),
+            scope = Scope.SYSTEM, screen = false,
+            scopeOf = { a -> if ((a.positional.firstOrNull()?.lowercase() ?: "list") == "list") Scope.LOOK else Scope.SYSTEM },
+            scopeNoteZh = "list 只需 look", scopeNoteEn = "list needs look only"),
         Cmd("ask", "\"<问题>\"", "\"<question>\"",
             listOf("在手机上问用户（通知 + App 首页），等用户回答。默认 --point：用户在副屏的画面上点一下“你说的是哪个”，返回副屏坐标和那里的元素（#N）。说不清位置时用它，比文字描述准。",
                 "回答的是事实，不是许可：付款等仍按手机确认走。"),

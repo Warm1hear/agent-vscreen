@@ -129,18 +129,36 @@ class VScreenDisplayService : Binder {
             }
         }
 
-        /** 1 = silenced now, 2 = already ours, 0 = left alone (unreadable, or silent by someone else's choice). */
+        /**
+         * 1 = silenced now, 2 = already ours, 3 = silenced but a player of it is still heard (the system re-checks only
+         * when the app plays again), 0 = left alone (unreadable, refused, or silent by someone else's choice).
+         *
+         * 1.4.0-beta13 (rainbow: on vivo a package-level ignore did not silence): where an app has a UID record the
+         * system checks THAT one and the package's ignore does nothing. So both records are set to ignore (the UID's
+         * only when the uid is the app's alone, never a shared one), read back, and given back together as allow.
+         */
         fun mute(pkg: String): Int = synchronized(muted) {
             if (pkg.isBlank()) return 0
             if (pkg in muted) return 2
-            // 1.4.0-beta13: the package's own record (the UID's is printed first on some ROMs and is not what we change).
             val now = runCatching { PlayAudio.parse(sh("cmd", "appops", "get", pkg, "PLAY_AUDIO")) }.getOrNull() ?: return 0
             if (PlayAudio.silent(now)) return 0
-            val before = now.pkg ?: "default"
-            if (!setMode(pkg, "ignore")) return 0
-            muted[pkg] = before; save(); watch()
+            val uid = uidOf(pkg)?.takeIf { u -> u >= 10_000 && runCatching { sh("cmd", "package", "list", "packages", "--uid", "$u").lines().count { it.startsWith("package:") } == 1 }.getOrDefault(false) }
+            val out = runCatching { sh("sh", "-c", PlayAudio.silence(0, pkg, uid)) }.getOrDefault("")
+            val after = PlayAudio.parseScan(out).firstOrNull()?.modes
+            if (after == null || after.pkg != "ignore" || (uid != null && after.uid != null && after.uid != "ignore")) {
+                // Refused or not taken: put back what we may have set, keep nothing.
+                runCatching { sh("sh", "-c", PlayAudio.giveBack(0, pkg, uid)) }
+                return 0
+            }
+            muted[pkg] = now.pkg ?: "default"; save(); watch()
+            runCatching { Thread.sleep(300); PlayAudio.audible(sh("dumpsys", "audio"), uid ?: uidOf(pkg) ?: -1) }.getOrNull()?.let { if (it) return 3 }
             1
         }
+
+        private fun uidOf(pkg: String): Int? = runCatching {
+            sh("cmd", "package", "list", "packages", "-U", pkg).lines().firstOrNull { it.trim().startsWith("package:$pkg ") || it.trim() == "package:$pkg" }
+                ?.let { Regex("uid:(\\d+)").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+        }.getOrNull()
 
         /**
          * 1.4.0-beta13 (rainbow: the sound did not come back): back to `allow` on BOTH records, then read both. Some ROMs
@@ -150,8 +168,7 @@ class VScreenDisplayService : Binder {
         fun give(pkg: String) = synchronized(muted) {
             if (pkg !in muted) return
             val ok = runCatching {
-                val uid = sh("cmd", "package", "list", "packages", "-U", pkg).lines().firstOrNull { it.trim().startsWith("package:$pkg ") || it.trim() == "package:$pkg" }
-                    ?.let { Regex("uid:(\\d+)").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+                val uid = uidOf(pkg)
                 val out = sh("sh", "-c", PlayAudio.giveBack(0, pkg, uid))
                 PlayAudio.parseScan(out).firstOrNull()?.let { !PlayAudio.silent(it.modes) } ?: false
             }.getOrDefault(false)

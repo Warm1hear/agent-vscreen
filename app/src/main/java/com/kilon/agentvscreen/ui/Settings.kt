@@ -136,37 +136,9 @@ fun SettingsTab(bottom: Dp) {
         Group(tr("副屏", "Background screen")) {
             SwitchPreference(checked = s.showPreview, onCheckedChange = { BackgroundOperation.setShowPreview(it); if (it) Overlay.refresh() },
                 title = tr("显示悬浮窗", "Floating window"), summary = tr("有副屏时显示在最上层", "On top while there is a screen"))
-            var mute by remember { mutableStateOf(com.kilon.agentvscreen.core.VScreenMute.enabled) }
-            SwitchPreference(checked = mute, onCheckedChange = { mute = it; com.kilon.agentvscreen.core.VScreenMute.enabled = it },
-                title = tr("副屏静音", "Mute the screen"), summary = tr("副屏里的应用不出声", "Its apps make no sound"))
-            // 1.4.0-beta12: one tap gives back the sound of every app the system has silenced (also ones an older version left).
-            val ctx = androidx.compose.ui.platform.LocalContext.current
-            var fixing by remember { mutableStateOf(false) }
-            var repairMsg by remember { mutableStateOf<String?>(null) }
-            repairMsg?.let { m -> GlassDialog(onDismissRequest = { repairMsg = null },
-                confirmButton = { LinkButton(onClick = { repairMsg = null }) { top.yukonga.miuix.kmp.basic.Text(tr("知道了", "Got it")) } },
-                title = { DialogTitle(tr("恢复被静音的应用", "Unmute silenced apps")) },
-                text = { top.yukonga.miuix.kmp.basic.Text(m, fontSize = 14.sp, lineHeight = 21.sp) }) }
-            ArrowPreference(title = tr("恢复被静音的应用", "Unmute silenced apps"), summary = tr("某个应用一直没声音时点这里", "If an app stays silent, tap here"),
-                endActions = { if (fixing) Value(tr("处理中", "Working")) }, onClick = {
-                    if (fixing) return@ArrowPreference
-                    fixing = true
-                    Thread {
-                        val got = com.kilon.agentvscreen.core.VScreenMute.repair()
-                        fun label(p: String) = runCatching { ctx.packageManager.getApplicationLabel(ctx.packageManager.getApplicationInfo(p, 0)).toString() }.getOrDefault(p)
-                        fun names(l: List<com.kilon.agentvscreen.core.PlayAudio.Hit>) = l.map { label(it.pkg) + (if (it.user != 0) tr("（分身）", " (clone)") else "") }.distinct().joinToString("、")
-                        // 1.4.0-beta13: the result in a dialog, not a toast: what came back, what did not and why, and
-                        // that a player already open plays again only once the app starts it again.
-                        val msg = when {
-                            got == null -> tr("需要 Shizuku 已连接才能恢复。", "Shizuku must be connected to do this.")
-                            got.fixed.isEmpty() && got.failed.isEmpty() -> tr("没有被静音的应用。", "No app is silenced.")
-                            else -> (if (got.fixed.isNotEmpty()) tr("已恢复：${names(got.fixed)}。回到应用重新点一次播放就有声音了。", "Sound is back for: ${names(got.fixed)}. Start playing again in the app to hear it.") else "") +
-                                (if (got.failed.isNotEmpty()) tr("\n没能恢复：${names(got.failed)}。", "\nCould not restore: ${names(got.failed)}.") +
-                                    (if (got.denied) tr("系统不允许修改应用权限：小米 / 红米请在开发者选项里打开“USB 调试（安全设置）”后再试。", " The system refused to change app permissions: on Xiaomi / Redmi turn on \"USB debugging (Security settings)\" in developer options and try again.") else "") else "")
-                        }
-                        android.os.Handler(android.os.Looper.getMainLooper()).post { fixing = false; repairMsg = msg }
-                    }.apply { isDaemon = true }.start()
-                })
+            // 1.4.0-beta13 (rainbow): sound has its own page: the screen's muting, what is silent now, muting by hand.
+            ArrowPreference(title = tr("应用静音", "App sound"), summary = if (com.kilon.agentvscreen.core.VScreenMute.enabled) tr("副屏静音开着；可手动静音、恢复应用", "Screen muting on; mute or unmute apps by hand")
+                else tr("副屏静音关着；可手动静音、恢复应用", "Screen muting off; mute or unmute apps by hand"), onClick = { nav.go(Route.Sound) })
             val idleSave by com.kilon.agentvscreen.core.VScreenStore.idlePowerSave.collectAsState()
             SwitchPreference(checked = idleSave, onCheckedChange = { BackgroundOperation.setIdlePowerSave(it) },
                 title = tr("空闲省电", "Idle power saving"), summary = tr("一轮结束后暂停渲染", "Pause rendering between turns"))

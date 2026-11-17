@@ -46,7 +46,9 @@ internal data class El(val n: Int, val text: String, val box: Rect, val fromA11y
                        val checked: Boolean? = null, val focused: Boolean = false, val password: Boolean = false,
                        val kind: ElKind = ElKind.TEXT,
                        /** EMPTY_INPUT / NO_TEXT: the view id or class; LINK: the length of the hidden text. */
-                       val hint: String? = null) {
+                       val hint: String? = null,
+                       /** 1.4.0-beta13: a search box the app draws itself (its view id or class says search): a control, not content. */
+                       val search: Boolean = false) {
     val placeholder: Boolean get() = kind != ElKind.TEXT
     /** Nothing can be done with it: plain words. */
     val plain: Boolean get() = !clickable && !editable && !scrollable && checked == null && !password
@@ -170,7 +172,8 @@ internal fun a11yRaw(d: VScreenDisplay): List<El> {
         }
         raw.add(start.coerceAtMost(raw.size), El(0, if (kind == ElKind.TEXT) words!!.second else "", b, true,
             clickable = n.isClickable, editable = n.isEditable, scrollable = n.isScrollable,
-            checked = if (n.isCheckable) n.isChecked else null, focused = n.isFocused, password = n.isPassword, kind = kind, hint = hint))
+            checked = if (n.isCheckable) n.isChecked else null, focused = n.isFocused, password = n.isPassword, kind = kind, hint = hint,
+            search = n.isClickable && ((n.viewIdResourceName?.substringAfterLast('/') ?: "") + " " + (n.className ?: "")).contains("search", ignoreCase = true)))
     }
     com.kilon.agentvscreen.core.A11yTree.snapshot(d.displayId).roots.forEach { walk(it) }
     // Same element at (nearly) the same place: once.
