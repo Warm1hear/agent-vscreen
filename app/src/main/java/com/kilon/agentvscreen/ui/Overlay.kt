@@ -49,7 +49,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.SmartToy
@@ -852,9 +851,7 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
                     .padding(horizontal = (8 * k).dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 1.4.0-beta11: a grip, so it reads as the window's handle (it moves the window, also while you hold the screen).
-                Icon(Icons.Filled.DragIndicator, tr("拖这里移动小窗", "Drag here to move the window"), tint = Color(0x99FFFFFF), modifier = Modifier.size((11 * k).dp))
-                Spacer(Modifier.width((3 * k).dp))
+                // 1.4.0-beta15 (rainbow): no grip icon; the state dot already marks the pill, and the grip took room from the title.
                 Box(Modifier.size((7 * k).dp).clip(CircleShape).background(if (mode == Mode.ACTING) Brush.sweepGradient(Palette.rainbow) else Brush.linearGradient(listOf(Palette.of(mode), Palette.of(mode)))))
                 Spacer(Modifier.width((5 * k).dp))
                 Text(title, color = Color.White, fontSize = (11 * k).sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
