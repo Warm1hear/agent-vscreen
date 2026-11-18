@@ -49,6 +49,7 @@ object AgentNews {
         48 to "1.4.0-beta15",
         49 to "1.4.0",
         50 to "1.4.1-beta1",
+        51 to "1.4.1",
     )
 
     /**

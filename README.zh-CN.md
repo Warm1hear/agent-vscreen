@@ -27,7 +27,7 @@ Agent-VScreen 在一块看不见的虚拟屏上打开和操作别的应用，你
 <p align="center"><img src="docs/app.png" width="760" alt="Agent-VScreen 接入、记录、经验和设置页面"></p>
 <p align="center"><sub>App 界面：接入（每个接入的 agent 和远程连接）、记录（每次任务的步骤和画面）、经验（你示教的和 agent 记下的）、设置（谁能连进来、agent 能做多少、副屏）。</sub></p>
 
-- 版本：1.4.0（versionCode 49）
+- 版本：1.4.1（versionCode 51）
 - 包名：`com.kilon.agentvscreen`
 - 系统：Android 11 及以上（arm64），推荐 Android 14 及以上
 - 特权：只用 [Shizuku](https://shizuku.rikka.app/)，不需要 root
@@ -105,6 +105,13 @@ Agent-VScreen 在一块看不见的虚拟屏上打开和操作别的应用，你
 - [docs/REFERENCE.md](docs/REFERENCE.md)：每条命令的参数和每个结果代码（由代码生成）。
 - [docs/TASKS.md](docs/TASKS.md)：发版前在真机上跑的固定任务集。
 - [docs/CHANGELOG.zh-CN.md](docs/CHANGELOG.zh-CN.md)：更早版本的更新内容。
+
+## 1.4.1 更新内容
+
+- **预约和盯守按 agent 分开**：同名不再互相覆盖；忘掉一个 agent 时一并清掉它的预约和盯守。
+- **自建 Headscale 更稳**：开着代理（如 FlClash）也能解析控制服务器；手机 DNS 全部不通时再退到公共 DNS。
+- **Shizuku**：诊断信息里带上 Shizuku 的版本、授权和用户状态，提示先说最常见的原因（重启后要重新启动 Shizuku）。
+- 修复“远程连接 › 高级选项”打不开；预约、盯守和任务归属更可靠；数据不再进入系统备份。
 
 ## 1.4.0 更新内容
 

@@ -149,7 +149,7 @@ fun NewAgentPage() {
     LaunchedEffect(Unit) { while (true) { mode = ApiConfig.tailnetMode; delay(1_000) } }
     val remoteBase = rememberRemoteBase(mode)
     val remoteReady = where == 1 && remoteBase != null
-    val base = if (remoteReady) remoteBase!! else ApiConfig.baseUrl
+    val base = if (remoteReady) remoteBase else ApiConfig.baseUrl
     val canCopy = where == 0 || remoteReady
 
     var step by rememberSaveable { mutableIntStateOf(0) }
@@ -490,8 +490,8 @@ private fun VpnGuide(host: AppHost, switchTo: (Tailnet.Mode) -> Unit) {
     val hasApp = remember { runCatching { ctx.packageManager.getPackageInfo("com.tailscale.ipn", 0); true }.getOrDefault(false) }
     var how by remember { mutableStateOf(false) }
     InfoCard(Palette.standby, tr("手机开着另一个 VPN", "Another VPN is on"),
-        tr("内置 Tailscale 要自己连网，别的 VPN（代理、加速器或 Tailscale App）会把它的连接截走，所以连不上或连上又断。选一个办法：",
-            "The built-in Tailscale needs its own connection; another VPN (a proxy, an accelerator or the Tailscale app) takes it over, so it does not connect or keeps dropping. Pick one:"))
+        tr("手机上的 VPN 可能影响内置 Tailscale 的连接。如果一直连不上，可以尝试以下办法：",
+            "A VPN on this phone may affect the built-in Tailscale connection. If it keeps failing, try one of these options:"))
     if (hasApp) ArrowPreference(title = tr("① 改用手机上的 Tailscale App", "① Use the Tailscale app on this phone"),
         summary = tr("你已经装了它。打开它并连上，这里切到“外部 Tailscale App”", "It is installed. Open it and connect; this switches to \"External Tailscale app\""),
         endActions = { Value(tr("切换", "Switch")) }, onClick = { switchTo(Tailnet.Mode.SYSTEM) })
@@ -518,12 +518,12 @@ private fun BuiltinState(ts: Tailnet.Status, host: AppHost, open: (String) -> Un
     val ctx = LocalContext.current
     if (!Tailnet.available(ctx)) { InfoCard(Palette.stopped, tr("这个安装包里没有内置 Tailscale", "This package has no built-in Tailscale"), tr("只支持 arm64 手机。", "Only arm64 phones are supported.")); return }
     val phase = Tailnet.phase(ctx)
-    // 1.4.0-beta10 (rainbow: with a VPN on, a one-line hint at the bottom and a block of red errors at the top, not
-    // friendly at all): another VPN on the phone is the cause, so it is the first and only thing said, in plain words,
-    // with what the user can do; the node's own messages are behind 详情.
+    // VPN troubleshooting is relevant only after a failed or stalled connection.
     var vpnOn by remember { mutableStateOf(Tailnet.throughVpn(ctx)) }
     LaunchedEffect(Unit) { while (true) { vpnOn = Tailnet.throughVpn(ctx); delay(2_000) } }
-    if (vpnOn && phase != TsPhase.CONNECTED && phase != TsPhase.SERVICE_OFF) {
+    val loginStalled = (phase == TsPhase.NEEDS_LOGIN || phase == TsPhase.EXPIRED) &&
+        ts.authUrl.isNullOrBlank() && (ts.waitingS >= 15 || !ts.loginError.isNullOrBlank())
+    if (vpnOn && (loginStalled || phase == TsPhase.UNSTABLE || phase == TsPhase.ERROR)) {
         VpnGuide(host, switchTo)
         var more by remember { mutableStateOf(false) }
         ArrowPreference(title = tr("详情", "Details"), endActions = { Value(if (more) tr("收起", "Hide") else tr("查看", "Show")) }, onClick = { more = !more })
@@ -563,8 +563,8 @@ private fun BuiltinState(ts: Tailnet.Status, host: AppHost, open: (String) -> Un
                 if (phase == TsPhase.EXPIRED) tr("Tailscale 登录过期了，重新登录一次", "The Tailscale login ran out: log in once more") else tr("登录 Tailscale（只要一次）", "Log in to Tailscale (once)"),
                 if (ts.ownServer) tr("打开 ${ts.serverName} 的注册页。Headscale 通常会给出一条注册命令，在服务器上运行它就连上了；也可以在高级选项里填预授权 key。", "Open the registration page of ${ts.serverName}. Headscale usually shows a register command: run it on the server and the node joins. Or put a pre-auth key in Advanced.")
                 else tr("用你电脑上 Tailscale 的同一个账号登录，登录完回到这里会自动连上。手机上不方便登录的话，复制链接到电脑上打开。", "Log in with the same account as Tailscale on your computer; back here it connects by itself. If logging in on the phone is awkward, copy the link and open it on the computer."))
-            CardAction(if (ts.ownServer) tr("打开注册页", "Open the registration page") else tr("在浏览器里登录", "Log in in the browser")) { open(ts.authUrl!!) }
-            CardAction(tr("复制登录链接", "Copy login link"), primary = false) { host.copy(tr("登录链接", "Login link"), ts.authUrl!!) }
+            CardAction(if (ts.ownServer) tr("打开注册页", "Open the registration page") else tr("在浏览器里登录", "Log in in the browser")) { open(ts.authUrl) }
+            CardAction(tr("复制登录链接", "Copy login link"), primary = false) { host.copy(tr("登录链接", "Login link"), ts.authUrl) }
         } else {
             val slow = ts.waitingS >= 15 || ts.loginError != null
             InfoCard(if (slow) Palette.stopped else Palette.standby,

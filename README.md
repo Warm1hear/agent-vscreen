@@ -27,7 +27,7 @@ Any agent on the phone can use it: agents with a terminal use the `vscreen` CLI,
 <p align="center"><img src="docs/app.en.png" width="760" alt="Agent-VScreen Home, Connect, Records and Settings screens"></p>
 <p align="center"><sub>The app: home (the background screen and what agents just did), connect (every agent and remote access), records (each task with its steps and frames) and settings (who can connect, how much an agent may do, the background screen).</sub></p>
 
-- Version: 1.4.0 (versionCode 49) · [Download APK](https://github.com/kilolonion/agent-vscreen/releases/latest)
+- Version: 1.4.1 (versionCode 51) · [Download APK](https://github.com/kilolonion/agent-vscreen/releases/latest)
 - Package: `com.kilon.agentvscreen`
 - Android 11+ (Android 14+ recommended), arm64
 - Privileges: [Shizuku](https://shizuku.rikka.app/) only, no root
@@ -107,6 +107,13 @@ The token equals control of the phone. Requests from other devices are signed, s
 - [docs/REFERENCE.md](docs/REFERENCE.md): every command option and result code (generated from the source).
 - [docs/TASKS.md](docs/TASKS.md): the fixed task set to run on a real phone before a release.
 - [docs/CHANGELOG.md](docs/CHANGELOG.md): earlier releases.
+
+## What's new in 1.4.1
+
+- **Schedules and watches per agent**: same names no longer overwrite each other; forgetting an agent clears its schedules and watches.
+- **Steadier self-hosted Headscale**: the control server resolves even with a proxy such as FlClash on; public DNS is used only when every phone DNS is unreachable.
+- **Shizuku**: diagnostics include Shizuku's version, permission and user state; the hint leads with the usual cause (Shizuku must be started again after a restart).
+- Fixed Remote › Advanced not opening; schedules, watches and task ownership are more reliable; app data stays out of system backups.
 
 ## What's new in 1.4.0
 
