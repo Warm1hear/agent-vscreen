@@ -454,28 +454,6 @@ class VScreenDisplay private constructor(
     fun requestFreshFrame() { lastConvertMs = 0L }
 
     /**
-     * Wait until the screen stops changing: [stableSamples] consecutive
-     * samples [sampleMs] apart with no visible change (structural signature),
-     * after at least [minMs], or until [timeoutMs]. Returns (frame, waitedMs,
-     * stable). A static screen produces no new frames, which counts as stable.
-     */
-    fun settle(minMs: Long = 300, timeoutMs: Long = 1_500, stableSamples: Int = 2, sampleMs: Long = 150): Triple<Bitmap?, Long, Boolean> {
-        val start = SystemClock.elapsedRealtime()
-        var prev: ScreenSig? = null
-        var same = 0
-        while (true) {
-            requestFreshFrame()
-            Thread.sleep(sampleMs)
-            val now = SystemClock.elapsedRealtime()
-            val sig = ScreenSig.of(latest)
-            if (sig != null && prev != null && sig.compare(prev).kind == ScreenSig.Kind.NONE) same++ else same = 0
-            prev = sig ?: prev
-            if (same >= stableSamples && now - start >= minMs) return Triple(latest, now - start, true)
-            if (now - start >= timeoutMs) return Triple(latest, now - start, false)
-        }
-    }
-
-    /**
      * A frame at least as new as [notOlderThanMs] (elapsed realtime), waiting
      * up to [timeoutMs] for one. Used by screenshots taken right after an
      * action, so the agent sees the result of what it just did.

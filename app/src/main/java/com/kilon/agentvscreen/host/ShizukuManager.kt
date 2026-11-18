@@ -2,7 +2,6 @@ package com.kilon.agentvscreen.host
 
 import android.app.Application
 import android.content.Context
-import android.os.Build
 import com.kilon.agentvscreen.host.AppLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

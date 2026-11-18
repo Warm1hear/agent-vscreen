@@ -2,7 +2,6 @@ package com.kilon.agentvscreen.ui
 
 import android.graphics.BitmapFactory
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -22,7 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,7 +47,6 @@ import com.kilon.agentvscreen.tr
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -62,6 +59,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -113,6 +111,7 @@ class AskActivity : PageActivity() {
     @Composable
     private fun Answer(a: UserAsk.Ask) {
         val bmp = remember { a.picture?.takeIf { it.isFile }?.let { BitmapFactory.decodeFile(it.path) } }
+        DisposableEffect(bmp) { onDispose { bmp?.recycle() } }
         var point by remember { mutableStateOf<Offset?>(null) }
         var boxA by remember { mutableStateOf<Offset?>(null) }
         var boxB by remember { mutableStateOf<Offset?>(null) }

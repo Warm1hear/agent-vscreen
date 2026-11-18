@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- [vscreen] 后台操作 -->
-    <string name="vscreen_loading">Loading…</string>
-    <string name="vscreen_no_preview">No background screen right now</string>
-    <string name="vscreen_blank_frame">The background screen is blank right now</string>
-    <string name="vscreen_no_app">No app is running on the background screen</string>
-</resources>

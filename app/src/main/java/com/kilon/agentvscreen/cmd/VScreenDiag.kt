@@ -8,8 +8,6 @@ import com.kilon.agentvscreen.host.AppLogger
 import com.kilon.agentvscreen.host.Audit
 import com.kilon.agentvscreen.host.Swallowed
 import com.kilon.agentvscreen.tr
-import org.json.JSONArray
-import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale

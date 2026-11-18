@@ -16,7 +16,6 @@ import com.kilon.agentvscreen.core.VScreenMap
 import com.kilon.agentvscreen.core.VScreenPerception
 import com.kilon.agentvscreen.core.VScreenRemoteDisplay
 import com.kilon.agentvscreen.core.VScreenShell
-import com.kilon.agentvscreen.core.VScreenStore
 import com.kilon.agentvscreen.core.Vendor
 import kotlin.math.roundToInt
 import com.kilon.agentvscreen.cmd.VScreenOffloadHandler.Companion.TAG
@@ -95,7 +94,8 @@ internal fun VScreenOffloadHandler.doLaunch(sid: String, pkg: String, orient: Bo
             if (depth == 0 && d.rotation % 2 == 1) needRefit = !BackgroundOperation.nativeLandscape(d)
             val gs = VScreenShell.windowScale(d.displayId, pkg)
             val crop = VScreenDownscale.surfaceCrop(pkg)
-            if (depth == 0 && needRefit == null && ((gs != null && gs > 1.02) || crop?.cropped == true)) needUnscale = gs ?: 1.0
+            val late = restart && VScreenDownscale.consumeLateScaled(pkg)
+            if (depth == 0 && needRefit == null && ((gs != null && gs > 1.02) || crop?.cropped == true || late)) needUnscale = gs ?: 1.0
             if (depth > 0 && ((gs != null && gs > 1.02) || crop?.cropped == true))
                 facts.notes += run { val x = gs?.let { "%.2f".format(it) } ?: "?"; tr("处理后 $pkg 仍被系统缩放（$x 倍），画面右侧/下方可能被裁。用户可手动：", "After the fix $pkg is still scaled by the system (×$x); the right/bottom of the picture may be cut off. The user can do it by hand: ") } + Vendor.current.downscaleHint()
         }

@@ -84,8 +84,8 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 /*
  * 1.4: the app is organised the way miuix apps are, not as the 1.3 home page with new widgets on it.
  *
- *  - Three tabs at the bottom, by what the user came for: 现在 (how it is now, does anything need me), 记录 (what the
- *    agent did, booked, watches and learned), 设置 (how agents connect, what they may do, how the screen behaves).
+ *  - Four tabs at the bottom, by what the user came for: 现在 (how it is now, does anything need me), 接入 (connected
+ *    agents and remote access), 记录 (what the agent did, booked, watches and learned), 设置 (permissions and screen).
  *  - Every second-level page is a real page on a stack (miuix-nav): its own large title that folds into the bar, swipe
  *    and predictive back. Nothing swaps content inside one page any more.
  *  - Each page's content scrolls BEHIND its glass top bar: the bar blurs the page's own layer, which starts with the
@@ -187,6 +187,11 @@ fun AppRoot(host: AppHost, firstPage: Route?, snack: SnackbarHostState, firstTab
         MainActivity.pageRequests.value = null
     }
     CompositionLocalProvider(LocalHost provides host, LocalNav provides nav, LocalApp provides app) {
+        // 1.4.1-beta1 (rainbow: the Headscale "advanced" sheet would not open): miuix overlays (OverlayBottomSheet,
+        // OverlayDialog, dropdowns) only show under a Scaffold, which hosts them. The tabs had one, but a pushed page
+        // that put its sheet next to its MiuixPage (the remote page) had none, so the sheet was queued and never drawn.
+        // One Scaffold at the root hosts every overlay of every page; the pages' own Scaffolds pass theirs up to it.
+        Scaffold(contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0), containerColor = Color.Transparent) { _ ->
         Box(Modifier.fillMaxSize()) {
             NavDisplay(backStack = stack, onBack = { nav.back() }) {
                 val swipe = NavSwipeDirection.LeftToRight
@@ -208,10 +213,11 @@ fun AppRoot(host: AppHost, firstPage: Route?, snack: SnackbarHostState, firstTab
             }
             SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 84.dp))
         }
+        }
     }
 }
 
-/** The three tabs, swiped or picked in the floating bar; the bar blurs the tab behind it. */
+/** The four tabs, swiped or picked in the floating bar; the bar blurs the tab behind it. */
 @Composable
 private fun MainTabs(pager: androidx.compose.foundation.pager.PagerState) {
     val nav = LocalNav.current
@@ -281,7 +287,7 @@ fun Dot(c: Color, size: Dp = 8.dp) = Box(Modifier.size(size).clip(CircleShape).b
 
 /**
  * One page: a glass top bar with a large title that folds as the page scrolls under it, the content in a scrolling
- * column. [back] shows the back arrow (every page but the three tabs). [bottom] keeps the last group clear of the
+ * column. [back] shows the back arrow (every page but the four tabs). [bottom] keeps the last group clear of the
  * floating bar on a tab.
  */
 @Composable

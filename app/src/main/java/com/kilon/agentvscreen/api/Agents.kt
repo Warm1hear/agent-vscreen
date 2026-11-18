@@ -29,5 +29,23 @@ object Agents {
 
     fun nameOfSession(session: String?): String = name(ofSession(session))
 
+    /**
+     * 1.4.1-beta1: the user forgets agent [id] (connect page) or revokes its token (settings): one place for both. Its
+     * token goes, its connection record goes, and so does what it left running: its schedules would still start the
+     * service and its watches would still run, with no agent left that can list or cancel them. Tasks and the audit
+     * stay (they are the record of what it did). The first token cannot be forgotten.
+     */
+    fun forget(ctx: android.content.Context, id: String) {
+        if (id == Tokens.MAIN) return
+        Tokens.revoke(id)
+        AgentLedger.forget(id)
+        com.kilon.agentvscreen.host.quiet("forget-schedules") { com.kilon.agentvscreen.host.Wake.remove(ctx, "all", id) }
+        com.kilon.agentvscreen.host.quiet("forget-keeps") {
+            com.kilon.agentvscreen.core.VScreenRules.running().filter { it.spec.agentId == id }
+                .forEach { com.kilon.agentvscreen.core.VScreenRules.stop(id, it.spec.name, tr("这个 agent 已被忘掉", "this agent was forgotten")) }
+            com.kilon.agentvscreen.core.VScreenRules.clearEnded(id)
+        }
+    }
+
     private fun firstName() = tr("最早接入的 agent", "First connected agent")
 }

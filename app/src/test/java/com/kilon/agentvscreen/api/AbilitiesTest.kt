@@ -100,7 +100,7 @@ class AbilitiesTest {
         val js = File(root, "integrations/operit/dist/packages/agent_vscreen.js")
         if (js.isFile) {
             // JSON string by hand (Robolectric's org.json would write "\/" for every slash).
-            fun q(s: String) = "\"" + s.replace("\n", "\\n").replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+            fun q(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\""
             I18n.choice = I18n.Lang.ZH; val az = AgentGuide.advice()
             I18n.choice = I18n.Lang.EN; val ae = AgentGuide.advice()
             I18n.choice = I18n.Lang.ZH

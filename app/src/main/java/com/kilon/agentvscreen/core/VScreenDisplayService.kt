@@ -203,12 +203,6 @@ class VScreenDisplayService : Binder {
             }.apply { isDaemon = true; name = "vscreen-sound" }.start()
         }
 
-        private fun setMode(pkg: String, mode: String): Boolean =
-            runCatching { sh("cmd", "appops", "set", pkg, "PLAY_AUDIO", mode)
-                val now = parsePlayAudio(sh("cmd", "appops", "get", pkg, "PLAY_AUDIO"))
-                if (mode == "ignore") now == "ignore" else now != null && now != "ignore" }
-                .getOrDefault(false)
-
         private fun installed(pkg: String): Boolean =
             runCatching { sh("cmd", "package", "path", pkg).contains("package:") }.getOrDefault(true)
 
@@ -728,21 +722,17 @@ class VScreenDisplayService : Binder {
 
     /** Remove one task (the background screen's own copy of an app) without killing the app. */
     private fun removeTask(taskId: Int): Boolean {
-        val atm = runCatching {
-            Class.forName("android.app.ActivityTaskManager").getMethod("getService").invoke(null)
-        }.getOrNull() ?: Class.forName("android.app.ActivityManager").getMethod("getService").invoke(null)
-        val m = atm!!.javaClass.getMethod("removeTask", Int::class.javaPrimitiveType)
+        val atm = atmService()
+        val m = atm.javaClass.getMethod("removeTask", Int::class.javaPrimitiveType)
         return m.invoke(atm, taskId) as Boolean
     }
 
     /** v22: move a whole task (its root task) to another display, as it is. */
     private fun moveTask(taskId: Int, displayId: Int) {
-        val atm = runCatching {
-            Class.forName("android.app.ActivityTaskManager").getMethod("getService").invoke(null)
-        }.getOrNull() ?: Class.forName("android.app.ActivityManager").getMethod("getService").invoke(null)
+        val atm = atmService()
         val ip = Int::class.javaPrimitiveType
-        val m = runCatching { atm!!.javaClass.getMethod("moveRootTaskToDisplay", ip, ip) }.getOrNull()
-            ?: atm!!.javaClass.getMethod("moveStackToDisplay", ip, ip)
+        val m = runCatching { atm.javaClass.getMethod("moveRootTaskToDisplay", ip, ip) }.getOrNull()
+            ?: atm.javaClass.getMethod("moveStackToDisplay", ip, ip)
         // On some ROMs (vivo) an app task sits inside another root task: the system only knows the root's id.
         val root = runCatching { rootIdOf(taskId) }.getOrNull()
         val ids = listOfNotNull(root, taskId).distinct()

@@ -7,7 +7,6 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.view.WindowManager
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -39,25 +38,14 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.animation.animateContentSize
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.material.icons.automirrored.filled.Backspace
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.draw.alpha
@@ -65,12 +53,10 @@ import androidx.compose.foundation.layout.ime
 import com.kilon.agentvscreen.core.VScreenTyping
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.CloseFullscreen
 import androidx.compose.material.icons.filled.ScreenRotation
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.SmartToy
@@ -89,8 +75,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -100,9 +84,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -119,11 +101,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.hypot
-import kotlin.math.roundToInt
 
 /**
  * The background screen full screen, as a native page: edge-to-edge and immersive, the picture fitted with the same
- * breathing border as the floating window. Hold the picture 1 s to take over; then taps, long presses and swipes go
+ * breathing border as the floating window. Hold the picture 0.5 s to take over; then taps, long presses and swipes go
  * to the background screen, and the bottom bar gives back / home / typing / enter. Stop, hand back and "move this
  * app to my screen" are one tap away.
  */
@@ -209,7 +190,6 @@ class FullscreenActivity : PageActivity() {
         val mode = modeOf(s)
         val takenOver = mode == Mode.TAKEOVER
         var typing by remember { mutableStateOf(false) }
-        var text by remember { mutableStateOf("") }
         var hold by remember { mutableFloatStateOf(0f) }
         var holdAt by remember { mutableStateOf(Offset.Zero) }
         var hintAt by remember { mutableLongStateOf(0L) }
@@ -357,7 +337,7 @@ class FullscreenActivity : PageActivity() {
                                 } else if (!held && !moved) hintAt = SystemClock.uptimeMillis()
                             }
                         }) {
-                        VScreenLiveFrame(session, Modifier.fillMaxSize(), interactive = false)
+                        VScreenLiveFrame(session, Modifier.fillMaxSize())
                         if (marking) Canvas(Modifier.fillMaxSize()) {
                             val pa = mark.a; val pb = mark.b
                             if (req?.kind == UserAsk.Kind.POINT && pa != null) {

@@ -6,7 +6,6 @@ import androidx.compose.foundation.border
 import androidx.compose.ui.draw.shadow
 import android.annotation.SuppressLint
 import android.content.Context
-import android.content.Intent
 import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.os.Handler
@@ -46,8 +45,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.PanTool
@@ -56,7 +53,6 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -68,7 +64,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -76,8 +71,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
@@ -99,7 +92,6 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.kilon.agentvscreen.api.Turns
 import com.kilon.agentvscreen.core.BackgroundOperation
-import com.kilon.agentvscreen.core.VScreenShell
 import com.kilon.agentvscreen.host.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -115,7 +107,6 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
@@ -130,7 +121,7 @@ import kotlin.math.roundToInt
  *    shows, and the tab takes that very strip (1.3.0-beta17); tap the tab and the window slides back out; pull the tab
  *    inward and the window opens under the finger;
  *  - two fingers pinch to resize, anchored at the point between them (120 dp … 85 % of the screen);
- *  - hold one finger still for 1 s to take over (a ring fills); a light tap only shows these hints;
+ *  - hold one finger still for 0.5 s to take over (a ring fills); a light tap only shows these hints;
  *  - while you hold the screen, taps / swipes / long presses on the picture go to the background screen, and you move
  *    the window by its title pill.
  * Buttons (1.1.6: one job per place, so a quick double tap can never stop the AI by accident):
@@ -157,10 +148,7 @@ object Overlay {
     internal val widthPx = mutableFloatStateOf(0f)
     internal val docked = mutableStateOf(false)
     internal val dockRight = mutableStateOf(true)
-    internal val hold = mutableFloatStateOf(0f)
-    internal val holdAt = mutableStateOf(Offset.Zero)
     internal val hintAt = mutableLongStateOf(0L)
-    internal val closeArmedAt = mutableLongStateOf(0L)
     /** 1.3.0-beta16: what the current touch is, said by the picture layer (see GestureFrame). */
     @Volatile internal var pictureDown = false
     @Volatile internal var pictureLive = false
@@ -904,7 +892,7 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
             else shownAsk?.let { a ->
                 // Measured at its full size from the first frame (the expansion only clips it), so the window starts
                 // its glide up at the same moment and lands as the card finishes growing.
-                AskQuick(a, waiting.size.coerceAtLeast(1), k, inOverlay = true, modifier = Modifier.fillMaxWidth()
+                AskQuick(a, waiting.size.coerceAtLeast(1), k, modifier = Modifier.fillMaxWidth()
                     .onSizeChanged { sz -> if (sz.height.toFloat() != Overlay.cardH.floatValue) { Overlay.cardH.floatValue = sz.height.toFloat() }; Overlay.fitGroup() })
             }
         }
@@ -977,7 +965,7 @@ private fun PictureLayer(owner: String, k: Float, picture: (@Composable (String)
             }
         }
     }) {
-        if (picture != null) picture(owner) else VScreenLiveFrame(owner, Modifier.fillMaxSize(), interactive = false)
+        if (picture != null) picture(owner) else VScreenLiveFrame(owner, Modifier.fillMaxSize())
 
         // Gesture hint (a tap on the picture while the AI has the screen).
         var now by remember { mutableLongStateOf(SystemClock.uptimeMillis()) }

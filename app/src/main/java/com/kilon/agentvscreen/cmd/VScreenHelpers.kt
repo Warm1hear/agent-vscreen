@@ -13,7 +13,6 @@ import android.os.SystemClock
 import com.kilon.agentvscreen.cmd.NativeOffloadResult
 import com.kilon.agentvscreen.core.BackgroundOperation
 import com.kilon.agentvscreen.core.BackgroundOperation.ActionError
-import com.kilon.agentvscreen.core.VPixels
 import com.kilon.agentvscreen.core.VScreenDisplay
 import com.kilon.agentvscreen.core.VScreenGame
 import com.kilon.agentvscreen.core.VScreenOcr

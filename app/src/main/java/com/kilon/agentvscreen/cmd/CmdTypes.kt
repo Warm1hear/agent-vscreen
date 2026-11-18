@@ -3,7 +3,6 @@ package com.kilon.agentvscreen.cmd
 import android.content.Context
 import android.graphics.Bitmap
 import java.io.File
-import java.io.FileOutputStream
 
 /** One command call: the words after `vscreen`, and the caller's session (one session owns the screen at a time). */
 data class NativeOffloadRequest(val argv: List<String>, val sessionId: String?)

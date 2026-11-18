@@ -9,7 +9,6 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.os.SystemClock
-import android.view.accessibility.AccessibilityNodeInfo
 import com.kilon.agentvscreen.cmd.NativeOffloadResult
 import com.kilon.agentvscreen.core.BackgroundOperation
 import com.kilon.agentvscreen.core.VScreenActivity
@@ -18,8 +17,6 @@ import com.kilon.agentvscreen.core.VScreenOcr
 import com.kilon.agentvscreen.core.VScreenPerception
 import com.kilon.agentvscreen.core.VScreenRecorder
 import com.kilon.agentvscreen.core.VScreenShell
-import java.io.File
-import java.io.FileOutputStream
 import kotlin.math.roundToInt
 
 // [vscreen] v49: the fixed four-block return of `act` and `launch`.
@@ -606,6 +603,7 @@ internal fun VScreenOffloadHandler.fourBlocks(sid: String, d: VScreenDisplay, li
     if (snap.activity == null) notes.add("NO_APP", tr("副屏上没有应用（副屏没有桌面，back 回不到桌面）：launch <应用名> 打开一个", "No app on the screen (the screen has no launcher; back can't reach one): open one with launch <app name>"))
     // 1.4.0-beta2: a reading that failed is said, never left as a short element list that looks complete.
     com.kilon.agentvscreen.core.VScreenOwnership.takeNotes(sid).forEach { notes += it }
+    com.kilon.agentvscreen.core.VScreenDownscale.takeNote(d.displayId)?.let { notes += it }
     snap.ocrProblem?.let { notes.add("OCR_DOWN", it) } ?: snap.ocrFallback?.let { notes += it }
     VScreenPerception.blankFor(d.displayId)?.let { ms -> notes += tr("画面已连续 ${(ms / 100) / 10.0} 秒是一整片纯色（黑屏/白屏）", "The picture has been one solid color for ${(ms / 100) / 10.0} s (black / white screen)") }
     val sb = StringBuilder()

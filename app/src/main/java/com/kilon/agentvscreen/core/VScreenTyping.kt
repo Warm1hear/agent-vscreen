@@ -108,13 +108,15 @@ object VScreenTyping {
         val svc = VScreenAccessibilityService.getInstance()
         val roots = if (svc != null) BackgroundOperation.nodeRoots(displayId) else emptyList()
         val a11y = svc != null && roots.isNotEmpty()
+        val d = BackgroundOperation.displayById(displayId)
         // Focus can land a moment after the tap (Flutter): look twice.
         val node = if (a11y) focusedEditable(displayId, tappedAt) ?: run { Thread.sleep(300); focusedEditable(displayId, tappedAt) } else null
-        val nb = node?.let { n -> Rect().also { n.getBoundsInScreen(it) } }
+        val nbRaw = node?.let { n -> Rect().also { n.getBoundsInScreen(it) } }
+        val nb = nbRaw?.let { d?.toFrame(it) ?: it }
         val nid = node?.viewIdResourceName?.substringAfterLast('/')
         // v0.5: the field with focus is not where the agent just tapped (a page's own box that accessibility cannot
         // see, while the address bar keeps focus): typing would land in the wrong place. Do not type; say where focus is.
-        if (tappedAt != null && nb != null && focusBefore != null && focusBefore == "${node.viewIdResourceName}@${nb.left},${nb.top},${nb.right},${nb.bottom}") {
+        if (tappedAt != null && nbRaw != null && nb != null && focusBefore != null && focusBefore == "${node.viewIdResourceName}@${nbRaw.left},${nbRaw.top},${nbRaw.right},${nbRaw.bottom}") {
             val slack = Rect(nb).apply { inset(-24, -24) }
             if (!slack.contains(tappedAt.first, tappedAt.second)) throw ActionError("FOCUS_ELSEWHERE",
                 tr("没有输入：有焦点的输入框在 [${nb.left},${nb.top},${nb.right},${nb.bottom}]" + (nid?.let { "（$it）" } ?: "") +
@@ -150,7 +152,7 @@ object VScreenTyping {
         }
         // A password box gives its length only: what is in it never leaves the phone.
         val now = after?.let { if (it.isPassword) "•".repeat(fieldText(it).length) else fieldText(it) }
-        val ab = after?.let { n -> Rect().also { n.getBoundsInScreen(it) } }
+        val ab = after?.let { n -> Rect().also { n.getBoundsInScreen(it) } }?.let { d?.toFrame(it) ?: it }
         val unreadable = !wrote && after != null && !after.isPassword && now?.contains(text) != true && after.text?.toString() == rawBefore
         return TypeFact(method, now, ab, after?.viewIdResourceName?.substringAfterLast('/'), password = after?.isPassword == true, unreadable = unreadable)
     }

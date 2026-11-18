@@ -177,8 +177,9 @@ table{width:100%;border-collapse:collapse;font-size:13px}td{padding:7px 10px;bor
 
 FONTS = ["'Noto Sans CJK SC'", "'Noto Serif CJK SC'", "'Noto Sans CJK SC', 'DejaVu Sans'"]
 
+CHROMIUM = os.environ.get("CHROMIUM_BIN", "/usr/bin/chromium")
 with sync_playwright() as p:
-    b = p.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
+    b = p.chromium.launch(executable_path=CHROMIUM if os.path.exists(CHROMIUM) else None, args=["--no-sandbox"])
     pg = b.new_page(viewport={"width": 393, "height": 873}, device_scale_factor=2.75)
     for i in range(N):
         lay = LAYOUTS[i % len(LAYOUTS)]

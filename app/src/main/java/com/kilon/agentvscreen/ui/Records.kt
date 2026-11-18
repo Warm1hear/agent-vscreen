@@ -53,7 +53,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kilon.agentvscreen.core.VScreenRules
 import com.kilon.agentvscreen.host.Audit
-import com.kilon.agentvscreen.host.Wake
 import com.kilon.agentvscreen.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -231,11 +230,12 @@ private fun Plans(beat: Int) {
     if (watches.isNotEmpty()) Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
         watches.forEach { l ->
             val running = !l.stopped
+            val who = if (com.kilon.agentvscreen.api.Tokens.list.value.size > 1) " · " + com.kilon.agentvscreen.api.Agents.name(l.spec.agentId) else ""
             BasicComponent(
-                title = tr("盯守 · ", "Watch · ") + l.spec.name,
+                title = tr("盯守 · ", "Watch · ") + l.spec.name + who,
                 summary = l.spec.describe() + " · " + (if (running) l.status + tr(" · 还剩 ${l.json().opt("ends_in_min")} 分钟", " · ${l.json().opt("ends_in_min")} min left") else (l.endReason ?: tr("已结束", "ended"))),
                 endActions = {
-                    LinkButton(onClick = { if (running) VScreenRules.stop(l.spec.name) else VScreenRules.clearEnded(l.spec.name); app.bump() }) {
+                    LinkButton(onClick = { if (running) VScreenRules.stop(l.spec.agentId, l.spec.name) else VScreenRules.clearEnded(l.spec.agentId, l.spec.name); app.bump() }) {
                         Text(if (running) tr("停止", "Stop") else tr("清掉", "Clear"))
                     }
                 },
@@ -292,7 +292,7 @@ fun LogPage() {
     var n by remember { mutableIntStateOf(0) }
     var rows by remember { mutableStateOf(emptyList<JSONObject>()) }
     var askClear by remember { mutableStateOf(false) }
-    LaunchedEffect(n) { rows = withContext(Dispatchers.IO) { Audit.tail(200).reversed() } }
+    LaunchedEffect(n) { rows = withContext(Dispatchers.IO) { Audit.tail(200) } }
     MiuixPage(tr("操作日志", "Activity log"), actions = {
         IconButton(onClick = { n++ }) { Icon(MiuixIcons.Refresh, tr("刷新", "Refresh")) }
         IconButton(onClick = { host.copy(tr("操作日志", "Activity log"), rows.joinToString("\n") { logLine(it) }) }) { Icon(MiuixIcons.Copy, tr("复制", "Copy")) }

@@ -14,6 +14,9 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -50,6 +53,7 @@ import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -61,6 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -71,7 +76,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kilon.agentvscreen.api.ApiConfig
 import com.kilon.agentvscreen.core.BackgroundOperation
 import com.kilon.agentvscreen.core.TaskLog
 import com.kilon.agentvscreen.core.VScreenRules
@@ -89,7 +93,6 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /*
@@ -591,19 +594,65 @@ private fun ServiceChoice(icon: ImageVector, title: String, sub: String, on: Boo
 fun Value(t: String, color: Color = MiuixTheme.colorScheme.onSurfaceVariantActions) =
     Text(t, fontSize = 14.sp, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 6.dp))
 
+private class ThumbPool {
+    val lock = Any()
+    val slots = arrayOfNulls<Bitmap>(2)
+    val dst = Rect()
+    val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+    var next = 0
+    var disposed = false
+
+    fun render(src: Bitmap): ImageBitmap? = synchronized(lock) {
+        if (disposed || src.isRecycled || src.width <= 0 || src.height <= 0) return null
+        val tw = 240
+        val th = (240f * src.height / src.width).toInt().coerceAtLeast(1)
+        val idx = next
+        var bmp = slots[idx]
+        if (bmp == null || bmp.isRecycled || bmp.width != tw || bmp.height != th) {
+            bmp?.recycle()
+            bmp = Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888)
+            slots[idx] = bmp
+        }
+        dst.set(0, 0, tw, th)
+        val ok = runCatching { Canvas(bmp).drawBitmap(src, null, dst, paint); bmp.prepareToDraw(); true }.getOrDefault(false)
+        if (!ok) return null
+        next = 1 - idx
+        bmp.asImageBitmap()
+    }
+
+    fun recycleAll() = synchronized(lock) {
+        disposed = true
+        for (i in slots.indices) {
+            slots[i]?.recycle()
+            slots[i] = null
+        }
+    }
+}
+
 /**
  * A small live picture of the screen from the agent's own frames. It does not use the viewer's preview stream (the
  * floating window's): turning that off when this page closes would stop the window's picture.
+ * 1.4.1-beta1: scales off the main thread into a double-buffered pair of reusable Bitmaps, recycled on dispose.
  */
 @Composable
 fun ScreenThumb(session: String, modifier: Modifier, corner: Dp = 10.dp) {
     val st by BackgroundOperation.state.collectAsState()
     val display = remember(session, st.displayId) { BackgroundOperation.previewDisplayFor(session) }
     val v = display?.frameVersion?.collectAsState()?.value
-    val img = remember(display, v) {
-        display?.latestFrame()?.takeIf { !it.isRecycled && it.width > 0 }?.let { src ->
-            runCatching { Bitmap.createScaledBitmap(src, 240, (240f * src.height / src.width).toInt().coerceAtLeast(1), true).asImageBitmap() }.getOrNull()
+    val pool = remember(display) { ThumbPool() }
+    var img by remember(display) { mutableStateOf<ImageBitmap?>(null) }
+    DisposableEffect(pool) {
+        onDispose {
+            img = null
+            pool.recycleAll()
         }
+    }
+    LaunchedEffect(display, v, pool) {
+        if (display == null) { img = null; return@LaunchedEffect }
+        val nextImg = withContext(Dispatchers.Default) {
+            display.latestFrame()?.takeIf { !it.isRecycled && it.width > 0 }?.let { pool.render(it) }
+        }
+        if (nextImg != null) img = nextImg
     }
     Box(modifier.clip(RoundedCornerShape(corner)).background(Palette.ink)) {
         img?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }

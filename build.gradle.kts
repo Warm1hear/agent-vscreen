@@ -5,5 +5,9 @@ plugins {
     // 1.4: page routes for miuix-nav are @Serializable keys (saved and restored with the back stack).
     id("org.jetbrains.kotlin.plugin.serialization") version "2.4.20" apply false
 }
-// Build outputs live on the root disk (the /data disk is nearly full).
-allprojects { layout.buildDirectory.set(file("/srv/avs-build/${project.name}")) }
+// Use AVS_BUILD_DIR or /srv/avs-build when writable on the build server; fall back to standard build/ elsewhere.
+val avsBuildRoot = System.getenv("AVS_BUILD_DIR")?.takeIf { it.isNotBlank() }?.let(::file)
+    ?: file("/srv/avs-build").takeIf { it.isDirectory && it.canWrite() }
+if (avsBuildRoot != null) {
+    allprojects { layout.buildDirectory.set(avsBuildRoot.resolve(project.name)) }
+}

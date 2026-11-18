@@ -31,8 +31,8 @@ object Guard {
         class Ask(val key: String, val pkg: String) : Verdict()
     }
 
-    private val hint get() = tr("这是用户在 Agent-VScreen › 应用限制 里定的，不要绕过（也不要从别的入口进同一个应用）",
-        "The user set this in Agent-VScreen › App rules; don't work around it (and don't reach the same app through another entry)")
+    private val hint get() = tr("这是用户在 Agent-VScreen › 设置 › 应用规则 里定的，不要绕过（也不要从别的入口进同一个应用）",
+        "The user set this in Agent-VScreen › Settings › App rules; don't work around it (and don't reach the same app through another entry)")
 
     /** May [session] do [act] to [pkg] (the app it targets; for READ / SCROLL / BACK / INPUT the app on the screen)? */
     fun check(act: Act, pkg: String?, session: String? = null, asked: Boolean = false): Verdict {
@@ -52,8 +52,8 @@ object Guard {
         return when (rule) {
             VScreenStore.Rule.BLOCK -> when (act) {
                 Act.BACK -> Verdict.Allow
-                Act.OPEN -> Verdict.Deny("APP_BLOCKED", tr("用户禁止后台操作 $pkg（Agent-VScreen › 应用限制），不要绕过", "The user blocked background operation of $pkg (Agent-VScreen › App rules); don't work around it"))
-                Act.TAKE -> Verdict.Deny("APP_BLOCKED", tr("用户禁止后台操作 $pkg（Agent-VScreen › 应用限制），不能接手它", "The user blocked background operation of $pkg (Agent-VScreen › App rules); it can't be taken over"))
+                Act.OPEN -> Verdict.Deny("APP_BLOCKED", tr("用户禁止后台操作 $pkg（Agent-VScreen › 设置 › 应用规则），不要绕过", "The user blocked background operation of $pkg (Agent-VScreen › Settings › App rules); don't work around it"))
+                Act.TAKE -> Verdict.Deny("APP_BLOCKED", tr("用户禁止后台操作 $pkg（Agent-VScreen › 设置 › 应用规则），不能接手它", "The user blocked background operation of $pkg (Agent-VScreen › Settings › App rules); it can't be taken over"))
                 else -> Verdict.Deny("APP_BLOCKED", tr("副屏上是 $pkg，用户禁止后台操作它（不能读屏也不能操作）：只能 key back 离开或 stop。$hint",
                     "The screen shows $pkg, which the user blocked from background operation (no reading, no actions): only key back to leave, or stop. $hint"))
             }

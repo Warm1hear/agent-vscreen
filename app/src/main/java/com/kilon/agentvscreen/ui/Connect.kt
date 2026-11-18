@@ -6,7 +6,6 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.layout.size
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Icon
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
@@ -58,7 +57,6 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Copy
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
@@ -237,6 +235,7 @@ fun NewAgentPage() {
 @Composable
 fun AgentPage(id: String) {
     val nav = LocalNav.current
+    val actx = LocalContext.current.applicationContext
     val main = id == com.kilon.agentvscreen.api.Tokens.MAIN
     val agents by AgentLedger.agents.collectAsState()
     val l = agents[id] ?: AgentLedger.Snapshot()
@@ -259,7 +258,7 @@ fun AgentPage(id: String) {
         if (!main) Group {
             Column(Modifier.fillMaxWidth().clickable {
                 if (!sure) sure = true else {
-                    com.kilon.agentvscreen.api.Tokens.revoke(id); AgentLedger.forget(id)
+                    Thread { com.kilon.agentvscreen.api.Agents.forget(actx, id) }.start()
                     com.kilon.agentvscreen.host.Audit.security("revoke", n); nav.back()
                 }
             }.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -281,8 +280,8 @@ private fun AgentNow(id: String) {
     fun mine(session: String?) = com.kilon.agentvscreen.api.Agents.ofSession(session) == id
     var tick by remember { mutableIntStateOf(0) }
     var books by remember { mutableStateOf(emptyList<com.kilon.agentvscreen.host.Wake.Entry>()) }
-    LaunchedEffect(tick) { while (true) { books = withContext(Dispatchers.IO) { runCatching { com.kilon.agentvscreen.host.Wake.list(ctx).filter { mine(it.session) } }.getOrDefault(emptyList()) }; delay(3_000) } }
-    val watches = remember(tick, books) { com.kilon.agentvscreen.core.VScreenRules.list().filter { !it.stopped && mine(it.spec.sid) } }
+    LaunchedEffect(tick) { while (true) { books = withContext(Dispatchers.IO) { runCatching { com.kilon.agentvscreen.host.Wake.list(ctx).filter { it.agentId == id } }.getOrDefault(emptyList()) }; delay(3_000) } }
+    val watches = remember(tick, books) { com.kilon.agentvscreen.core.VScreenRules.list().filter { !it.stopped && it.spec.agentId == id } }
     val open by com.kilon.agentvscreen.host.UserAsk.open.collectAsState()
     val given by com.kilon.agentvscreen.core.VScreenOwnership.given.collectAsState()
     val waits = open.count { mine(it.session) } + given.values.count { mine(it.session) }
@@ -310,7 +309,7 @@ private fun AgentNow(id: String) {
                     Text(l.status, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 2)
                 }
                 Text(tr("停止", "Stop"), color = MiuixTheme.colorScheme.error, fontSize = 14.sp,
-                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { com.kilon.agentvscreen.core.VScreenRules.stop(l.spec.name, tr("用户在 App 里停止", "stopped by the user in the app")); tick++ }.padding(horizontal = 12.dp, vertical = 8.dp))
+                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { com.kilon.agentvscreen.core.VScreenRules.stop(l.spec.agentId, l.spec.name, tr("用户在 App 里停止", "stopped by the user in the app")); tick++ }.padding(horizontal = 12.dp, vertical = 8.dp))
             }
         }
         if (!using && waits == 0 && books.isEmpty() && watches.isEmpty())

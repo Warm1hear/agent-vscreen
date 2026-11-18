@@ -44,6 +44,8 @@ object Wake {
     private const val TAG = "Wake"
     const val LEAD_MS = 3 * 60_000L
     const val MAX_ENTRIES = 8
+    /** 1.4.1-beta1: per agent is [MAX_ENTRIES]; this keeps the whole phone bounded however many agents are connected. */
+    const val MAX_TOTAL = 24
     const val MIN_EVERY_MIN = 30
     const val DEFAULT_FOR_MIN = 10
     const val MAX_FOR_MIN = 30
@@ -176,7 +178,13 @@ object Wake {
 
     // ── entries ──────────────────────────────────────────────────────
 
-    class Entry(val name: String, val text: String, val spec: Spec, val forMin: Int, val session: String, val by: String, val at: Long) {
+    data class Key(val agentId: String, val name: String)
+
+    class Entry(
+        val name: String, val text: String, val spec: Spec, val forMin: Int, val session: String, val by: String, val at: Long,
+        val agentId: String = com.kilon.agentvscreen.api.Agents.ofSession(session),
+    ) {
+        val key: Key get() = Key(agentId, name)
         /** The window shown as next: the first one that has not ended (a window in progress is still "next"). */
         @Volatile var nextAt: Long = 0L
         /** 1.3 beta2: the start of the last window already opened (checked and told), so it is never opened twice. */
@@ -184,13 +192,12 @@ object Wake {
         @Volatile var last: JSONObject? = null
         /** 1.3.0-beta15: the user's switch in the app (like an alarm's). Off: kept, never opened. */
         @Volatile var on: Boolean = true
-        fun json(): JSONObject = JSONObject().put("name", name).put("when", text).put("means", spec.describe()).put("for_min", forMin).put("on", on)
+        fun json(): JSONObject = JSONObject().put("name", name).put("agent", agentId).put("when", text).put("means", spec.describe()).put("for_min", forMin).put("on", on)
             .put("session", session).put("by", by).put("next_at", if (nextAt > 0) nextAt / 1000 else JSONObject.NULL)
             .put("next_local", if (nextAt > 0) java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(nextAt)) else JSONObject.NULL)
             .put("last_check", last ?: JSONObject.NULL)
-        fun store(): JSONObject = JSONObject().put("name", name).put("when", text).put("for", forMin).put("session", session).put("by", by).put("at", at)
+        fun store(): JSONObject = JSONObject().put("name", name).put("agent", agentId).put("when", text).put("for", forMin).put("session", session).put("by", by).put("at", at)
             .put("opened", opened).put("on", on).also { o -> last?.let { o.put("last", it) } }
-        /** The next window start not yet opened and not over at [now] (null: none left). */
         /** A one-off whose last window has ended. */
         fun over(now: Long): Boolean = spec.date != null && next(spec, now - forMin * 60_000L) == null
 
@@ -209,6 +216,8 @@ object Wake {
 
     private fun file(ctx: Context) = File(File(ctx.filesDir, "vscreen").apply { mkdirs() }, "wake.json")
 
+    internal fun resetForTest() = synchronized(lock) { loaded = false; entries.clear() }
+
     private fun load(ctx: Context) {
         if (loaded) return
         synchronized(lock) {
@@ -217,13 +226,22 @@ object Wake {
             quiet("wake-load") {
                 val f = file(ctx); if (!f.isFile) return@quiet
                 val a = JSONObject(f.readText()).optJSONArray("entries") ?: JSONArray()
+                val byKey = LinkedHashMap<Key, Entry>()
                 for (i in 0 until a.length()) {
                     val o = a.optJSONObject(i) ?: continue
                     // A one-off is stored with its date; it parses whatever today is (and is dropped by arm() once over).
                     val spec = runCatching { parse(o.getString("when"), nowMs = 0L) }.getOrNull() ?: continue
-                    entries += Entry(o.getString("name"), o.getString("when"), spec, o.optInt("for", DEFAULT_FOR_MIN), o.optString("session", "default"), o.optString("by", "main"), o.optLong("at"))
-                        .also { e -> e.last = o.optJSONObject("last"); e.opened = o.optLong("opened"); e.on = o.optBoolean("on", true) }
+                    // 1.4.1-beta1: bookings from before the explicit agentId belong to the agent their session names
+                    // (since 1.4.0-beta7 "<token id>.<session>"); a session without a known prefix is the main token's.
+                    val agentId = o.optString("agent").takeIf { it.isNotEmpty() && it != "null" }
+                        ?: com.kilon.agentvscreen.api.Agents.ofSession(o.optString("session", "default"))
+                    val e = Entry(o.getString("name"), o.getString("when"), spec, o.optInt("for", DEFAULT_FOR_MIN),
+                        o.optString("session", "default"), o.optString("by", "main"), o.optLong("at"), agentId)
+                        .also { it.last = o.optJSONObject("last"); it.opened = o.optLong("opened"); it.on = o.optBoolean("on", true) }
+                    byKey.remove(e.key)
+                    byKey[e.key] = e
                 }
+                entries.addAll(byKey.values)
             }
             loaded = true
         }
@@ -240,7 +258,7 @@ object Wake {
      */
     private fun dropOver(ctx: Context, now: Long = System.currentTimeMillis()): Boolean {
         val over = synchronized(lock) { entries.filter { it.over(now) }.also { entries.removeAll(it.toSet()) } }
-        if (over.isNotEmpty()) { save(ctx); AppLogger.info(TAG, "over: ${over.joinToString { it.name }}") }
+        if (over.isNotEmpty()) { save(ctx); AppLogger.info(TAG, "over: ${over.joinToString { "${it.agentId}/${it.name}" }}") }
         return over.isNotEmpty()
     }
 
@@ -250,51 +268,67 @@ object Wake {
     class Added(val entry: Entry, val same: Boolean)
 
     /**
-     * Add or replace [name]. Throws [BadSpec] / IllegalStateException (too many). 1.3 beta2: an unnamed booking that
-     * means the same as one this session already has (same times, same window length) is not added twice.
+     * Add or replace `(agentId, name)`. Throws [BadSpec] / IllegalStateException (too many). 1.3 beta2: an unnamed
+     * booking that means the same as one this agent+session already has (same times, same window length) is not added twice.
      */
-    fun add(ctx: Context, name: String?, text: String, forMin: Int?, session: String, by: String): Added {
+    fun add(
+        ctx: Context, name: String?, text: String, forMin: Int?, session: String, by: String,
+        agentId: String = com.kilon.agentvscreen.api.Agents.ofSession(session),
+    ): Added {
         load(ctx)
         val spec = parse(text)
         val f = (forMin ?: DEFAULT_FOR_MIN).coerceIn(1, MAX_FOR_MIN)
         val stored = spec.canonical().ifEmpty { text.trim() }
         val given = name?.trim()?.takeIf { it.isNotEmpty() }?.take(32)
-        if (given == null) synchronized(lock) { entries.firstOrNull { it.session == session && it.spec == spec && it.forMin == f } }?.let { return Added(it, true) }
+        if (given == null) synchronized(lock) {
+            entries.firstOrNull { it.agentId == agentId && it.session == session && it.spec == spec && it.forMin == f }
+        }?.let { return Added(it, true) }
         val e = synchronized(lock) {
-            val n = given ?: run { var i = entries.size + 1; while (entries.any { it.name == "w$i" }) i++; "w$i" }
-            val others = entries.filter { it.name != n }
-            if (others.size >= MAX_ENTRIES) throw IllegalStateException(tr("最多 $MAX_ENTRIES 条预约：先 schedule off 一条", "At most $MAX_ENTRIES schedules: remove one with schedule off first"))
-            Entry(n, stored, spec, f, session, by, System.currentTimeMillis()).also { entries.clear(); entries.addAll(others + it) }
+            val n = given ?: run {
+                var i = entries.count { it.agentId == agentId } + 1
+                while (entries.any { it.agentId == agentId && it.name == "w$i" }) i++
+                "w$i"
+            }
+            val k = Key(agentId, n)
+            val others = entries.filter { it.key != k }
+            if (others.count { it.agentId == agentId } >= MAX_ENTRIES) {
+                throw IllegalStateException(tr("最多 $MAX_ENTRIES 条预约：先 schedule off 一条", "At most $MAX_ENTRIES schedules: remove one with schedule off first"))
+            }
+            if (others.size >= MAX_TOTAL) {
+                throw IllegalStateException(tr("手机上所有 agent 合计最多 $MAX_TOTAL 条预约：先 schedule off 一条，或请用户在 App 里删掉不用的", "At most $MAX_TOTAL schedules on the phone across all agents: remove one with schedule off, or ask the user to delete unused ones in the app"))
+            }
+            Entry(n, stored, spec, f, session, by, System.currentTimeMillis(), agentId).also { entries.clear(); entries.addAll(others + it) }
         }
         save(ctx); arm(ctx)
         return Added(e, false)
     }
 
     /**
-     * 1.3.0-beta15: the user changed [name] in the app (time, days, window length, switch), like editing an alarm. The
-     * agent that booked it and its session stay; a new time starts fresh (nothing counts as opened yet).
+     * 1.3.0-beta15: the user changed `(agentId, name)` in the app (time, days, window length, switch), like editing an
+     * alarm. The agent that booked it and its session stay; a new time starts fresh (nothing counts as opened yet).
      * Throws [BadSpec] for a time that cannot be read (or a one-off already past).
      */
-    fun edit(ctx: Context, name: String, text: String, forMin: Int, on: Boolean): Entry {
+    fun edit(ctx: Context, agentId: String, name: String, text: String, forMin: Int, on: Boolean): Entry {
         load(ctx)
         val spec = parse(text)
+        val k = Key(agentId, name)
         val e = synchronized(lock) {
-            val old = entries.firstOrNull { it.name == name } ?: throw BadSpec(tr("这个预约已经不在了", "this schedule is gone"))
-            val n = Entry(name, spec.canonical().ifEmpty { text.trim() }, spec, forMin.coerceIn(1, MAX_FOR_MIN), old.session, old.by, old.at)
+            val old = entries.firstOrNull { it.key == k } ?: throw BadSpec(tr("这个预约已经不在了", "this schedule is gone"))
+            val n = Entry(name, spec.canonical().ifEmpty { text.trim() }, spec, forMin.coerceIn(1, MAX_FOR_MIN), old.session, old.by, old.at, old.agentId)
             n.on = on; n.last = old.last
             if (spec == old.spec && n.forMin == old.forMin) n.opened = old.opened
             entries[entries.indexOf(old)] = n
             n
         }
         save(ctx); arm(ctx)
-        AppLogger.info(TAG, "edited by the user: $name")
+        AppLogger.info(TAG, "edited by the user: $agentId/$name")
         return e
     }
 
     /** [agent] null: anyone's (the user, in the app); else only that agent's bookings. */
     fun remove(ctx: Context, name: String, agent: String? = null): Int {
         load(ctx)
-        fun own(e: Entry) = agent == null || com.kilon.agentvscreen.api.Agents.ofSession(e.session) == agent
+        fun own(e: Entry) = agent == null || e.agentId == agent
         val n = synchronized(lock) { val before = entries.size; entries.removeAll { own(it) && (name == "all" || it.name == name) }; before - entries.size }
         if (n > 0) { save(ctx); arm(ctx) }
         return n

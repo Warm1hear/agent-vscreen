@@ -290,29 +290,9 @@ func env(k, def string) string {
 }
 
 // Android has no /etc/resolv.conf: Go's own resolver would ask 127.0.0.1:53 and fail. Use the resolvers the app read
-// from the phone's active network, then public ones.
+// from the phone's networks, then public ones; a UDP query asks all of them at once (dns.go).
 func setupDNS() {
-	var servers []string
-	for _, s := range strings.Split(os.Getenv("TSB_DNS"), ",") {
-		if s = strings.TrimSpace(s); s != "" {
-			servers = append(servers, net.JoinHostPort(strings.Trim(s, "[]"), "53"))
-		}
-	}
-	servers = append(servers, "223.5.5.5:53", "1.1.1.1:53", "8.8.8.8:53")
-	net.DefaultResolver = &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			d := net.Dialer{Timeout: 3 * time.Second}
-			var err error
-			for _, s := range servers {
-				var c net.Conn
-				if c, err = d.DialContext(ctx, network, s); err == nil {
-					return c, nil
-				}
-			}
-			return nil, err
-		},
-	}
+	net.DefaultResolver = newResolver(dnsServerList(os.Getenv("TSB_DNS")))
 }
 
 // Apps targeting Android 11+ may not list interfaces through netlink; net.Interfaces can fail there. Fall back to one

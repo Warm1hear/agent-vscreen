@@ -155,7 +155,7 @@ object Tailnet {
             .put("key_expiry", _status.value.keyExpiry.takeIf { it > 0 }?.let { it / 1000 } ?: JSONObject.NULL)
             .put("user_action", if (vpnTrouble(ctx)) vpnAdvice() else when (p) {
                 Phase.UNSTABLE -> tr("手机上的 Tailscale 节点和服务器或中继断开了（${_status.value.problem ?: "原因未知"}），正在自动重连；一直这样请用户看手机网络、代理或 VPN", "The phone's Tailscale node lost the server or relay (${_status.value.problem ?: "cause unknown"}) and is reconnecting; if it keeps happening, ask the user to check the phone's network, proxy or VPN")
-                Phase.NEEDS_LOGIN, Phase.EXPIRED -> tr("请用户在 Agent-VScreen › 接入 agent 里登录 Tailscale", "Ask the user to log in to Tailscale under Agent-VScreen › Connect")
+                Phase.NEEDS_LOGIN, Phase.EXPIRED -> tr("请用户在 Agent-VScreen › 接入 › 远程访问 里登录 Tailscale", "Ask the user to log in to Tailscale under Agent-VScreen › Connect › Remote access")
                 Phase.NEEDS_APPROVAL -> tr("请用户在 Tailscale / Headscale 控制台批准这台设备", "Ask the user to approve this device in the Tailscale / Headscale console")
                 else -> JSONObject.NULL
             })
@@ -383,11 +383,16 @@ object Tailnet {
             error = if (code != 0 && wanted) tr("内置 Tailscale 退出（$code）", "Built-in Tailscale exited ($code)") else null)
     }
 
-    private fun screenOn(ctx: Context) = runCatching { ctx.getSystemService(android.os.PowerManager::class.java)?.isInteractive }.getOrNull() ?: true
-
     /** The phone's resolvers: Android has no /etc/resolv.conf for the Go resolver. */
+    /**
+     * 1.4.1-beta1: the resolvers of every network, the active one first. With a proxy VPN the active network is the
+     * VPN and its DNS may be unreachable for this app (bypassed in the proxy); Wi-Fi's or mobile data's still are.
+     * The bridge asks all of them at once (tsbridge/dns.go), so a dead one costs nothing.
+     */
     private fun dnsServers(ctx: Context): List<String> = runCatching {
         val cm = ctx.getSystemService(ConnectivityManager::class.java)
-        cm.getLinkProperties(cm.activeNetwork)?.dnsServers?.mapNotNull { it.hostAddress } ?: emptyList()
+        @Suppress("DEPRECATION") val nets = listOfNotNull(cm.activeNetwork) + cm.allNetworks.filter { it != cm.activeNetwork }
+        nets.flatMap { n -> runCatching { cm.getLinkProperties(n)?.dnsServers.orEmpty().mapNotNull { it.hostAddress } }.getOrDefault(emptyList()) }
+            .distinct().take(8)
     }.getOrDefault(emptyList())
 }

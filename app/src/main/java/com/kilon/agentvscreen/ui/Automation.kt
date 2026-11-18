@@ -51,7 +51,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -137,7 +136,7 @@ internal fun SchedulesCards(tick: Int, showEmpty: Boolean = true) {
                     fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Switch(checked = e.on, onCheckedChange = { v ->
-                runCatching { Wake.edit(ctx, e.name, e.text, e.forMin, v) }; again++
+                runCatching { Wake.edit(ctx, e.agentId, e.name, e.text, e.forMin, v) }; again++
             })
         }
     }
@@ -148,7 +147,7 @@ internal fun SchedulesCards(tick: Int, showEmpty: Boolean = true) {
 @Composable
 private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
     val ctx = LocalContext.current
-    var d by remember(e.name) { mutableStateOf(Draft.of(e)) }
+    var d by remember(e.agentId, e.name) { mutableStateOf(Draft.of(e)) }
     var error by remember { mutableStateOf<String?>(null) }
     var askDelete by remember { mutableStateOf(false) }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -236,7 +235,7 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
                 LinkButton(onClick = onClose) { Text(tr("取消", "Cancel")) }
                 Spacer(Modifier.width(6.dp))
                 PrimaryButton(onClick = {
-                    try { Wake.edit(ctx, e.name, d.text(), d.forMin, d.on); onClose() }
+                    try { Wake.edit(ctx, e.agentId, e.name, d.text(), d.forMin, d.on); onClose() }
                     catch (x: Wake.BadSpec) { error = x.message }
                 }) { Text(tr("保存", "Save"), color = MiuixTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold) }
             }
@@ -246,7 +245,7 @@ private fun ScheduleEditor(e: Wake.Entry, onClose: () -> Unit) {
         onDismissRequest = { askDelete = false },
         title = { Text(tr("删除这个预约？", "Delete this schedule?")) },
         text = { Text(tr("${e.by} 预约的「${e.name}」会被删掉，到点不再拉起服务。", "\"${e.name}\" booked by ${e.by} goes; the service is no longer started for it.")) },
-        confirmButton = { LinkButton(onClick = { Wake.remove(ctx, e.name); askDelete = false; onClose() }) { Text(tr("删除", "Delete"), color = Palette.stopped) } },
+        confirmButton = { LinkButton(onClick = { Wake.remove(ctx, e.name, e.agentId); askDelete = false; onClose() }) { Text(tr("删除", "Delete"), color = Palette.stopped) } },
         dismissButton = { LinkButton(onClick = { askDelete = false }) { Text(tr("取消", "Cancel")) } },
     )
 }

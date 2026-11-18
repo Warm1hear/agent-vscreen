@@ -2,7 +2,6 @@ package com.kilon.agentvscreen.core
 
 import android.graphics.Bitmap
 import android.graphics.Rect
-import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -136,6 +135,4 @@ object VScreenSpots {
         val db = (a and 255) - (b and 255)
         return sqrt((dr * dr + dg * dg + db * db).toDouble()).roundToInt()
     }
-
-    @Suppress("unused") private fun absDiff(a: Int, b: Int) = abs(a - b)
 }

@@ -158,7 +158,9 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 : > "$tmp/empty"
 
 if [ "$1" = "events" ] && [ "$2" = "--raw" ]; then
-  req GET "/v2/events?session=$SESSION&wait=${3:-0}" "$tmp/empty" "$tmp/h" "$tmp/b"; rc=$?; cat "$tmp/b" 2>/dev/null; echo; exit $rc
+  req GET "/v2/events?session=$SESSION&wait=${3:-0}" "$tmp/empty" "$tmp/h" "$tmp/b"; rc=$?
+  if [ "$rc" -eq 0 ] && ! grep -q '^HTTP/[0-9.]* 200' "$tmp/h" 2>/dev/null; then rc=1; fi
+  cat "$tmp/b" 2>/dev/null; echo; exit $rc
 fi
 
 # The arguments, one per line, hex-encoded: any text (quotes, newlines, any language) arrives exactly as given.
@@ -327,8 +329,9 @@ if [ -n "$imgs" ] && [ "$VSCREEN_SHOTS" != "none" ]; then
   for n in $imgs; do
     IFS=$old_ifs
     case "$n" in vscreen_*.jpg) ;; *) continue ;; esac
-    if req GET "/v2/shot/$n" "$tmp/empty" "$tmp/h3" "$SHOT_DIR/$n"; then
-      sed "s|http[s]*://[^ ]*/v2/shot/$n|$SHOT_DIR/$n|g" "$tmp/b" > "$tmp/b2" && mv "$tmp/b2" "$tmp/b"
+    if req GET "/v2/shot/$n" "$tmp/empty" "$tmp/h3" "$tmp/shot" && grep -q '^HTTP/[0-9.]* 200' "$tmp/h3" 2>/dev/null && [ -s "$tmp/shot" ]; then
+      mv -f "$tmp/shot" "$SHOT_DIR/$n" &&
+        sed "s|http[s]*://[^ ]*/v2/shot/$n|$SHOT_DIR/$n|g" "$tmp/b" > "$tmp/b2" && mv "$tmp/b2" "$tmp/b"
     fi
     IFS=,
   done

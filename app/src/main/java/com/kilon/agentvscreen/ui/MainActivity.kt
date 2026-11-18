@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 
 /**
- * 1.4: the activity only hosts the app (AppRoot: three tabs and a page stack) and does what needs an activity:
+ * 1.4: the activity only hosts the app (AppRoot: four tabs and a page stack) and does what needs an activity:
  * the clipboard, the Shizuku permission request, recreating for a new language. Short results go to the snackbar.
  */
 class MainActivity : ComponentActivity(), AppHost {

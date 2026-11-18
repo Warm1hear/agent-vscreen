@@ -42,7 +42,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -70,10 +69,8 @@ import top.yukonga.miuix.kmp.icon.extended.Copy
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Show
 import top.yukonga.miuix.kmp.icon.extended.Hide
-import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
-import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -356,8 +353,8 @@ internal object H {
         "Blocked: the AI cannot open, read or operate the app in the background.\nRead-only: the AI can open, look and scroll, but not tap, type or swipe.\nAsk every time: before the AI taps or types, the phone asks you; once allowed it does not ask again for 5 minutes.\n\nApplies only to the background screen, not to your own use.")
     val tokens get() = tr("给每个 agent 单独发一个令牌：可以只给“只看”或“可操作”的权限，单独撤销，日志里也分得清是谁做的。不同令牌的 agent 互相抢不了对方的会话。\n\n免确认：这段时间里这个令牌连付款也不再问你（仍会记进日志）。只在你盯着它付款时开。",
         "Give each agent its own token: it can be limited to \"look only\" or \"operate\", revoked alone, and the log shows who did what. Agents with different tokens cannot take each other's sessions.\n\nNo confirmations: during this period this token is not asked even about payments (still logged). Turn it on only while you watch it pay.")
-    val window get() = tr("有副屏时在所有应用上方显示。拖动移动，双指缩放，推到屏幕边上收成胶囊，长按画面 1 秒接管。agent 在等你回答时，胶囊会变成紫色的问号。",
-        "Shown above all apps while there is a screen. Drag to move, pinch to resize, push to an edge to fold it into a tab, hold the picture 1 s to take over. While an agent waits for your answer, the tab turns into a violet question mark.")
+    val window get() = tr("有副屏时在所有应用上方显示。拖动移动，双指缩放，推到屏幕边上收成胶囊，长按画面 0.5 秒接管。agent 在等你回答时，胶囊会变成紫色的问号。",
+        "Shown above all apps while there is a screen. Drag to move, pinch to resize, push to an edge to fold it into a tab, hold the picture 0.5 s to take over. While an agent waits for your answer, the tab turns into a violet question mark.")
     val idle get() = tr("一轮结束后暂停副屏渲染，页面保留，下一条命令自动恢复。个别应用恢复时会重新加载，遇到可以关掉。", "Pauses rendering after a turn ends; the page is kept and the next command resumes it. A few apps reload on resume: turn this off if you see that.")
     val mute get() = tr("副屏里的应用不从手机放声音（视频、直播）。应用移到主屏、副屏释放时恢复声音；App 异常退出后，下次连接时先恢复。", "Apps on the background screen make no sound on the phone (videos, live streams). Their sound comes back when they move to the main screen or the screen is released; after a crash it is restored on the next connection.")
     val turn get() = tr("agent 安静多久算这一轮结束：之后副屏省电暂停，10 分钟后释放。agent 也可以用 vscreen done 马上结束。", "How long the agent stays quiet before its turn ends: the screen then pauses to save power and is released after 10 minutes. The agent can also end at once with vscreen done.")

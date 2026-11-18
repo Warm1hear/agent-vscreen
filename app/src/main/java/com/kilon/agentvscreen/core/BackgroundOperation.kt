@@ -2,12 +2,9 @@ package com.kilon.agentvscreen.core
 
 import com.kilon.agentvscreen.tr
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Bitmap
-import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -22,8 +19,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /**
  * [vscreen] 后台操作 — the coordinator behind Settings › 会话 › 后台操作,
@@ -55,8 +50,6 @@ object BackgroundOperation {
     private const val K_ACCURATE_OCR = "accurate_ocr_enabled"
     private const val K_RECORDING = "recording_enabled"
     private const val K_WIN_SCALE = "window_scale"
-    private const val K_WIN_RIGHT = "window_right"
-    private const val K_WIN_Y = "window_y_fraction"
     private const val K_SCREEN_SIZE = "screen_size"
 
     /** How long a screen survives with no task using it. */
@@ -589,19 +582,6 @@ object BackgroundOperation {
     fun setTitle(sessionId: String, title: String?) {
         if (_state.value.ownerSessionId != null && _state.value.ownerSessionId != sessionId) return
         _state.update { it.copy(agentTitle = title?.trim()?.take(40)?.takeIf { t -> t.isNotEmpty() }) }
-    }
-
-    /** User touch while holding the screen. Maps preview coordinates already converted to screen px. */
-    fun userTap(sessionId: String, x: Int, y: Int) = userInput(sessionId) { VScreenShell.tap(it, x, y) }
-
-    fun userSwipe(sessionId: String, x1: Int, y1: Int, x2: Int, y2: Int, ms: Int) =
-        userInput(sessionId) { VScreenShell.swipe(it, x1, y1, x2, y2, ms) }
-
-    private fun userInput(sessionId: String, op: (Int) -> VScreenShell.Outcome) {
-        val s = _state.value
-        val id = s.displayId ?: return
-        if (s.takeoverSessionId != sessionId) return
-        Thread { runCatching { op(id) } }.apply { isDaemon = true; name = "vscreen-user-input" }.start()
     }
 
     // ── agent side ─────────────────────────────────────────────────────────

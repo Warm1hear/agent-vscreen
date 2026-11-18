@@ -132,7 +132,6 @@ object VScreenPerception {
             }
             w.lock.notifyAll()
         }
-        VScreenOcr.remember(displayId, r.items)
     }
 
     /** Ask for a reading as soon as possible (a text condition is being waited for). */
@@ -263,7 +262,6 @@ object VScreenPerception {
                         }
                         w.lock.notifyAll()
                     }
-                    VScreenOcr.remember(d.displayId, r.items)
                 }
             }
             synchronized(w.lock) { w.lock.notifyAll() }
@@ -273,7 +271,10 @@ object VScreenPerception {
         }
         w.running = false
         w.prevTiny?.recycle(); w.prevTiny = null
-        synchronized(w.lock) { w.lock.notifyAll() }
+        synchronized(w.lock) {
+            w.readingSmall?.recycle(); w.readingSmall = null
+            w.lock.notifyAll()
+        }
     }
 
     /** Small copy of [f] (long side [side]) for pixel comparisons; never the frame itself. */

@@ -21,7 +21,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -30,7 +29,6 @@ import com.kilon.agentvscreen.api.AgentGuide
 import com.kilon.agentvscreen.api.ApiConfig
 import com.kilon.agentvscreen.api.Tokens
 import com.kilon.agentvscreen.host.Audit
-import com.kilon.agentvscreen.host.Consent
 import com.kilon.agentvscreen.tr
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -46,6 +44,7 @@ private fun Small(t: String) = Text(t, fontSize = 12.sp, lineHeight = 17.sp, col
 /** One token per agent: make, limit, pre-authorize, revoke. [copy] puts text on the clipboard; [base] is the address agents use. */
 @Composable
 fun TokensPanel(base: String, copy: (String, String) -> Unit) {
+    val actx = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val list by Tokens.list.collectAsState()
     var adding by remember { mutableStateOf(false) }
     var made by remember { mutableStateOf<Pair<Tokens.Token, String>?>(null) }
@@ -55,14 +54,14 @@ fun TokensPanel(base: String, copy: (String, String) -> Unit) {
     list.forEach { t ->
         @Suppress("UNUSED_EXPRESSION") tick
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MiuixTheme.colorScheme.surfaceContainerHigh).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(if (t.id == Tokens.MAIN) tr("主令牌（上面“接入 agent”用的）", "Main token (the one used under Connect an agent)") else t.name, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+            Text(if (t.id == Tokens.MAIN) tr("主令牌（默认内置令牌）", "Main token (built-in default)") else t.name, fontWeight = FontWeight.Medium, fontSize = 14.sp)
             Small(tr("权限：", "Permission: ") + scopeWord(t.scope) + " · " + (if (t.lastUsedAt > 0) tr("上次使用 ", "last used ") + fmt.format(Date(t.lastUsedAt)) else tr("还没用过", "never used")) +
                 if (t.trusted) tr(" · 免确认到 ", " · no confirmations until ") + fmt.format(Date(t.trustUntil)) else "")
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (t.id != Tokens.MAIN) LinkButton(onClick = { Tokens.setScope(t.id, Tokens.SCOPES[(Tokens.SCOPES.indexOf(t.scope) + 1) % Tokens.SCOPES.size]) }) { Text(tr("改权限", "Change")) }
                 if (t.trusted) LinkButton(onClick = { Tokens.trust(t.id, 0) }) { Text(tr("结束免确认", "End no-confirm")) }
                 else LinkButton(onClick = { Tokens.trust(t.id, 30); Audit.security("trust", "${t.name} 30min") }) { Text(tr("免确认 30 分钟", "No confirm 30 min")) }
-                if (t.id != Tokens.MAIN) LinkButton(onClick = { Tokens.revoke(t.id); Audit.security("revoke", t.name) }) { Text(tr("撤销", "Revoke"), color = MiuixTheme.colorScheme.error) }
+                if (t.id != Tokens.MAIN) LinkButton(onClick = { val id = t.id; Thread { com.kilon.agentvscreen.api.Agents.forget(actx, id) }.start(); Audit.security("revoke", t.name) }) { Text(tr("撤销", "Revoke"), color = MiuixTheme.colorScheme.error) }
             }
         }
     }
