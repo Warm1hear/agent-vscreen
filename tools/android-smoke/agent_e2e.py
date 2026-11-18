@@ -195,6 +195,9 @@ def main():
           "%s images=%d" % (r.get("code"), len(r.get("images") or [])))
 
     target = next((e.get("text") for e in els if e.get("tappable") and e.get("text")), None)
+    if els and not target:
+        print("no tappable text; elements:", [(e.get("text"), e.get("source"), e.get("tappable")) for e in els][:20], flush=True)
+        target = next((e.get("text") for e in els if e.get("text")), None)
     if target:
         r = api('act "tap %s; key back"' % target.replace('"', ""))
         check("act tap + back", r.get("ok") is True or r.get("code") in ("NO_CHANGE",), "%s on %r" % (r.get("code"), target))
