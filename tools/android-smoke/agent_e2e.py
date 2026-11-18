@@ -50,21 +50,33 @@ def wait_state(expected, secs=60):
     return False
 
 
+def tap_bounds(bounds):
+    x1, y1, x2, y2 = map(int, re.findall(r"\d+", bounds))
+    shell("input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+
+
 def press_text(package, labels, tries=20):
     want = {x.casefold() for x in labels}
     seen = set()
     for _ in range(tries):
         if "dumped" in shell("uiautomator", "dump", "/data/local/tmp/w.xml").lower():
+            anr_wait = None
             for node in ET.fromstring(shell("cat", "/data/local/tmp/w.xml")).iter("node"):
                 a = node.attrib
                 label = (a.get("text") or a.get("content-desc", "")).strip()
                 if label:
                     seen.add(a.get("package", "?") + ":" + label)
                 if a.get("package") == package and label.casefold() in want:
-                    x1, y1, x2, y2 = map(int, re.findall(r"\d+", a["bounds"]))
-                    shell("input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+                    tap_bounds(a["bounds"])
                     print("tapped", package, label, flush=True)
                     return True
+                if a.get("package") == "android" and label in ("Wait", "等待"):
+                    anr_wait = a["bounds"]
+            # A slow emulator often shows "<app> isn't responding" over everything; wait it out like a person would.
+            if anr_wait:
+                tap_bounds(anr_wait)
+                print("dismissed a system 'not responding' dialog", flush=True)
+                seen.clear()
         time.sleep(1)
     print("no", labels, "in", package, "; on screen:", sorted(seen)[:30], flush=True)
     return False
@@ -78,7 +90,10 @@ def setup():
     shell(shell("find", str(pkgdir / "lib"), "-name", "libshizuku.so").splitlines()[0])
     shell("input", "keyevent", "KEYCODE_HOME")
     shell("logcat", "-c")
-    run("adb", "install", "-r", "-g", str(APK), timeout=240)
+    try:
+        run("adb", "install", "-r", "-g", str(APK), timeout=240)
+    except subprocess.CalledProcessError as e:
+        raise SystemExit("FAIL install: " + (e.output or "").strip())
     # The element list comes from the app's accessibility service, which a user turns on in setup; do the same here.
     shell("settings", "put", "secure", "enabled_accessibility_services", APP + "/.host.VScreenAccessibilityService")
     shell("settings", "put", "secure", "accessibility_enabled", "1")

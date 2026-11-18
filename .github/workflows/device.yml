@@ -49,9 +49,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Our native code is arm64 only, so the x86_64 emulator runs it through the arm64 translator. The API 30
-        # and 31 translators abort on an FPCR write (fp16 OCR); API 33+ translators handle it. Real phones are not affected.
-        api: [33, 34]
+        # Our native code is arm64 only, so the x86_64 emulator must run it through the arm64 translator. API 30/31
+        # translators abort on an FPCR write (fp16 OCR) and the API 33 image has no translator at all, so only 34+
+        # can run the app here. Real phones are not affected.
+        api: [34, 35]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v5
