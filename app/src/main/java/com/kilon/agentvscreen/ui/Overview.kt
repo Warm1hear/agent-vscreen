@@ -50,6 +50,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PanTool
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.runtime.Composable
@@ -271,8 +272,21 @@ private fun StageWords(s: BackgroundOperation.State, mode: Mode, last: TaskLog.T
 @Composable
 private fun StageActions(s: BackgroundOperation.State, live: Boolean, open: () -> Unit, off: Boolean, power: () -> Unit) {
     val c = MiuixTheme.colorScheme
+    val ctx = LocalContext.current
+    val host = LocalHost.current
+    var picking by remember { mutableStateOf(false) }
+    if (picking) AppPickerDialog(onDismiss = { picking = false }) { a ->
+        picking = false
+        host.say(tr("正在副屏打开 ${a.label}…", "Opening ${a.label} on the background screen…"))
+        Thread({
+            com.kilon.agentvscreen.core.ManualScreen.open(ctx.applicationContext, a.pkg)
+                .onSuccess { host.say(it); open() }.onFailure { host.say(it.message ?: tr("打开失败", "Could not open it")) }
+        }, "vscreen-manual-open").apply { isDaemon = true }.start()
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         if (off) { RoundAction(Icons.Filled.PowerSettingsNew, tr("打开服务", "Turn on"), c.primary) { power() }; return@Row }
+        // 1.4.2: the user opens an app on the screen themselves (no agent needed) when nothing runs on it.
+        if (!live) RoundAction(Icons.Filled.Apps, tr("打开应用", "Open app"), c.primary) { picking = true }
         RoundAction(Icons.Filled.PanTool, tr("接管", "Take over"), c.primary, enabled = live && !s.userStopped) {
             s.ownerSessionId?.let { BackgroundOperation.beginTakeover(it) }; open()
         }

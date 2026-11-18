@@ -526,6 +526,8 @@ object BackgroundOperation {
         _state.update { it.copy(userStopped = false, stoppedAt = 0L, takeoverSessionId = null) }
         if (s.takeoverSessionId != null) com.kilon.agentvscreen.cmd.Teach.onTakeoverEnded(appContext)
         AppLogger.info(TAG, "user allowed the AI to continue")
+        // 1.4.2: handing back the user's own screen ends their turn: it idles, and the next agent may take it over.
+        if (ManualScreen.isManual(s.ownerSessionId)) { ManualScreen.end(); return }
         // 1.3.0-beta16: the agent hears it (vscreen events) instead of finding out on its next call.
         if (s.takeoverSessionId != null || s.userStopped) s.ownerSessionId?.let { sid ->
             appContext?.let { c -> com.kilon.agentvscreen.host.quiet("handback-event") {
@@ -546,6 +548,13 @@ object BackgroundOperation {
     fun closeWindow(): String {
         val s = _state.value
         val owner = s.ownerSessionId ?: return tr("没有副屏", "No screen")
+        // 1.4.2: the user's own screen (opened from the app) closes when they close its window.
+        if (ManualScreen.isManual(owner)) {
+            ManualScreen.end()
+            releaseScreen(tr("你关闭了自己打开的副屏", "You closed the screen you opened"))
+            _state.update { it.copy(windowHidden = false) }
+            return tr("副屏已关闭", "Screen closed")
+        }
         val turnRunning = synchronized(lock) { owner in turns }
         if (s.userStopped || !turnRunning) {
             releaseScreen(if (s.userStopped) tr("你从悬浮窗关闭了副屏（AI 仍处于停止状态）", "You closed the screen from the floating window (the AI is still stopped)") else tr("你从悬浮窗关闭了副屏", "You closed the screen from the floating window"))
@@ -821,7 +830,10 @@ object BackgroundOperation {
     /** 1.1: BUSY says who owns the screen, when it will be free by itself, and how the owner frees it now. */
     private fun busy(owner: String?, sid: String): ActionError = com.kilon.agentvscreen.host.Needs.refused(sid, owner).let { busyError(owner) }
 
-    private fun busyError(owner: String?): ActionError = ActionError("BUSY",
+    private fun busyError(owner: String?): ActionError = if (ManualScreen.isManual(owner)) ActionError("BUSY",
+        data = org.json.JSONObject().put("owner", "user").put("frees_in_s", org.json.JSONObject.NULL),
+        message = tr("用户正在副屏上手动用应用（自己打开的）。等用户交还副屏后再用；不要催，也不要换别的办法绕开",
+            "The user is using an app on the background screen themselves (they opened it). Wait until they hand the screen back; don't press them or work around it")) else ActionError("BUSY",
         data = org.json.JSONObject().put("owner", owner ?: org.json.JSONObject.NULL)
             .put("frees_in_s", owner?.let { ownerFreesInMs(it) }?.let { (it + 999) / 1000 } ?: org.json.JSONObject.NULL),
         message =

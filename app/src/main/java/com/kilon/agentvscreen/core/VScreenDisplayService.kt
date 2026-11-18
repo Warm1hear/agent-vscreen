@@ -92,8 +92,11 @@ class VScreenDisplayService : Binder {
         }.apply { isDaemon = true; name = "vscreen-reaper" }.start()
     }
 
-    constructor() : super() { base = null }
-    constructor(context: Context) : super() { base = context }
+    constructor() : super() { base = null; guardThreads() }
+    constructor(context: Context) : super() { base = context; guardThreads() }
+
+    /** 1.4.2: in the Shizuku process too, a helper thread's exception must not take the screens down with it. */
+    private fun guardThreads() = ThreadGuard.install({ System.err.println("vscreen-service: $it") })
 
     /**
      * 1.4.0-beta11: the sound of apps on the background screen is owned HERE, not by the app (rainbow 2026-11-17: after

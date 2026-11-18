@@ -157,6 +157,8 @@ object Liveness {
         .put("last_network_block_s", if (netBlocks > 0) lastNetBlockMs / 1000 else JSONObject.NULL)
         .put("pid", android.os.Process.myPid())
         .put("previous_exit", ExitInfo.last ?: JSONObject.NULL)
+        .put("background_thread_deaths", com.kilon.agentvscreen.core.ThreadGuard.deaths)
+        .put("last_background_thread_death", com.kilon.agentvscreen.core.ThreadGuard.last ?: JSONObject.NULL)
 
     /**
      * Open the vendor page where an app is allowed to keep running in the background (launch manager / autostart);

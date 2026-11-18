@@ -171,6 +171,12 @@ fun SettingsTab(bottom: Dp) {
                 Value(when { checking -> tr("检查中…", "Checking…"); newer != null -> tr("有新版本 ${newer!!.version}", "New: ${newer!!.version}"); else -> BuildConfig.VERSION_NAME },
                     if (newer != null) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantActions)
             }, onClick = { if (!checking) scope.launch { update = withContext(Dispatchers.IO) { Updates.check(ctx) } } })
+            // 1.4.2 (rainbow): which releases the check looks at.
+            var channel by remember { mutableStateOf(Updates.channel(ctx)) }
+            OverlayDropdownPreference(items = listOf(tr("正式版", "Releases"), tr("测试版（含正式版）", "Betas (and releases)")), selectedIndex = channel.ordinal,
+                title = tr("更新渠道", "Update channel"),
+                onSelectedIndexChange = { i -> val c = Updates.Channel.entries[i]; if (c != channel) { channel = c; Updates.setChannel(ctx, c)
+                    scope.launch { update = withContext(Dispatchers.IO) { Updates.check(ctx) } } } })
             ArrowPreference(title = tr("事件广播", "Event broadcast"), endActions = { Value(ApiConfig.eventTarget ?: tr("不广播", "Off")) }, onClick = { eventDialog = true })
             ArrowPreference(title = tr("操作日志", "Activity log"), summary = tr("agent 发来的每条命令", "Every command agents sent"), onClick = { nav.go(Route.Log) })
             ArrowPreference(title = tr("诊断", "Diagnostics"), onClick = { nav.go(Route.Diag) })
@@ -239,11 +245,12 @@ private fun UpdateDialog(u: Updates.Outcome, close: () -> Unit) {
     when (u) {
         is Updates.Outcome.Newer -> GlassDialog(
             onDismissRequest = close,
-            title = { DialogTitle(tr("新版本 ${u.r.version}", "New version ${u.r.version}")) },
+            title = { DialogTitle(if (u.r.prerelease || u.r.version.contains('-')) tr("测试版 ${u.r.version}", "Beta ${u.r.version}") else tr("新版本 ${u.r.version}", "New version ${u.r.version}")) },
             text = {
                 Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(tr("现在是 ${BuildConfig.VERSION_NAME}", "You have ${BuildConfig.VERSION_NAME}"), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    if (u.r.notes.isNotBlank()) Text(u.r.notes.take(3000), fontSize = 13.sp, lineHeight = 19.sp)
+                    // 1.4.2: the notes are Markdown (GitHub release body); shown rendered, not as raw marks.
+                    if (u.r.notes.isNotBlank()) MarkdownText(u.r.notes.take(6000))
                 }
             },
             confirmButton = { LinkButton(onClick = { view(u.r.apk ?: u.r.page) }) { Text(if (u.r.apk != null) tr("下载 APK", "Download APK") else tr("打开发布页", "Open the release")) } },
