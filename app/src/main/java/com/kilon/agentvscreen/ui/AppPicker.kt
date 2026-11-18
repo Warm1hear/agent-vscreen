@@ -28,7 +28,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.graphics.drawable.toBitmap
 import com.kilon.agentvscreen.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -49,19 +48,8 @@ internal fun AppPickerDialog(onDismiss: () -> Unit, onPick: (LaunchableApp) -> U
     var apps by remember { mutableStateOf<List<LaunchableApp>?>(null) }
     var query by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
-        apps = withContext(Dispatchers.IO) {
-            runCatching {
-                val pm = ctx.packageManager
-                pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
-                    .distinctBy { it.activityInfo.packageName }
-                    .filter { it.activityInfo.packageName != ctx.packageName }
-                    .map { ri ->
-                        val icon = runCatching { ri.loadIcon(pm).toBitmap(72, 72).asImageBitmap() }.getOrNull()
-                        LaunchableApp(ri.loadLabel(pm).toString(), ri.activityInfo.packageName, icon)
-                    }
-                    .sortedBy { it.label.lowercase() }
-            }.getOrDefault(emptyList())
-        }
+        // 1.4.2: the catalog is read once per process (AppCatalog); icons load per row as they show.
+        apps = withContext(Dispatchers.IO) { com.kilon.agentvscreen.core.AppCatalog.launchable().map { LaunchableApp(it.label, it.pkg, null) } }
     }
     GlassDialog(
         onDismissRequest = onDismiss,
@@ -84,7 +72,10 @@ internal fun AppPickerDialog(onDismiss: () -> Unit, onPick: (LaunchableApp) -> U
                         items(shown, key = { it.pkg }) { a ->
                             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { onPick(a) }.padding(vertical = 8.dp, horizontal = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
-                                a.icon?.let { Image(it, null, Modifier.size(36.dp).clip(RoundedCornerShape(9.dp))) } ?: Spacer(Modifier.size(36.dp))
+                                val icon by androidx.compose.runtime.produceState<ImageBitmap?>(null, a.pkg) {
+                                    value = withContext(Dispatchers.IO) { com.kilon.agentvscreen.core.AppCatalog.icon(a.pkg)?.asImageBitmap() }
+                                }
+                                icon?.let { Image(it, null, Modifier.size(36.dp).clip(RoundedCornerShape(9.dp))) } ?: Spacer(Modifier.size(36.dp))
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(a.label, style = MiuixTheme.textStyles.body1, maxLines = 1, overflow = TextOverflow.Ellipsis)

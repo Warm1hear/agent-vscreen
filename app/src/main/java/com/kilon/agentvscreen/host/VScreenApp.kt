@@ -26,6 +26,8 @@ class VScreenApp : Application() {
         com.kilon.agentvscreen.api.AgentLedger.init(this)
         ShizukuManager.init(this)
         BackgroundOperation.init(this)
+        // 1.4.2: the phone's app list, read once in the background (pickers, sound page, launch by name).
+        com.kilon.agentvscreen.core.AppCatalog.init(this)
         if (Prefs.serviceOn(this)) HostService.start(this)
         // 1.4.0-beta5: on demand, listen from the start: an agent's request wakes the service (HostService.wakeFor).
         else if (!Prefs.blocked(this)) quiet("server-on-demand") { HostService.ensureServer(this) }

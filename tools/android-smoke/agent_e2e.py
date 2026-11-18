@@ -86,15 +86,18 @@ def setup():
 
 def seed():
     shell("am", "broadcast", "-a", "com.kilon.agentvscreen.CI_SEED", "-p", APP)
-    path = "/sdcard/Android/data/%s/files/ci.txt" % APP
-    for _ in range(60):
-        out = shell("cat", path + " 2>/dev/null || true")
+    out = ""
+    for _ in range(90):
+        out = shell("run-as", APP, "cat", "files/ci.txt", "2>/dev/null", "||", "true")
         parts = out.split()
         if len(parts) == 2 and parts[1] != "0":
             run("adb", "forward", "tcp:18766", "tcp:" + parts[1])
             return parts[0]
         time.sleep(1)
-    raise SystemExit("FAIL service never reported its port/token")
+    print("ci.txt:", repr(out[:8] + "..." if out else out))
+    print(shell("dumpsys", "activity", "services", APP)[-1500:])
+    print(shell("logcat", "-d", "-t", "200", "--pid=" + (pid() or "0"))[-4000:])
+    raise SystemExit("FAIL service never reported its port")
 
 
 TOKEN = None

@@ -18,6 +18,8 @@ import com.kilon.agentvscreen.cmd.doLaunch
  */
 object ManualScreen {
     const val SESSION = "@you"
+    /** The task log's "who" for the user's own turns. */
+    const val TOKEN = "user"
 
     fun isManual(session: String?): Boolean = session == SESSION
 
@@ -29,10 +31,13 @@ object ManualScreen {
         if (s.displayId != null && owner != null && owner != SESSION && BackgroundOperation.isTaskActive(owner))
             error(tr("agent 正在用副屏，等它这一轮结束，或先按“接管”", "An agent is using the screen; wait for its turn to end, or tap Take over first"))
         BackgroundOperation.onTaskStarted(SESSION)
+        val t0 = System.currentTimeMillis()
         try {
             val facts = with(com.kilon.agentvscreen.cmd.VScreenOffloadHandler(ctx.applicationContext)) { doLaunch(SESSION, pkg, null, false).done.joinToString("; ") }
             BackgroundOperation.beginTakeover(SESSION)
             BackgroundOperation.setTitle(SESSION, label(ctx, pkg))
+            // A task like an agent's: the home page and the task list show this one, not the agent's before it.
+            TaskLog.onCommand(SESSION, TOKEN, listOf("launch", pkg), "OK", 0, System.currentTimeMillis() - t0, facts)
             AppLogger.info("ManualScreen", "user opened $pkg: $facts")
             tr("已在副屏打开 ${label(ctx, pkg)}", "Opened ${label(ctx, pkg)} on the background screen")
         } catch (t: Throwable) {
@@ -41,10 +46,16 @@ object ManualScreen {
         }
     }
 
-    /** The user is done with their screen: it idles like any finished turn (an agent may take it over). */
-    fun end() {
-        if (BackgroundOperation.state.value.ownerSessionId == SESSION || BackgroundOperation.isTaskActive(SESSION))
-            BackgroundOperation.onTaskFinished(SESSION)
+    /**
+     * The user is done with their screen: it idles like any finished turn (an agent may take it over); [then] runs
+     * after (closing the screen). Off the main thread: the turn's end picture is saved and apps may be closed.
+     */
+    fun end(then: (() -> Unit)? = null) {
+        Thread({
+            if (BackgroundOperation.state.value.ownerSessionId == SESSION || BackgroundOperation.isTaskActive(SESSION))
+                BackgroundOperation.onTaskFinished(SESSION)
+            then?.invoke()
+        }, "vscreen-manual-end").apply { isDaemon = true }.start()
     }
 
     private fun label(ctx: Context, pkg: String): String = runCatching {

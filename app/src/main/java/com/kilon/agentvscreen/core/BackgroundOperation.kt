@@ -428,6 +428,8 @@ object BackgroundOperation {
         // is released (before, it read a destroyed screen for up to 10 s and the end picture was blank).
         if (com.kilon.agentvscreen.cmd.Teach.lesson.value is com.kilon.agentvscreen.cmd.Lesson.Recording)
             runCatching { com.kilon.agentvscreen.cmd.Teach.endRecording(appContext, byDone = false, screenGone = true, endWaitMs = 800L) }
+        // 1.4.2: the open task keeps the screen as it is left (the home page's resting picture), before it goes.
+        _state.value.ownerSessionId?.let { TaskLog.captureNow(it) }
         val d = synchronized(lock) { display.also { display = null } } ?: return
         // Close whatever app was left on the screen so it does not hop to the
         // main display when its display disappears.
@@ -472,6 +474,7 @@ object BackgroundOperation {
     fun onTaskFinished(sessionId: String) {
         if (sessionId.isEmpty()) return
         synchronized(lock) { tasks.remove(sessionId); turns.remove(sessionId) }
+        TaskLog.captureNow(sessionId)
         TaskLog.onTurnEnd(sessionId, _state.value.userStopped)
         appContext?.let { c -> com.kilon.agentvscreen.host.UserAsk.withdrawSession(c, sessionId) }
         // 1.4.0-beta10: a lesson the user took is theirs to finish; the agent's turn ending does not end it (withdraw
@@ -550,9 +553,8 @@ object BackgroundOperation {
         val owner = s.ownerSessionId ?: return tr("没有副屏", "No screen")
         // 1.4.2: the user's own screen (opened from the app) closes when they close its window.
         if (ManualScreen.isManual(owner)) {
-            ManualScreen.end()
-            releaseScreen(tr("你关闭了自己打开的副屏", "You closed the screen you opened"))
             _state.update { it.copy(windowHidden = false) }
+            ManualScreen.end { releaseScreen(tr("你关闭了自己打开的副屏", "You closed the screen you opened")) }
             return tr("副屏已关闭", "Screen closed")
         }
         val turnRunning = synchronized(lock) { owner in turns }
