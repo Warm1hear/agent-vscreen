@@ -49,7 +49,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [30, 34]
+        # Our native code is arm64 only, so the x86_64 emulator runs it through the arm64 translator. The API 30
+        # translator aborts on an FPCR write (fp16 OCR); API 31+ translators handle it. Real phones are not affected.
+        api: [31, 34]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v5
@@ -75,7 +77,7 @@ jobs:
           profile: pixel_6
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           disable-animations: true
-          script: python3 tools/android-smoke/agent_e2e.py test-apks/app-debug.apk 2>&1 | tee e2e.log; test ${PIPESTATUS[0]} -eq 0 || { adb logcat -d > logcat.txt; exit 1; }
+          script: python3 tools/android-smoke/agent_e2e.py test-apks/app-debug.apk 2>&1 | tee e2e.log; grep -q '^SUMMARY all passed' e2e.log || { adb logcat -d > logcat.txt; exit 1; }
       - if: failure()
         uses: actions/upload-artifact@v5
         with:

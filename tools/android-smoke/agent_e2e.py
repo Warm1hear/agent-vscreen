@@ -79,6 +79,9 @@ def setup():
     shell("input", "keyevent", "KEYCODE_HOME")
     shell("logcat", "-c")
     run("adb", "install", "-r", "-g", str(APK), timeout=240)
+    # The element list comes from the app's accessibility service, which a user turns on in setup; do the same here.
+    shell("settings", "put", "secure", "enabled_accessibility_services", APP + "/.host.VScreenAccessibilityService")
+    shell("settings", "put", "secure", "accessibility_enabled", "1")
     shell("am", "start", "-W", "-n", APP + "/.ui.MainActivity", "--es", "page", "SETUP")
     if not wait_state("NEED_PERMISSION", 45) and shizuku_state() != "READY":
         raise SystemExit("FAIL app never saw Shizuku: " + str(shizuku_state()))
@@ -170,6 +173,8 @@ def main():
     r = api("look")
     els = (r.get("screen") or {}).get("elements") or []
     check("look lists elements", r.get("ok") is True and len(els) > 0, "%s elements=%d" % (r.get("code"), len(els)))
+    if not els:
+        print(json.dumps(r, ensure_ascii=False)[:4000], flush=True)
 
     target = next((e.get("text") for e in els if e.get("clickable") and e.get("text")), None)
     if target:
