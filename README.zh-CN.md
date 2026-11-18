@@ -18,14 +18,14 @@ Agent-VScreen 在一块看不见的虚拟屏上打开和操作别的应用，你
 
 手机上的任何 agent 都可以调用它：带终端的 agent 用命令行 `vscreen`，支持 MCP 的用 MCP，自己写代码的用 HTTP。
 
-<p align="center"><img src="docs/demo.gif" width="440" alt="agent 在后台副屏里解数独和玩洛克王国，右上角悬浮窗实时显示副屏"></p>
-<p align="center"><sub>左：agent 在后台副屏里打开 Chrome 解数独（8 倍速）。右：agent 在后台副屏里玩洛克王国，完成横屏启动、摇杆长按走动、拖动镜头和战斗弹窗操作（2.6 倍速）。两边用户的主屏都仍是聊天界面。</sub></p>
+<p align="center"><img src="docs/app.png" width="760" alt="Agent-VScreen 接入、记录、经验和设置页面"></p>
+<p align="center"><sub>App 界面：接入（已接入的 agent、Tailscale 远程连接、令牌）、记录（每次任务、提问和预约，带步骤缩略图）、经验（教过的操作和笔记）、设置（谁能连进来、agent 能做多少、应用规则、悬浮窗）。</sub></p>
 
 <p align="center"><img src="docs/agents.png" width="860" alt="Minis、Eta、RikkaHub、Muse 四个安卓 agent 都通过 vscreen 在副屏打开 Linux.do 客户端"></p>
 <p align="center"><sub>同一条安装命令，Minis、Eta、RikkaHub、Muse 四个不同的安卓 agent 都能接入并操作副屏。</sub></p>
 
-<p align="center"><img src="docs/app.png" width="760" alt="Agent-VScreen 接入、记录、经验和设置页面"></p>
-<p align="center"><sub>App 界面：接入（已接入的 agent、Tailscale 远程连接、令牌）、记录（每次任务、提问和预约，带步骤缩略图）、经验（教过的操作和笔记）、设置（谁能连进来、agent 能做多少、应用规则、悬浮窗）。</sub></p>
+<p align="center"><img src="docs/demo.gif" width="440" alt="agent 在后台副屏里解数独和玩洛克王国，右上角悬浮窗实时显示副屏"></p>
+<p align="center"><sub>左：agent 在后台副屏里打开 Chrome 解数独（8 倍速）。右：agent 在后台副屏里玩洛克王国，完成横屏启动、摇杆长按走动、拖动镜头和战斗弹窗操作（2.6 倍速）。两边用户的主屏都仍是聊天界面。</sub></p>
 
 - 版本：1.4.0（versionCode 49）
 - 包名：`com.kilon.agentvscreen`
