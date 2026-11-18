@@ -1,10 +1,14 @@
-# CI for Agent-VScreen. Free on public repositories. It only checks and builds: nothing is signed with the release
-# key (the release APK falls back to the debug key when keystore.properties is absent) and nothing is published.
+# CI for Agent-VScreen (free on public repositories).
+# Branches and PRs: check and build only; the release APK is signed with the debug key (no keystore.properties).
+# A tag v* (for example v1.4.1): the release APK is signed with the key from the repository's encrypted secrets
+# (AVS_KEYSTORE_BASE64, AVS_KEYSTORE_PASSWORD, AVS_KEY_ALIAS, AVS_KEY_PASSWORD), then the APK and the Operit ToolPkg
+# are uploaded to a GitHub Release for that tag. Notes come from docs/release-notes/<tag>.md when it exists.
 name: CI
 
 on:
   push:
     branches: [main, "v*"]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -75,6 +79,24 @@ jobs:
             exit 1
           fi
 
+      # Only on a tag push. Secrets are not given to pull requests from forks, and this runs after the tests.
+      - name: Release signing key
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          KS_B64: ${{ secrets.AVS_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.AVS_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.AVS_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.AVS_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KS_B64" ] || [ -z "$KS_PASS" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASS" ]; then
+            echo "::error::Signing secrets missing (AVS_KEYSTORE_BASE64, AVS_KEYSTORE_PASSWORD, AVS_KEY_ALIAS, AVS_KEY_PASSWORD)"
+            exit 1
+          fi
+          mkdir -p keystore
+          printf '%s' "$KS_B64" | base64 -d > keystore/agent-vscreen.jks
+          printf 'storeFile=keystore/agent-vscreen.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$KS_PASS" "$KEY_ALIAS" "$KEY_PASS" > keystore.properties
+
       - name: Debug and release APKs
         run: ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease
 
@@ -110,6 +132,11 @@ jobs:
           python3 -m json.tool integrations/operit/manifest.json > /dev/null
       - name: Pack
         run: ./integrations/operit/build.sh "$RUNNER_TEMP/agent-vscreen.toolpkg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: toolpkg
+          path: ${{ runner.temp }}/agent-vscreen.toolpkg
+          retention-days: 7
 
   secrets:
     name: Secret scan (gitleaks)
@@ -126,3 +153,44 @@ jobs:
         run: |
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz -C "$RUNNER_TEMP" gitleaks
           "$RUNNER_TEMP/gitleaks" git --redact --verbose --exit-code 1 .
+
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [android, operit, secrets]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dl
+      - name: Name assets and check the signature
+        run: |
+          TAG="${GITHUB_REF_NAME}"; VER="${TAG#v}"
+          mkdir out
+          cp dl/apks/release/*.apk "out/agent-vscreen-${VER}.apk"
+          cp dl/toolpkg/agent-vscreen.toolpkg "out/agent-vscreen-${VER}.toolpkg"
+          BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
+          CERT=$("$ANDROID_HOME/build-tools/$BT/apksigner" verify --print-certs "out/agent-vscreen-${VER}.apk")
+          echo "$CERT" | grep -E 'Signer #1 certificate (DN|SHA-256)'
+          if echo "$CERT" | grep -q 'CN=Android Debug'; then echo "::error::APK is debug-signed"; exit 1; fi
+          (cd out && sha256sum *) | tee out/SHA256SUMS.txt
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"; VER="${TAG#v}"
+          NOTES="docs/release-notes/${TAG}.md"
+          if [ ! -f "$NOTES" ]; then
+            NOTES="$RUNNER_TEMP/notes.md"
+            printf '**下载**：agent-vscreen-%s.apk（App）· agent-vscreen-%s.toolpkg（Operit 插件）\n' "$VER" "$VER" > "$NOTES"
+          fi
+          PRE=""; case "$TAG" in *-*) PRE="--prerelease";; esac
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" out/* --clobber
+          else
+            gh release create "$TAG" out/* --title "$TAG" --notes-file "$NOTES" --verify-tag $PRE
+          fi
