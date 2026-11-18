@@ -18,14 +18,14 @@ Agent-VScreen opens and drives other apps on an invisible virtual display, so yo
 
 Any agent on the phone can use it: agents with a terminal use the `vscreen` CLI, agents that speak MCP use MCP, and your own code can use plain HTTP.
 
-<p align="center"><img src="docs/demo.gif" width="440" alt="An agent solving sudoku in Chrome and playing Roco Kingdom on the background screen, mirrored live in the floating window"></p>
-<p align="center"><sub>Left: an agent solves sudoku in Chrome on the background screen (8x speed). Right: an agent plays Roco Kingdom in landscape, walking with the joystick, dragging the camera and handling battle pop-ups (2.6x speed). In both, the user's own screen stays on the chat app.</sub></p>
+<p align="center"><img src="docs/app.en.png" width="760" alt="Agent-VScreen Home, Connect, Records and Settings screens"></p>
+<p align="center"><sub>The app: Home (standby, take over or stop, recent runs), Connect (connected agents, Tailscale remote access, tokens), Records (every task, question and plan with step thumbnails) and Settings (who can connect, how much an agent may do, app rules, floating window).</sub></p>
 
 <p align="center"><img src="docs/agents.png" width="860" alt="Minis, Eta, RikkaHub and Muse all driving a forum app on the background screen through vscreen"></p>
 <p align="center"><sub>One install command: four different Android agents (Minis, Eta, RikkaHub, Muse) all connect and drive the background screen.</sub></p>
 
-<p align="center"><img src="docs/app.en.png" width="760" alt="Agent-VScreen Home, Connect, Records and Settings screens"></p>
-<p align="center"><sub>The app: home (the background screen and what agents just did), connect (every agent and remote access), records (each task with its steps and frames) and settings (who can connect, how much an agent may do, the background screen).</sub></p>
+<p align="center"><img src="docs/demo.gif" width="440" alt="An agent solving sudoku in Chrome and playing Roco Kingdom on the background screen, mirrored live in the floating window"></p>
+<p align="center"><sub>Left: an agent solves sudoku in Chrome on the background screen (8x speed). Right: an agent plays Roco Kingdom in landscape, walking with the joystick, dragging the camera and handling battle pop-ups (2.6x speed). In both, the user's own screen stays on the chat app.</sub></p>
 
 - Version: 1.4.1 (versionCode 51) · [Download APK](https://github.com/kilolonion/agent-vscreen/releases/latest)
 - Package: `com.kilon.agentvscreen`
