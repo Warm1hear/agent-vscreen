@@ -29,23 +29,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: tsbridge/go.mod
           cache-dependency-path: tsbridge/go.sum
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
 
       - name: Build dir
         run: |
@@ -59,7 +59,7 @@ jobs:
       - name: OCR assets read on the app's onnxruntime
         run: |
           ORT=$(grep -o 'onnxruntime-android:[0-9.]*' app/build.gradle.kts | cut -d: -f2)
-          pip install --quiet "onnxruntime==$ORT" numpy pillow
+          pip install --quiet "onnxruntime==$ORT" numpy pillow scipy
           python tools/ocr-bench/check_assets.py app/src/main/assets/vscreen-ocr "$ORT"
 
       - name: Accept Android SDK licenses
@@ -102,7 +102,7 @@ jobs:
 
       - name: Test reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: test-reports
           path: .avs-build/app/reports/tests/
@@ -110,7 +110,7 @@ jobs:
           retention-days: 7
 
       - name: APKs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: apks
           path: .avs-build/app/outputs/apk/**/*.apk
@@ -122,8 +122,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
       - name: Syntax check
@@ -132,7 +132,7 @@ jobs:
           python3 -m json.tool integrations/operit/manifest.json > /dev/null
       - name: Pack
         run: ./integrations/operit/build.sh "$RUNNER_TEMP/agent-vscreen.toolpkg"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: toolpkg
           path: ${{ runner.temp }}/agent-vscreen.toolpkg
@@ -143,7 +143,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       # The gitleaks CLI (MIT) directly, not the gitleaks GitHub Action, so no license key is ever needed.
@@ -163,8 +163,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
         with:
           path: dl
       - name: Name assets and check the signature
