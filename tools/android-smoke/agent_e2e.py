@@ -52,16 +52,21 @@ def wait_state(expected, secs=60):
 
 def press_text(package, labels, tries=20):
     want = {x.casefold() for x in labels}
+    seen = set()
     for _ in range(tries):
         if "dumped" in shell("uiautomator", "dump", "/data/local/tmp/w.xml").lower():
             for node in ET.fromstring(shell("cat", "/data/local/tmp/w.xml")).iter("node"):
                 a = node.attrib
-                label = (a.get("text") or a.get("content-desc", "")).strip().casefold()
-                if a.get("package") == package and label in want:
+                label = (a.get("text") or a.get("content-desc", "")).strip()
+                if label:
+                    seen.add(a.get("package", "?") + ":" + label)
+                if a.get("package") == package and label.casefold() in want:
                     x1, y1, x2, y2 = map(int, re.findall(r"\d+", a["bounds"]))
                     shell("input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+                    print("tapped", package, label, flush=True)
                     return True
         time.sleep(1)
+    print("no", labels, "in", package, "; on screen:", sorted(seen)[:30], flush=True)
     return False
 
 
@@ -77,9 +82,12 @@ def setup():
     shell("am", "start", "-W", "-n", APP + "/.ui.MainActivity", "--es", "page", "SETUP")
     if not wait_state("NEED_PERMISSION", 45) and shizuku_state() != "READY":
         raise SystemExit("FAIL app never saw Shizuku: " + str(shizuku_state()))
-    if shizuku_state() != "READY":
-        press_text(APP, ["Grant Shizuku", "授权 Shizuku"])
-        press_text(MANAGER, ["Allow all the time", "始终允许"])
+    for _ in range(3):
+        if shizuku_state() == "READY":
+            break
+        press_text(APP, ["Grant Shizuku", "授权 Shizuku", "Grant", "授权"])
+        press_text(MANAGER, ["Allow all the time", "始终允许", "Allow", "允许"])
+        wait_state("READY", 10)
     check("shizuku granted", wait_state("READY", 45), str(shizuku_state()))
     shell("input", "keyevent", "KEYCODE_HOME")
 
@@ -103,7 +111,20 @@ def seed():
 TOKEN = None
 
 
-def api(cmd, session="ci", timeout=120):
+def api(cmd, session="ci", timeout=180):
+    try:
+        return _api(cmd, session, timeout)
+    except Exception as e:  # the step fails, the run goes on, and the app's own log says why
+        print("call %r failed: %r" % (cmd, e), flush=True)
+        print("pid now:", pid() or "(gone)", flush=True)
+        try:
+            print(shell("logcat", "-d", "-t", "300", "-v", "brief", "AndroidRuntime:E", "Crash:E", "VScreenRemoteDisplay:*", "BackgroundOperation:*", "ApiServer:*", "*:S")[-6000:], flush=True)
+        except Exception as e2:
+            print("logcat failed:", e2)
+        return {"ok": False, "code": "CALL_FAILED:" + type(e).__name__}
+
+
+def _api(cmd, session, timeout):
     body = json.dumps({"cmd": cmd, "session": session}).encode()
     req = urllib.request.Request("http://127.0.0.1:18766/v2/run", data=body, method="POST",
                                  headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json", "X-VScreen-Lang": "en"})
