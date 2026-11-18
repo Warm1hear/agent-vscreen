@@ -164,19 +164,22 @@ def main():
 
     r = api("launch com.android.settings", timeout=180)
     app = (r.get("screen") or {}).get("app")
+    # Element lists come back with every launch/act reply; look is only for pictures.
+    els = (r.get("screen") or {}).get("elements") or []
     check("launch builds a screen and opens Settings there", r.get("ok") is True and app == "com.android.settings",
           "%s app=%s" % (r.get("code"), app))
     after = main_display_top()
     check("main screen untouched by launch", after is None or after != "com.android.settings" or before == "com.android.settings",
           "before=%s after=%s" % (before, after))
 
-    r = api("look")
-    els = (r.get("screen") or {}).get("elements") or []
-    check("look lists elements", r.get("ok") is True and len(els) > 0, "%s elements=%d" % (r.get("code"), len(els)))
+    check("launch reply lists elements", len(els) > 0, "elements=%d" % len(els))
     if not els:
-        print(json.dumps(r, ensure_ascii=False)[:4000], flush=True)
+        print(str(r.get("text"))[:3000], flush=True)
+    r = api("look")
+    check("look returns a picture", r.get("ok") is True and len(r.get("images") or []) > 0,
+          "%s images=%d" % (r.get("code"), len(r.get("images") or [])))
 
-    target = next((e.get("text") for e in els if e.get("clickable") and e.get("text")), None)
+    target = next((e.get("text") for e in els if e.get("tappable") and e.get("text")), None)
     if target:
         r = api('act "tap %s; key back"' % target.replace('"', ""))
         check("act tap + back", r.get("ok") is True or r.get("code") in ("NO_CHANGE",), "%s on %r" % (r.get("code"), target))
