@@ -112,6 +112,8 @@ class V120CoreTest {
         assertTrue(Vendor.of("nobody").hints().isEmpty())
         assertTrue(Vendor.of("nobody").downscaleHint().isNotEmpty())
         assertTrue(Vendor.of("oppo").adbLimitedFix().contains("切成英文"))
+        assertTrue(Vendor.of("oppo").adbLimitedFix().contains("“权限监控”，要关闭"))
+        assertTrue(Vendor.of("oppo").adbLimitedFix().contains("shizuku.rikka.app"))
         assertTrue(Vendor.of("oppo").adbLimitedFix().contains("Disable permission monitoring"))
         assertTrue(Vendor.of("xiaomi").adbLimitedFix().contains("安全设置"))
         assertTrue(Vendor.of("nobody").adbLimitedFix().isNotEmpty())
