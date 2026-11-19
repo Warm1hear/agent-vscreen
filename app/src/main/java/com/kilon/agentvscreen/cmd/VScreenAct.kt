@@ -321,39 +321,41 @@ internal fun checkInterrupts(d: VScreenDisplay, call: Call?) {
 }
 
 /**
- * How the look for a late reaction ended. [same]: the last picture still equals the one before the action (null = no
- * picture). [changedMs]: when the first different picture was seen, ms after the action. [stopped]: a stop condition's
- * fact, seen while looking or while the late change settled. [settle]: the wait for the late change to settle.
+ * How the look for a late reaction ended; times are ms after the action finished, on the one clock lookLate was given.
+ * [same]: the last picture still equals the one before the action (null = no picture). [changedMs]: when the first
+ * different picture was seen. [stopped]: a stop condition's fact, seen while looking or while the late change settled.
+ * [settle]: the wait for the late change to settle. [endMs]: when the look ended (the whole wait).
  */
-internal class LateOut(val same: Boolean?, val changedMs: Long?, val stopped: String?, val settle: WaitOut?) {
-    /** The wait's words when a stop condition fired or the screen changed late (else null); [waitedMs] is the whole wait. */
-    fun waitText(waitedMs: Long): String? = when {
+internal class LateOut(val same: Boolean?, val changedMs: Long?, val stopped: String?, val settle: WaitOut?, val endMs: Long) {
+    /** The wait's words when a stop condition fired or the screen changed late (else null). */
+    fun waitText(): String? = endMs.let { waitedMs -> when {
         stopped != null -> tr("${s1(waitedMs)} 时停止条件 $stopped", "stop condition $stopped at ${s1(waitedMs)}")
         changedMs == null -> null
         settle?.met != null -> tr("画面在动作 ${s1(changedMs)} 后才变化，${s1(waitedMs)} 时稳定", "the screen changed late, ${s1(changedMs)} after the action, and settled at ${s1(waitedMs)}")
         else -> tr("画面在动作 ${s1(changedMs)} 后才变化，等到 ${s1(waitedMs)} 还在变", "the screen changed late, ${s1(changedMs)} after the action, and was still changing when time was up at ${s1(waitedMs)}")
-    }
+    } }
 }
 
 /**
  * 1.4.2 (E2E on a slow emulator: `tap Battery` opened Battery about 2 s later, but the reply said "the screen did not
  * change"): after a settle wait that saw no reaction, look up to [windowMs] longer. [nextSame] waits for the next
  * picture and says whether it still equals the one before the action; [stop] is checked on every picture, as in any
- * wait; a late change is timed when first seen and then waited out with [settle]. [sinceAct]: ms since the action.
+ * wait; a late change is timed when first seen and then waited out with [settle]. [sinceDone]: ms since the action
+ * finished, the same clock the step's first wait is timed on, so every time in the reply counts from one moment.
  */
-internal fun lookLate(windowMs: Long, sinceAct: () -> Long, nextSame: () -> Boolean?, stop: () -> String?, settle: () -> WaitOut): LateOut {
-    val t0 = sinceAct()
+internal fun lookLate(windowMs: Long, sinceDone: () -> Long, nextSame: () -> Boolean?, stop: () -> String?, settle: () -> WaitOut): LateOut {
+    val t0 = sinceDone()
     var same: Boolean? = true
-    while (same == true && sinceAct() - t0 < windowMs) {
+    while (same == true && sinceDone() - t0 < windowMs) {
         same = nextSame()
-        val seenAt = sinceAct()
-        stop()?.let { return LateOut(same, seenAt.takeIf { same == false }, it, null) }
+        val seenAt = sinceDone()
+        stop()?.let { return LateOut(same, seenAt.takeIf { same == false }, it, null, seenAt) }
         if (same == false) {
             val s = settle()
-            return LateOut(false, seenAt, s.stopped, s)
+            return LateOut(false, seenAt, s.stopped, s, sinceDone())
         }
     }
-    return LateOut(same, null, null, null)
+    return LateOut(same, null, null, null, sinceDone())
 }
 
 /**
@@ -630,13 +632,12 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
                 if (same == true) {
                     val call = Call.current()
                     var seen = d.version
-                    val late = lookLate(Probe.LATE_MS, { SystemClock.elapsedRealtime() - tAct },
+                    val late = lookLate(Probe.LATE_MS, { SystemClock.elapsedRealtime() - tWait },
                         nextSame = { d.awaitNewFrame(seen, 100); seen = d.version; checkInterrupts(d, call); sameAsBefore() },
                         stop = { stop?.poll() },
                         settle = { val p = Probe(this, d, listOf(Cond("stable", CondKind.STABLE))); try { waitOn(d, p, 3_000L, stop) } finally { p.close() } })
                     same = late.same
-                    val waited = SystemClock.elapsedRealtime() - tWait
-                    late.waitText(waited)?.let { waitTxt = it; so.waitMs = waited; so.waitMet = late.stopped == null && late.settle?.met != null }
+                    late.waitText()?.let { waitTxt = it; so.waitMs = late.endMs; so.waitMet = late.stopped == null && late.settle?.met != null }
                     late.stopped?.let { stoppedBy = it; stoppedAt = label; so.status = "stopped" }
                 }
                 if (same != null) so.changed = !same

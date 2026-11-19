@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T04:18:00Z",
-  "updated_at": "2026-11-19T09:56:20Z",
+  "updated_at": "2026-11-19T10:04:37Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -53,9 +53,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "c453a765c478b9e9c536de3630d479ffefcde6cfb4b5a512fc5cce2d6d99720a",
-      "size": 85459,
-      "normalized_sha256": "c453a765c478b9e9c536de3630d479ffefcde6cfb4b5a512fc5cce2d6d99720a"
+      "sha256": "e975afcb2d1dd1b3beeb70b2cf8f2505d8c991c8deca1bfe73ef12759b404b2c",
+      "size": 85528,
+      "normalized_sha256": "e975afcb2d1dd1b3beeb70b2cf8f2505d8c991c8deca1bfe73ef12759b404b2c"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -248,9 +248,9 @@
     },
     "app/src/main/java/com/kilon/agentvscreen/cmd/VScreenAct.kt": {
       "role": "index",
-      "sha256": "0f4d07ee024892488292d13377a54f84dafbf72ecc3357cbced7064c8a1460eb",
-      "size": 106460,
-      "normalized_sha256": "0f4d07ee024892488292d13377a54f84dafbf72ecc3357cbced7064c8a1460eb"
+      "sha256": "fa3fb63e45308042bdd0d581e167f7fe6ebaaa8cb79fff12eefa91e0ed41a7a6",
+      "size": 106645,
+      "normalized_sha256": "fa3fb63e45308042bdd0d581e167f7fe6ebaaa8cb79fff12eefa91e0ed41a7a6"
     },
     "app/src/main/java/com/kilon/agentvscreen/cmd/VScreenArgs.kt": {
       "role": "index",
@@ -1178,9 +1178,9 @@
     },
     "app/src/test/java/com/kilon/agentvscreen/cmd/V142Beta1Test.kt": {
       "role": "index",
-      "sha256": "f2d9ed8f0f5f282bbb96a4c6c8a3008bdc0dd387b06cf4f5378a5d8eb6bdfe66",
-      "size": 7973,
-      "normalized_sha256": "f2d9ed8f0f5f282bbb96a4c6c8a3008bdc0dd387b06cf4f5378a5d8eb6bdfe66"
+      "sha256": "0bae394ceba626289a7d9e0a62e6b5f3766eb0b1de9aa83abc49906b99db0c27",
+      "size": 9043,
+      "normalized_sha256": "0bae394ceba626289a7d9e0a62e6b5f3766eb0b1de9aa83abc49906b99db0c27"
     },
     "app/src/test/java/com/kilon/agentvscreen/cmd/VScreenRegexLintTest.kt": {
       "role": "index",
