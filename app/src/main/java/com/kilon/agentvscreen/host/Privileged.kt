@@ -105,6 +105,8 @@ object Privileged {
         "Privilege: via=${via.key} state=${_snapshot.value.state} label=${_snapshot.value.label}\n" +
             ShizukuManager.diagnostics(ctx) + "\n" + RootBackend.diagnostics()
 
+    @Volatile private var announced = false
+
     private fun recompute() {
         val next = when (via) {
             Via.SHIZUKU -> {
@@ -116,7 +118,9 @@ object Privileged {
         }
         val prev = _snapshot.value
         _snapshot.value = next
-        if (prev.via != next.via || prev.state != next.state) AppLogger.info("Privileged", "via=${next.via.key} state=${next.state} ${next.label}")
+        // The first reading is logged too (it equals the placeholder when Shizuku is missing): support and CI read it.
+        if (!announced || prev.via != next.via || prev.state != next.state) AppLogger.info("Privileged", "via=${next.via.key} state=${next.state} ${next.label}")
+        announced = true
     }
 
     /** The root phase in the shared four states. Pure, for tests. */
