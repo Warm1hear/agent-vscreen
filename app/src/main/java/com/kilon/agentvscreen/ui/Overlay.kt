@@ -1,5 +1,6 @@
 package com.kilon.agentvscreen.ui
 
+import com.kilon.agentvscreen.steps
 import com.kilon.agentvscreen.tr
 
 import androidx.compose.foundation.border
@@ -803,7 +804,7 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
     val givenAll by com.kilon.agentvscreen.core.VScreenOwnership.given.collectAsState()
     val mine = givenAll.values.firstOrNull { it.session == owner && !it.agentMovedOn }
     val mineLabel = remember(mine?.pkg) { mine?.let { com.kilon.agentvscreen.core.VScreenOwnership.label(octx, it.pkg) } }
-    val title = mineLabel?.let { tr("已交给你 · $it", "With you · $it") } ?: teachN?.let { tr("示教录制中 · 已记 $it 步", "Recording a lesson · $it steps") } ?: (if (lesson is com.kilon.agentvscreen.cmd.Lesson.Ready) tr("示教准备中", "Getting ready to show") else null) ?: s.agentTitle ?: when (mode) {
+    val title = mineLabel?.let { tr("已交给你 · $it", "With you · $it") } ?: teachN?.let { tr("示教录制中 · 已记 $it 步", "Recording a lesson · ${steps(it)}") } ?: (if (lesson is com.kilon.agentvscreen.cmd.Lesson.Ready) tr("示教准备中", "Getting ready to show") else null) ?: s.agentTitle ?: when (mode) {
         Mode.ACTING -> s.action?.take(18) ?: Palette.word(mode)
         Mode.STANDBY -> if (left >= 0) tr("AI 待命", "AI on standby") + " · ${left / 60000}:${"%02d".format((left / 1000) % 60)}" else Palette.word(mode)
         Mode.IDLE -> if (s.powerSaving) tr("空闲 · 省电暂停", "Idle · paused to save power") else tr("空闲", "Idle")

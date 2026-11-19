@@ -52,6 +52,8 @@ internal class Probe(private val h: VScreenOffloadHandler, private val d: VScree
         /** A settle wait after an action that changed nothing gives up waiting for a change after this long. */
         const val GRACE_MS = 1_000L
         const val CALM_MS = 1_500L
+        /** After a settle wait that saw no reaction, how much longer to look for a late one before saying "no change". */
+        const val LATE_MS = 1_500L
     }
     private val since = SystemClock.elapsedRealtime()
     /** Areas already playing before (video, carousel): not waited for, not read. */
@@ -432,7 +434,7 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
             if (missing.isNotEmpty()) throw StepRefused("INVALID_STEP", tr("段“$name”要填 ${missing.max()} 个参数（缺 ${missing.joinToString(" ") { "{$it}" }}）：use $name ${(1..missing.max()).joinToString(" ") { "<$it>" }}，有空格的用引号",
                 "Segment \"$name\" takes ${missing.max()} values (missing ${missing.joinToString(" ") { "{$it}" }}): use $name ${(1..missing.max()).joinToString(" ") { "<$it>" }}; quote values with spaces"))
             val inner = runCatching { filled.map { Steps.parse(it.first) } }.getOrElse { throw StepRefused("INVALID_STEP", tr("段“$name”的步骤读不懂：${it.message}", "The steps of segment \"$name\" can't be parsed: ${it.message}")) }
-            put(StepOut(label, step.raw, "done", tr("$label use $name（${inner.size} 步）", "$label use $name (${inner.size} steps)")))
+            put(StepOut(label, step.raw, "done", tr("$label use $name（${inner.size} 步）", "$label use $name (${com.kilon.agentvscreen.steps(inner.size)})")))
             if (fromN > inner.size) throw StepRefused("INVALID_STEP", tr("段“$name”只有 ${inner.size} 步，没有第 $fromN 步", "Segment \"$name\" has only ${inner.size} steps, there is no step $fromN"))
             app?.let { VScreenMap.markUsed(it, name) }
             val at = UseAt(name, params, inner.size)
@@ -575,13 +577,34 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
                 }
             }
             // 1.2: an action after which not one sampled pixel differs is said: the usual cause is a tap that hit nothing.
-            if (before != null && so.status == "done") d.latestFrame()?.let { VScreenPerception.small(it) }?.let { after ->
-                val same = Change.same(before, after, Change.Level.TINY, skip = VScreenPerception.mask(d.displayId)?.rectsIn(after.width, after.height).orEmpty())
-                after.recycle()
-                so.changed = !same
-                if (same) notes.add("NO_CHANGE", tr("第 $label 步（${step.raw}）之后画面没有任何变化：可能没点中、控件没响应，或变化不在画面上。看图核对这一步有没有生效", "After step $label (${step.raw}) nothing on the screen changed: it may have missed, the control may not respond, or the effect is not visible. Check the picture to see whether the step took effect"))
+            var lateTxt = ""
+            if (before != null && so.status == "done") {
+                val mask = VScreenPerception.mask(d.displayId)
+                fun sameAsBefore(): Boolean? = d.latestFrame()?.let { VScreenPerception.small(it) }?.let { after ->
+                    try { Change.same(before, after, Change.Level.TINY, skip = mask?.rectsIn(after.width, after.height).orEmpty()) } finally { after.recycle() }
+                }
+                var same = sameAsBefore()
+                // 1.4.2 (E2E on a slow emulator: `tap Battery` opened Battery about 2 s later, but the reply said "the
+                // screen did not change"): the settle wait stops waiting for a reaction after GRACE_MS, and a slow app
+                // reacts later. Look a little longer before saying nothing changed; a late change is waited out and said.
+                if (same == true) {
+                    val t0 = SystemClock.elapsedRealtime()
+                    var seen = d.version
+                    while (same == true && SystemClock.elapsedRealtime() - t0 < Probe.LATE_MS) {
+                        d.awaitNewFrame(seen, 100); seen = d.version
+                        same = sameAsBefore()
+                    }
+                    if (same == false) {
+                        val settle = Probe(this, d, listOf(Cond("stable", CondKind.STABLE)))
+                        try { waitOn(d, settle, 3_000L, stop) } finally { settle.close() }
+                        val late = SystemClock.elapsedRealtime() - tAct
+                        lateTxt = tr("；画面在动作 ${s1(late)} 后才变化", "; the screen changed late, ${s1(late)} after the action")
+                    }
+                }
+                if (same != null) so.changed = !same
+                if (same == true) notes.add("NO_CHANGE", tr("第 $label 步（${step.raw}）之后画面没有任何变化：可能没点中、控件没响应，或变化不在画面上。看图核对这一步有没有生效", "After step $label (${step.raw}) nothing on the screen changed: it may have missed, the control may not respond, or the effect is not visible. Check the picture to see whether the step took effect"))
             }
-            so.text = tr("$label ${step.raw} → $fact；$waitTxt", "$label ${step.raw} → $fact; $waitTxt") + if (so.changed == false) tr("；画面没有变化", "; the screen did not change") else ""
+            so.text = tr("$label ${step.raw} → $fact；$waitTxt", "$label ${step.raw} → $fact; $waitTxt") + lateTxt + if (so.changed == false) tr("；画面没有变化", "; the screen did not change") else ""
             put(so)
         } finally { probe?.close(); before?.recycle() }
     }
