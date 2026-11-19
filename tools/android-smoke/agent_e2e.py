@@ -131,7 +131,11 @@ def setup_root():
     shell("settings", "put", "secure", "accessibility_enabled", "1")
     shell("am", "start", "-W", "-n", APP + "/.ui.MainActivity", "--es", "page", "SETUP")
     check("app starts on Shizuku without Shizuku installed", wait_priv(("shizuku", "NOT_INSTALLED"), 45), str(priv_state()))
-    press_text(APP, ["Rooted? Use root instead", "手机已 root？改用 Root"])
+    # A slow emulator can swallow a tap (a "not responding" dialog came and went): tap again until the choice shows.
+    for _ in range(3):
+        press_text(APP, ["Rooted? Use root instead", "手机已 root？改用 Root"])
+        if wait_priv(("root", "READY"), 20) or (priv_state() or ("",))[0] == "root":
+            break
     check("root granted and service connected", wait_priv(("root", "READY"), 60), str(priv_state()))
     print(shell("logcat", "-d", "-s", "RootBackend:*", "Privileged:*")[-2500:], flush=True)
     rp = root_pid()
