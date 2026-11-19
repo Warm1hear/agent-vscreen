@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T04:18:00Z",
-  "updated_at": "2026-11-19T08:30:35Z",
+  "updated_at": "2026-11-19T08:34:21Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -71,9 +71,9 @@
     },
     "app/build.gradle.kts": {
       "role": "index",
-      "sha256": "2111133a2ab5bf5e8a10623d2ef71190b5932ef8f0c8b2966e1bae144d1dad2d",
+      "sha256": "2872dccd688b2afb20ae7663ac476f8c5cf02377734ddf9fdb5d8600bd43433e",
       "size": 4155,
-      "normalized_sha256": "2111133a2ab5bf5e8a10623d2ef71190b5932ef8f0c8b2966e1bae144d1dad2d"
+      "normalized_sha256": "2872dccd688b2afb20ae7663ac476f8c5cf02377734ddf9fdb5d8600bd43433e"
     },
     "app/proguard-rules.pro": {
       "role": "index",
@@ -152,9 +152,9 @@
     },
     "app/src/main/java/com/kilon/agentvscreen/api/AgentNews.kt": {
       "role": "index",
-      "sha256": "b08a168eb0b682ef8a558f65b2705cf0985aeac2a28f9af9a4190011c0bb4a19",
-      "size": 5312,
-      "normalized_sha256": "b08a168eb0b682ef8a558f65b2705cf0985aeac2a28f9af9a4190011c0bb4a19"
+      "sha256": "a86bb5a9c102eddc121d716539e387be9dc4281500e0cec46e81b4e0f054b7b3",
+      "size": 5341,
+      "normalized_sha256": "a86bb5a9c102eddc121d716539e387be9dc4281500e0cec46e81b4e0f054b7b3"
     },
     "app/src/main/java/com/kilon/agentvscreen/api/Agents.kt": {
       "role": "index",
@@ -1178,9 +1178,9 @@
     },
     "app/src/test/java/com/kilon/agentvscreen/cmd/V142Beta1Test.kt": {
       "role": "index",
-      "sha256": "b868eba7245398fcdb4bb4b8f251e2dde5a240106a22b837be36d745f71816b6",
-      "size": 5239,
-      "normalized_sha256": "b868eba7245398fcdb4bb4b8f251e2dde5a240106a22b837be36d745f71816b6"
+      "sha256": "9e25be06eef7afb4ddee8825f429dbeb8057af4150c35b1d35df7f255fc1af32",
+      "size": 5324,
+      "normalized_sha256": "9e25be06eef7afb4ddee8825f429dbeb8057af4150c35b1d35df7f255fc1af32"
     },
     "app/src/test/java/com/kilon/agentvscreen/cmd/VScreenRegexLintTest.kt": {
       "role": "index",
