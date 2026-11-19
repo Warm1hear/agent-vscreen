@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T04:18:00Z",
-  "updated_at": "2026-11-19T08:31:04Z",
+  "updated_at": "2026-11-19T09:32:55Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -41,21 +41,21 @@
     },
     "README.md": {
       "role": "index",
-      "sha256": "abe966b33f86c4c96576896e64ad88a40a76d8b6f61b82b76b51310c95ac1bd0",
-      "size": 14083,
-      "normalized_sha256": "abe966b33f86c4c96576896e64ad88a40a76d8b6f61b82b76b51310c95ac1bd0"
+      "sha256": "1b433c6bb2f3809688729bdbbe19f4b082255356f35eedb2876b179c08f43cf6",
+      "size": 14890,
+      "normalized_sha256": "1b433c6bb2f3809688729bdbbe19f4b082255356f35eedb2876b179c08f43cf6"
     },
     "README.zh-CN.md": {
       "role": "index",
-      "sha256": "61d7c9af1964e3e001e952123da8eb0dade8f1dac5dc12314fb111f319168ed4",
-      "size": 13612,
-      "normalized_sha256": "61d7c9af1964e3e001e952123da8eb0dade8f1dac5dc12314fb111f319168ed4"
+      "sha256": "727212f18d985e0b6583a2c2fa5edcafb178f4dbd9d3434e45365c3470edd261",
+      "size": 14299,
+      "normalized_sha256": "727212f18d985e0b6583a2c2fa5edcafb178f4dbd9d3434e45365c3470edd261"
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "3b62c2302db5fddbd20d808c0d9a3b0e2d31bb9cad1e7898fc34be778336ef37",
-      "size": 84879,
-      "normalized_sha256": "3b62c2302db5fddbd20d808c0d9a3b0e2d31bb9cad1e7898fc34be778336ef37"
+      "sha256": "2e622f9bfbcd15f34b3f12db85775a5df4478571203ecdca02713a263d72aee5",
+      "size": 85166,
+      "normalized_sha256": "2e622f9bfbcd15f34b3f12db85775a5df4478571203ecdca02713a263d72aee5"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -1394,9 +1394,9 @@
     },
     "tools/android-smoke/shizuku.py": {
       "role": "index",
-      "sha256": "2c3f57ea59bc0bd80d90459e1023c7aee77af318fdd4cf767291a20bac121b8f",
-      "size": 4132,
-      "normalized_sha256": "2c3f57ea59bc0bd80d90459e1023c7aee77af318fdd4cf767291a20bac121b8f"
+      "sha256": "1a1faee51db0b768396fde7c78ff655475d0a0a1260e014aeb2b1b951c289458",
+      "size": 4206,
+      "normalized_sha256": "1a1faee51db0b768396fde7c78ff655475d0a0a1260e014aeb2b1b951c289458"
     },
     "tools/ocr-bench/bench.py": {
       "role": "index",
