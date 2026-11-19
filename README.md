@@ -25,13 +25,13 @@ Any agent on the phone can use it: agents with a terminal use the `vscreen` CLI,
 <p align="center"><sub>One install command: four different Android agents (Minis, Eta, RikkaHub, Muse) all connect and drive the background screen.</sub></p>
 
 <p align="center"><img src="docs/demo.gif" width="760" alt="While the user scrolls a web page on the main screen, an agent opens Clock on the background screen and starts a 10-minute timer; the floating window mirrors it live"></p>
-<p align="center"><sub>In the background: you keep reading in Chrome while the agent opens Clock on the background screen, sets a 10-minute timer and starts it. The terminal shows the real <code>vscreen</code> commands (waits are sped up 6x). <a href="docs/promo/background.mp4">Full-quality video</a></sub></p>
+<p align="center"><sub>In the background: you keep reading in Chrome while the agent opens Clock on the background screen, sets a 10-minute timer and starts it. The terminal shows the real <code>vscreen</code> commands (waits are sped up 6x). <a href="docs/promo/background.mp4?raw=true">Download MP4</a></sub></p>
 
 <p align="center"><img src="docs/takeover.gif" width="760" alt="The user long-presses the floating window to take over the background screen, scrolls and taps, then hands it back and the agent carries on"></p>
-<p align="center"><sub>Take over any time: long-press the floating window to drive the background screen yourself, hand it back, and the agent reads the screen again and carries on. <a href="docs/promo/takeover.mp4">Full-quality video</a></sub></p>
+<p align="center"><sub>Take over any time: long-press the floating window to drive the background screen yourself, hand it back, and the agent reads the screen again and carries on. <a href="docs/promo/takeover.mp4?raw=true">Download MP4</a></sub></p>
 
 <p align="center"><img src="docs/tour.gif" width="760" alt="A tour of the Now, Connect, Records and Settings tabs of the app"></p>
-<p align="center"><sub>A tour of the app while an agent is at work. <a href="docs/promo/tour.mp4">Full-quality video</a></sub></p>
+<p align="center"><sub>A tour of the app while an agent is at work. <a href="docs/promo/tour.mp4?raw=true">Download MP4</a></sub></p>
 
 - Version on `main`: 1.4.2-beta3 (versionCode 54) · [Beta APK](https://github.com/kilolonion/agent-vscreen/releases/tag/v1.4.2-beta3) · [Latest stable APK](https://github.com/kilolonion/agent-vscreen/releases/latest)
 - Package: `com.kilon.agentvscreen`

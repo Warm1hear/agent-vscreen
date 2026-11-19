@@ -25,13 +25,13 @@ Agent-VScreen 在一块看不见的虚拟屏上打开和操作别的应用，你
 <p align="center"><sub>同一条安装命令，Minis、Eta、RikkaHub、Muse 四个不同的安卓 agent 都能接入并操作副屏。</sub></p>
 
 <p align="center"><img src="docs/demo.gif" width="760" alt="用户在主屏滑动网页的同时，agent 在后台副屏里打开时钟并启动一个 10 分钟定时器，悬浮窗实时显示副屏"></p>
-<p align="center"><sub>后台操作：你在 Chrome 里照常看网页，agent 在后台副屏里打开时钟、设好 10 分钟定时器并启动。终端里是真实发出的 <code>vscreen</code> 命令（等待的部分 6 倍速）。<a href="docs/promo/background.mp4">高清视频</a></sub></p>
+<p align="center"><sub>后台操作：你在 Chrome 里照常看网页，agent 在后台副屏里打开时钟、设好 10 分钟定时器并启动。终端里是真实发出的 <code>vscreen</code> 命令（等待的部分 6 倍速）。<a href="docs/promo/background.mp4?raw=true">下载 MP4</a></sub></p>
 
 <p align="center"><img src="docs/takeover.gif" width="760" alt="用户长按悬浮窗接管副屏，自己滑动和点按，再交还给 agent 继续"></p>
-<p align="center"><sub>随时接管：长按悬浮窗就能自己操作副屏，用完交还，agent 重新读屏后接着做。<a href="docs/promo/takeover.mp4">高清视频</a></sub></p>
+<p align="center"><sub>随时接管：长按悬浮窗就能自己操作副屏，用完交还，agent 重新读屏后接着做。<a href="docs/promo/takeover.mp4?raw=true">下载 MP4</a></sub></p>
 
 <p align="center"><img src="docs/tour.gif" width="760" alt="依次浏览 App 的现在、接入、记录和设置四个页面"></p>
-<p align="center"><sub>agent 工作时的 App 界面一览。<a href="docs/promo/tour.mp4">高清视频</a></sub></p>
+<p align="center"><sub>agent 工作时的 App 界面一览。<a href="docs/promo/tour.mp4?raw=true">下载 MP4</a></sub></p>
 
 - `main` 分支版本：1.4.2-beta3（versionCode 54） · [测试版 APK](https://github.com/kilolonion/agent-vscreen/releases/tag/v1.4.2-beta3) · [最新正式版 APK](https://github.com/kilolonion/agent-vscreen/releases/latest)
 - 包名：`com.kilon.agentvscreen`
