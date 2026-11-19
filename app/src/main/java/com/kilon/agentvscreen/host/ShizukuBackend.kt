@@ -44,9 +44,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 class ShizukuBackend(private val appContext: Context) {
 
     @Volatile private var onStateChanged: (() -> Unit)? = null
+    @Volatile private var askedAt = -1L
+    /** Set when Shizuku answered our request with "adb permission limited" (see [looksAdbLimited]). */
+    @Volatile var adbLimited = false
+        private set
 
     private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
         AppLogger.info(TAG, "binder received")
+        adbLimited = false
         onStateChanged?.invoke()
     }
     private val binderDeadListener = Shizuku.OnBinderDeadListener {
@@ -55,10 +60,11 @@ class ShizukuBackend(private val appContext: Context) {
     }
     private val permissionResultListener =
         Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
-            AppLogger.info(
-                TAG,
-                "permission result code=$requestCode grant=${grantResult == PackageManager.PERMISSION_GRANTED}",
-            )
+            val granted = grantResult == PackageManager.PERMISSION_GRANTED
+            val ms = if (askedAt < 0) -1L else android.os.SystemClock.elapsedRealtime() - askedAt
+            val uid = runCatching { Shizuku.getUid() }.getOrDefault(-1)
+            adbLimited = looksAdbLimited(granted, ms, uid)
+            AppLogger.info(TAG, "permission result code=$requestCode grant=$granted after=${ms}ms serverUid=$uid adbLimited=$adbLimited")
             onStateChanged?.invoke()
         }
 
@@ -107,7 +113,8 @@ class ShizukuBackend(private val appContext: Context) {
         return if (state == ShizukuManager.State.READY) {
             ShizukuManager.Snapshot(state, versionOrUnknown(), uidOrUnknown(), isSui())
         } else {
-            ShizukuManager.Snapshot(state, isSui = binderAlive && isSui())
+            ShizukuManager.Snapshot(state, isSui = binderAlive && isSui(),
+                adbLimited = state == ShizukuManager.State.NEED_PERMISSION && adbLimited)
         }
     }
 
@@ -168,6 +175,7 @@ class ShizukuBackend(private val appContext: Context) {
             AppLogger.warning(TAG, "Shizuku has this app on record as denied: it shows no dialog; the user allows it in the manager app")
             return Ask.DENIED_ON_RECORD
         }
+        askedAt = android.os.SystemClock.elapsedRealtime()
         return runCatching { Shizuku.requestPermission(PERMISSION_REQUEST_CODE); Ask.ASKED }
             .getOrElse { AppLogger.warning(TAG, "requestPermission failed: ${it.message}"); Ask.FAILED }
     }
@@ -306,6 +314,20 @@ class ShizukuBackend(private val appContext: Context) {
         const val PERMISSION_REQUEST_CODE = 0xC1A4D
 
         private val polledFallbackLogged = AtomicBoolean(false)
+
+        const val SHELL_UID = 2000
+        const val ADB_LIMITED_WINDOW_MS = 2_500L
+
+        /**
+         * Shizuku's own dialog checks that its server may grant runtime permissions; when the phone maker took that
+         * from adb (ColorOS "permission monitoring", MIUI "USB debugging (Security settings)"), it shows "adb
+         * permission limited" and at once answers our request as denied, before any person could tap Deny. So a
+         * denial that comes back within [ADB_LIMITED_WINDOW_MS] from a server running as adb (uid 2000; a root
+         * server is never limited) is that limit, not the user's no. The SDK gives an app no way to ask the server
+         * directly: checkRemotePermission needs the very permission we are asking for.
+         */
+        fun looksAdbLimited(granted: Boolean, msSinceAsk: Long, serverUid: Int): Boolean =
+            !granted && serverUid == SHELL_UID && msSinceAsk in 0..ADB_LIMITED_WINDOW_MS
 
         /**
          * [T-android-sui-support] The binder-first decision, extracted as a

@@ -41,6 +41,8 @@ object ShizukuManager {
          * has no activity for. Never gate behaviour on it.
          */
         val isSui: Boolean = false,
+        /** NEED_PERMISSION because Shizuku said "adb permission limited": the maker's adb limit, see [adbLimitedHint]. */
+        val adbLimited: Boolean = false,
     )
 
     data class ProcessResult(
@@ -98,6 +100,12 @@ object ShizukuManager {
         "Shizuku is not running: after a phone restart it must be started again in Shizuku. If it is running, check that it is in the same Android user or work profile as this app.",
     )
 
+    fun adbLimitedHint() = com.kilon.agentvscreen.tr(
+        "Shizuku 报“adb 权限受限”：是手机系统限制了 adb，Shizuku 因此给不了任何应用授权（Shizuku 本身已正常启动）。",
+        "Shizuku said \"adb permission limited\": the phone's system limits adb, so Shizuku cannot authorize any app (Shizuku itself is running).",
+    ) + com.kilon.agentvscreen.core.Vendor.of(com.kilon.agentvscreen.core.Vendor.keyOf(android.os.Build.MANUFACTURER, android.os.Build.BRAND)).adbLimitedFix() +
+        com.kilon.agentvscreen.tr("。改完在 Shizuku 里停止再重新启动它，回来再点“授权 Shizuku”。", ". Then stop and start Shizuku again in its app, come back and tap \"Grant Shizuku\".")
+
     /** What happened, for the button to say so (it is never silent). The state is re-read either way. */
     fun requestPermission(): ShizukuBackend.Ask {
         val b = backend ?: return ShizukuBackend.Ask.NO_BINDER
@@ -154,7 +162,7 @@ object ShizukuManager {
         // screen entry + every listener callback, so logging unconditionally
         // floods logcat with NOT_RUNNING repeats.
         if (snap.state != prev.state || snap.version != prev.version ||
-            snap.uid != prev.uid || snap.isSui != prev.isSui
+            snap.uid != prev.uid || snap.isSui != prev.isSui || snap.adbLimited != prev.adbLimited
         ) {
             // [T-android-sui-support] provider= is the field to ask GH#110 /
             // GH#97 reporters for: it distinguishes a Sui-supplied binder from
@@ -165,7 +173,7 @@ object ShizukuManager {
             }
             AppLogger.info(
                 TAG,
-                "state=${snap.state} ver=${snap.version} uid=${snap.uid} provider=$provider ($reason)",
+                "state=${snap.state} ver=${snap.version} uid=${snap.uid} provider=$provider adbLimited=${snap.adbLimited} ($reason)",
             )
         }
     }

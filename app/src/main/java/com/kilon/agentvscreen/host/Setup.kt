@@ -31,7 +31,7 @@ object Setup {
             else Item("privilege", tr("Shizuku 授权", "Shizuku permission"), sh.state == ShizukuManager.State.READY, when (sh.state) {
                 ShizukuManager.State.NOT_INSTALLED -> tr("没装 Shizuku（或 Sui）；手机有 root 也可以改用 Root", "Shizuku (or Sui) is not installed; a rooted phone can use root instead")
                 ShizukuManager.State.NOT_RUNNING -> ShizukuManager.missingBinderHint()
-                ShizukuManager.State.NEED_PERMISSION -> tr("点“授权 Shizuku”并允许", "Tap \"Grant Shizuku\" and allow")
+                ShizukuManager.State.NEED_PERMISSION -> if (sh.adbLimited) ShizukuManager.adbLimitedHint() else tr("点“授权 Shizuku”并允许", "Tap \"Grant Shizuku\" and allow")
                 ShizukuManager.State.READY -> if (sh.isSui) "Sui" else "Shizuku v${sh.version}"
             }),
             Item("overlay", tr("悬浮窗", "Floating window"), Settings.canDrawOverlays(ctx), tr("副屏小窗（看进度、接管）", "The screen's small window (progress, take over)")),
