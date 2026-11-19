@@ -1,6 +1,24 @@
 # Earlier releases
 
-The latest release notes are in the [README](../README.md).
+For [1.4.2-beta3 (versionCode 54)](../README.md#whats-new-in-142-beta3), see the current beta notes.
+
+## What's new in 1.4.1
+
+- **Schedules and watches per agent**: same names no longer overwrite each other; forgetting an agent clears its schedules and watches.
+- **Steadier self-hosted Headscale**: the control server resolves even with a proxy such as FlClash on; public DNS is used only when every phone DNS is unreachable.
+- **Shizuku**: diagnostics include Shizuku's version, permission and user state; the hint leads with the usual cause (Shizuku must be started again after a restart).
+- Fixed Remote › Advanced not opening; schedules, watches and task ownership are more reliable; app data stays out of system backups.
+
+## What's new in 1.4.0
+
+- **A new app**: four tabs (Now, Connect, Records, Settings), each page with one main thing; explanations moved to second-level pages. Purple glass throughout.
+- **Every agent on its own**: each connected agent gets its own token, records and saved steps; lessons are shared. One inbox on the home page collects what agents need from you, and notifications open the right page.
+- **Teaching, rebuilt**: one lesson flow from the request to the saved segment, a record button that answers the agent's request, and a review pane beside the live screen. A repeated `teach` returns the saved lesson instead of asking again. Agents tidy the page back to its starting state before they ask.
+- **Keyboard**: `key ctrl+a` / `shift+tab` / `alt+f4` combos; `type` at once or `type "…" slow` letter by letter. In full screen the keyboard button opens your own input method.
+- **App sound**: Settings › App sound lists every silenced app and gives sound back; the `sound` command does the same for agents. Muting now sets both of Android's sound records, for phones that only check one of them.
+- **`fix` repairs more**: silenced apps, a stopped foreground service, the built-in Tailscale; "fixed" is checked afterwards, not assumed.
+- **Port taken**: when another app (or a clone-space copy) holds the port, the service takes the next free one and says who holds it; local agents find it by themselves and Tailscale forwards to it.
+- **Smaller, faster reading**: PP-OCRv6 tiny detector + small recognizer (11.5 MB); `collect` skips search bars and keeps going to the real end; `repeat … until` judges the last look on what the screen shows now.
 
 ## What's new in 1.3.0
 

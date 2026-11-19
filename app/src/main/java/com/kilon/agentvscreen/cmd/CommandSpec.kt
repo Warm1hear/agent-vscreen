@@ -208,9 +208,9 @@ internal object CommandSpec {
                 Opt("again", Kind.SWITCH, null, null, "请用户重新演示一遍（不加时，同一条 teach 已有结果就原样返回，不会再问用户）", "ask the user to show it again (without it, a teach that already has a result returns that result and does not ask again)")),
             screen = false, long = true, sumZh = "请用户在副屏上亲手演示一遍，存成可重放的一段", sumEn = "ask the user to show it once on the screen; saved as a segment you can replay"),
         Cmd("schedule", "[\"时间\"] | off <名字|all>", "[\"when\"] | off <name|all>",
-            listOf("预约你会来用手机的时间（定时任务用）：每个窗口开始前 3 分钟拉起服务、检查 Shizuku 和连接，没准备好就通知用户，结果作为事件发给本会话。不带参数列出预约和现在是否就绪。",
+            listOf("预约你会来用手机的时间（定时任务用）：每个窗口开始前 3 分钟拉起服务、检查所选的权限来源（Shizuku 或 Root）和连接，没准备好就通知用户，结果作为事件发给本会话。不带参数列出预约和现在是否就绪。",
                 "时间写法：\"07:00\"、\"07:00,19:30\"、\"weekdays 08:30\"、\"mon,wed,fri 21:00\"、\"every 2h from 08:00 to 22:00\"（间隔至少 30 分钟，最多 8 条）。"),
-            listOf("book the times you will use the phone (for timed tasks): 3 minutes before each window the service is started and Shizuku and the connection are checked; the user is notified if it is not ready, and the result is sent to this session as an event. With no argument: the schedules and whether it is ready now.",
+            listOf("book the times you will use the phone (for timed tasks): 3 minutes before each window the service is started, and the selected permission source (Shizuku or root) and the connection are checked; the user is notified if it is not ready, and the result is sent to this session as an event. With no argument: the schedules and whether it is ready now.",
                 "Times: \"07:00\", \"07:00,19:30\", \"weekdays 08:30\", \"mon,wed,fri 21:00\", \"every 2h from 08:00 to 22:00\" (at least 30 minutes apart, at most 8 entries)."),
             listOf(Opt("name", Kind.VALUE, "名字", "name", "预约的名字（同名会替换；默认 w1、w2…）", "the schedule's name (the same name replaces it; default w1, w2…)"),
                 Opt("for", Kind.DURATION, "时长", "duration", "每个窗口保持多久（默认 10m，最长 30m）", "how long each window stays up (default 10m, at most 30m)")),
@@ -268,7 +268,7 @@ internal object CommandSpec {
 
     private val head: String get() = tr(
         "vscreen — Agent-VScreen 后台操作：在看不见的副屏里操作其他应用，不占用户主屏。截图由你（调用方的模型）看，手机只报事实。\n" +
-            "不需要 adb 或无线调试：特权走 Agent-VScreen 自己的 Shizuku 通道。不要去连 adb、配无线调试或改 adb 密钥。没有副屏时直接 launch，会自动建屏。\n\n" +
+            "agent 不需要连接 adb 或配置无线调试：Agent-VScreen 使用用户选定的 Shizuku 或 Root。不要去连 adb、配无线调试或改 adb 密钥。没有副屏时直接 launch，会自动建屏。\n\n" +
             "怎么用（一个循环）：看（launch / act 返回的【现在】和截图）→ 做（act 一小段步骤，最后一步带 until 写明你期待看到什么）→ 核对（结果 ok 吗？【注意】里有什么？）。\n" +
             "一段里只放你有把握连着做的步骤；不确定页面会变成什么样时，在那里断开，先看再做。\n\n" +
             "返回的四段（launch / act / handoff in）：\n" +
@@ -279,7 +279,7 @@ internal object CommandSpec {
             "结果是否成功看 ok / 退出码，不用读文字判断：0 = 整段按预期做完；1 = 停在了某一步或被拒绝（code 说明原因）；2 = 命令写错了，什么都没做。\n" +
             "HTTP / MCP 返回的 JSON 里同样的内容是结构化的：steps[]（每步的状态）、screen.elements[]、notes[]（代码 + 文字）。\n\n命令：",
         "vscreen — Agent-VScreen background operation: operate other apps on an invisible background screen without taking the user's screen. You (the caller's model) look at the screenshots; the phone only reports facts.\n" +
-            "No adb or wireless debugging needed: privileges go through Agent-VScreen's own Shizuku channel. Don't connect adb, set up wireless debugging or change adb keys. With no screen, just launch: one is created automatically.\n\n" +
+            "Agents do not need adb or wireless debugging: Agent-VScreen uses Shizuku or root, whichever the user chose. Don't connect adb, set up wireless debugging or change adb keys. With no screen, just launch: one is created automatically.\n\n" +
             "How to use it (one loop): look (the [Now] block and screenshot returned by launch / act) → act (a short stretch of steps, the last one with until saying what you expect to see) → check (is the result ok? what is in [Notes]?).\n" +
             "Put in one stretch only the steps you are sure can follow each other; where you cannot tell what the page will become, break there and look before acting.\n\n" +
             "The four blocks returned (launch / act / handoff in):\n" +
