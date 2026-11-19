@@ -289,8 +289,8 @@ look x1,y1,x2,y2 的旧写法：放大看一块区域（图边上标着副屏坐
 | `BUSY` | `retry_later` | 副屏现在归另一个会话。返回里写了归谁（owner）、多久后自动让出（frees_in_s 秒；null 表示它正在执行命令）。 |
 | `QUEUE_TIMEOUT` | `retry_later` | 前面的命令还没做完，这条排队超过 60 秒，没有执行。 |
 | `CANCELLED` | `none` | 调用方断开了或取消了任务，命令在下一步之前停下。 |
-| `CONNECTION_LOST` | `ask_user` | 后台特权连接断了（Shizuku 停了），副屏和上面的应用已经没了，不是你的操作造成的。告诉用户；恢复后重新 launch。 |
-| `NOT_CONNECTED` | `ask_user` | 副屏服务用不了：Shizuku 停了或没授权，返回里写了是哪一种。把那句转告用户；只是服务关着或收起时不会报这条。 |
+| `CONNECTION_LOST` | `ask_user` | 后台特权连接断了（Shizuku 或 Root 服务停了），副屏和上面的应用已经没了，不是你的操作造成的。告诉用户；恢复后重新 launch。 |
+| `NOT_CONNECTED` | `ask_user` | 副屏服务用不了：Shizuku（或 Root）停了或没授权，返回里写了是哪一种。把那句转告用户；只是服务关着或收起时不会报这条。 |
 | `DISABLED` | `ask_user` | 用户关掉了 Agent-VScreen 的服务。 |
 | `CREATE_FAILED` | `ask_user` | 副屏没建出来。status 里有原因。 |
 | `STALE_SCREEN` | `look` | 这个操作是针对已经重建过的旧副屏的。 |
@@ -307,7 +307,7 @@ look x1,y1,x2,y2 的旧写法：放大看一块区域（图边上标着副屏坐
 | `CLOSE_FAILED` | `look` | 没能只关掉副屏上的任务。 |
 | `MAIN_SCREEN_TASK` | `none` | 这个任务在主屏上，没有动它。 |
 | `SCHEDULE_LIMIT` | `fix_command` | 预约到上限了（8 条）：先 schedule off 一条。 |
-| `NOT_READY` | `ask_user` | Agent-VScreen 没有响应或还没准备好（被系统冻结、服务没开、Shizuku 没运行）。命令行已经试过唤醒一次。把原因告诉用户；定时任务请先用 schedule 预约时间。 |
+| `NOT_READY` | `ask_user` | Agent-VScreen 没有响应或还没准备好（被系统冻结、服务没开、Shizuku / Root 没运行）。命令行已经试过唤醒一次。把原因告诉用户；定时任务请先用 schedule 预约时间。 |
 | `ASK_PENDING` | `ask_user` | 问题已经显示在手机上，用户还没回答。告诉用户去手机上回答；之后把同一个 ask 原样再发一次就能拿到答案（10 分钟内有效）。 |
 | `ASK_DECLINED` | `ask_user` | 用户选择不回答这个问题。不要再问同一个问题，换个方式或告诉用户你停在了哪里。 |
 | `USER_FEEDBACK` | `ask_user` | 用户没有照你问的方式回答，而是说了一句话（在 feedback 里，原话）。多半是你问错了、页面不对或理解偏了：按这句话调整，不要原样再问。 |
@@ -625,8 +625,8 @@ scope: `look`
 | `BUSY` | `retry_later` | The screen belongs to another session now. The reply says whose (owner) and when it frees up by itself (frees_in_s seconds; null while it is running a command). |
 | `QUEUE_TIMEOUT` | `retry_later` | Earlier commands are still running; this one waited in the queue for over 60 s and did not run. |
 | `CANCELLED` | `none` | The caller disconnected or cancelled the task; the command stopped before its next step. |
-| `CONNECTION_LOST` | `ask_user` | The privileged background connection broke (Shizuku stopped); the screen and its app are gone, not because of your actions. Tell the user; launch again once it is back. |
-| `NOT_CONNECTED` | `ask_user` | The screen service cannot be used: Shizuku stopped or is not granted; the reply says which. Pass that line on to the user. A service that is merely off or hidden never reports this. |
+| `CONNECTION_LOST` | `ask_user` | The privileged background connection broke (Shizuku or the root service stopped); the screen and its app are gone, not because of your actions. Tell the user; launch again once it is back. |
+| `NOT_CONNECTED` | `ask_user` | The screen service cannot be used: Shizuku (or root) stopped or is not granted; the reply says which. Pass that line on to the user. A service that is merely off or hidden never reports this. |
 | `DISABLED` | `ask_user` | The user turned the Agent-VScreen service off. |
 | `CREATE_FAILED` | `ask_user` | The screen could not be created. status says why. |
 | `STALE_SCREEN` | `look` | This action was meant for an older screen that has been rebuilt. |
@@ -643,7 +643,7 @@ scope: `look`
 | `CLOSE_FAILED` | `look` | Could not close just the task on the screen. |
 | `MAIN_SCREEN_TASK` | `none` | This task is on the main screen; it was left alone. |
 | `SCHEDULE_LIMIT` | `fix_command` | Too many schedules (8): remove one with schedule off. |
-| `NOT_READY` | `ask_user` | Agent-VScreen did not answer or is not ready (frozen by the system, service off, Shizuku not running). The CLI already tried to wake it once. Tell the user why; for timed tasks, book the time with schedule first. |
+| `NOT_READY` | `ask_user` | Agent-VScreen did not answer or is not ready (frozen by the system, service off, Shizuku / root not running). The CLI already tried to wake it once. Tell the user why; for timed tasks, book the time with schedule first. |
 | `ASK_PENDING` | `ask_user` | The question is on the phone and the user has not answered yet. Tell the user to answer on the phone; then send the same ask again to get the answer (valid for 10 minutes). |
 | `ASK_DECLINED` | `ask_user` | The user chose not to answer. Don't ask the same again; go another way or tell the user where you stopped. |
 | `USER_FEEDBACK` | `ask_user` | The user did not answer the way you asked but said something instead (in feedback, verbatim). Most likely the question, the page or your reading was off: adjust to it; don't ask the same again. |

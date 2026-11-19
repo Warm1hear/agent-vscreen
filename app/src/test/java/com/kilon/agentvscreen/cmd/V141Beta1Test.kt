@@ -60,8 +60,6 @@ class V141Beta1Test {
     }
 
     @Test fun versionAndNewsNameMatch141() {
-        assertEquals(51, com.kilon.agentvscreen.BuildConfig.VERSION_CODE)
-        assertEquals("1.4.1", com.kilon.agentvscreen.BuildConfig.VERSION_NAME)
         assertEquals("1.4.1", AgentNews.nameOf(51))
         assertEquals("1.4.1-beta1", AgentNews.nameOf(50))
     }
