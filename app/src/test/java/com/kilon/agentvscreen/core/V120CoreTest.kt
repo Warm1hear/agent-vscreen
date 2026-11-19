@@ -120,16 +120,35 @@ class V120CoreTest {
     @Test fun aDenialBelongsToItsRequestAndARetryForgetsIt() {
         val a = com.kilon.agentvscreen.host.ShizukuBackend.Attempts()
         assertFalse(a.lastDenied)
-        a.start(); a.answered(granted = false)
+        assertFalse(a.answered(a.codeOf(1), granted = false))
+        val first = a.start(); assertTrue(a.answered(a.codeOf(first), granted = false))
         assertTrue(a.lastDenied)
         val retry = a.start()
         assertFalse(a.lastDenied)
         assertEquals(retry, a.current)
-        a.answered(granted = false)
+        assertTrue(a.answered(a.codeOf(retry), granted = false))
         assertTrue(a.lastDenied)
-        a.start(); a.answered(granted = true)
+        val granted = a.start(); assertTrue(a.answered(a.codeOf(granted), granted = true))
         assertFalse(a.lastDenied)
-        a.start(); a.answered(granted = false); a.clear()
+    }
+
+    @Test fun aLateAnswerToAnOlderRequestIsNotTheRetrysAnswer() {
+        val a = com.kilon.agentvscreen.host.ShizukuBackend.Attempts()
+        val first = a.start()
+        val retry = a.start()
+        assertFalse(a.answered(a.codeOf(first), granted = false))
+        assertFalse(a.lastDenied)
+        assertEquals(retry, a.current)
+        assertTrue(a.answered(a.codeOf(retry), granted = false))
+        assertTrue(a.lastDenied)
+    }
+
+    @Test fun aNewBinderEndsTheRequestAndItsChecks() {
+        val a = com.kilon.agentvscreen.host.ShizukuBackend.Attempts()
+        val asked = a.start()
+        a.invalidate()
+        assertTrue(a.current != asked)
+        assertFalse(a.answered(a.codeOf(asked), granted = false))
         assertFalse(a.lastDenied)
     }
 }

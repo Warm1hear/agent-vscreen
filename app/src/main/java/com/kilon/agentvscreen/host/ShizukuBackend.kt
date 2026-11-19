@@ -46,15 +46,22 @@ class ShizukuBackend(private val appContext: Context) {
     /**
      * Which permission request is current and whether Shizuku denied it. A denial alone does not say why: Shizuku
      * sends the same one for the user's Deny and for "adb permission limited" (the maker took the grant right from
-     * adb), so the UI names both. A new request forgets the last answer, so a retry never shows a stale result.
+     * adb), so the UI names both. Each request sends its own code (Shizuku hands it back), so a late answer to an
+     * older request is not taken as the current one's; a new binder ends the current request and its checks too.
      */
     class Attempts {
         @Volatile var current = 0
             private set
         @Volatile private var deniedIn = 0
         @Synchronized fun start(): Int { deniedIn = 0; return ++current }
-        @Synchronized fun answered(granted: Boolean) { deniedIn = if (granted) 0 else current }
-        @Synchronized fun clear() { deniedIn = 0 }
+        fun codeOf(id: Int): Int = PERMISSION_REQUEST_CODE + id
+        /** False when the answer belongs to another request (or another app's code) and was ignored. */
+        @Synchronized fun answered(requestCode: Int, granted: Boolean): Boolean {
+            if (current == 0 || requestCode != codeOf(current)) return false
+            deniedIn = if (granted) 0 else current
+            return true
+        }
+        @Synchronized fun invalidate() { deniedIn = 0; current++ }
         val lastDenied: Boolean get() = current > 0 && deniedIn == current
     }
 
@@ -63,7 +70,7 @@ class ShizukuBackend(private val appContext: Context) {
 
     private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
         AppLogger.info(TAG, "binder received")
-        attempts.clear()
+        attempts.invalidate()
         onStateChanged?.invoke()
     }
     private val binderDeadListener = Shizuku.OnBinderDeadListener {
@@ -73,8 +80,8 @@ class ShizukuBackend(private val appContext: Context) {
     private val permissionResultListener =
         Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
             val granted = grantResult == PackageManager.PERMISSION_GRANTED
-            attempts.answered(granted)
-            AppLogger.info(TAG, "permission result code=$requestCode grant=$granted attempt=${attempts.current}")
+            val mine = attempts.answered(requestCode, granted)
+            AppLogger.info(TAG, "permission result code=$requestCode grant=$granted attempt=${attempts.current} current=$mine")
             onStateChanged?.invoke()
         }
 
@@ -185,8 +192,8 @@ class ShizukuBackend(private val appContext: Context) {
             AppLogger.warning(TAG, "Shizuku has this app on record as denied: it shows no dialog; the user allows it in the manager app")
             return Ask.DENIED_ON_RECORD
         }
-        attempts.start()
-        return runCatching { Shizuku.requestPermission(PERMISSION_REQUEST_CODE); Ask.ASKED }
+        val id = attempts.start()
+        return runCatching { Shizuku.requestPermission(attempts.codeOf(id)); Ask.ASKED }
             .getOrElse { AppLogger.warning(TAG, "requestPermission failed: ${it.message}"); Ask.FAILED }
     }
 
