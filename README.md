@@ -18,14 +18,20 @@ Agent-VScreen opens and drives other apps on an invisible virtual display, so yo
 
 Any agent on the phone can use it: agents with a terminal use the `vscreen` CLI, agents that speak MCP use MCP, and your own code can use plain HTTP.
 
-<p align="center"><img src="docs/app.en.png" width="760" alt="Agent-VScreen Home, Connect, Records and Settings screens"></p>
-<p align="center"><sub>The app: Home (standby, take over or stop, recent runs), Connect (connected agents, Tailscale remote access, tokens), Records (every task, question and plan with step thumbnails) and Settings (who can connect, how much an agent may do, app rules, floating window).</sub></p>
+<p align="center"><img src="docs/app.en.png" width="760" alt="Agent-VScreen Now, Connect, Records and Settings screens"></p>
+<p align="center"><sub>The app: Now (what the agent is doing on the background screen, take over or stop, recent runs), Connect (connected agents, remote access, tokens), Records (every task, question and plan with step thumbnails) and Settings (who can connect, how much an agent may do, app rules, floating window).</sub></p>
 
 <p align="center"><img src="docs/agents.png" width="860" alt="Minis, Eta, RikkaHub and Muse all driving a forum app on the background screen through vscreen"></p>
 <p align="center"><sub>One install command: four different Android agents (Minis, Eta, RikkaHub, Muse) all connect and drive the background screen.</sub></p>
 
-<p align="center"><img src="docs/demo.gif" width="440" alt="An agent solving sudoku in Chrome and playing Roco Kingdom on the background screen, mirrored live in the floating window"></p>
-<p align="center"><sub>Left: an agent solves sudoku in Chrome on the background screen (8x speed). Right: an agent plays Roco Kingdom in landscape, walking with the joystick, dragging the camera and handling battle pop-ups (2.6x speed). In both, the user's own screen stays on the chat app.</sub></p>
+<p align="center"><img src="docs/demo.gif" width="760" alt="While the user scrolls a web page on the main screen, an agent opens Clock on the background screen and starts a 10-minute timer; the floating window mirrors it live"></p>
+<p align="center"><sub>In the background: you keep reading in Chrome while the agent opens Clock on the background screen, sets a 10-minute timer and starts it. The terminal shows the real <code>vscreen</code> commands (waits are sped up 6x). <a href="docs/promo/background.mp4?raw=true">Download MP4</a></sub></p>
+
+<p align="center"><img src="docs/takeover.gif" width="760" alt="The user long-presses the floating window to take over the background screen, scrolls and taps, then hands it back and the agent carries on"></p>
+<p align="center"><sub>Take over any time: long-press the floating window to drive the background screen yourself, hand it back, and the agent reads the screen again and carries on. <a href="docs/promo/takeover.mp4?raw=true">Download MP4</a></sub></p>
+
+<p align="center"><img src="docs/tour.gif" width="760" alt="A tour of the Now, Connect, Records and Settings tabs of the app"></p>
+<p align="center"><sub>A tour of the app while an agent is at work. <a href="docs/promo/tour.mp4?raw=true">Download MP4</a></sub></p>
 
 - Version on `main`: 1.4.2-beta3 (versionCode 54) · [Beta APK](https://github.com/kilolonion/agent-vscreen/releases/tag/v1.4.2-beta3) · [Latest stable APK](https://github.com/kilolonion/agent-vscreen/releases/latest)
 - Package: `com.kilon.agentvscreen`

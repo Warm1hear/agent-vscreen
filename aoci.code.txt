@@ -6,8 +6,8 @@
 AGENTS.md[SG5T]: F:给编码agent的仓库规则：AOCI认知索引的读取、维护与收尾流程 | R:- | A:- | S:aoci区块由aoci init写入，改动应在区块外；受管理文件改完后需aoci_maintain并更新条目
 API.md[SN7L]: F:对外接口指南：Shizuku与Root配置、CLI/MCP/HTTP接入、远程连接、命令与步骤、会话与回合、盯守、安全和升级 | R:code:docs/REFERENCE.md,code:app/src/main/java/com/kilon/agentvscreen/api/ApiServer.kt,code:app/src/main/java/com/kilon/agentvscreen/host/Privileged.kt | A:- | S:命令参数和结果代码的完整列表由源码生成在REFERENCE.md，此处只介绍用法
 LICENSE[SZ1T]: F:MIT许可证文本 | R:- | A:- | S:-
-README.md[SZ6S]: F:英文项目入口：用途、能力、权限与接入、APK签名验证、当前测试版变更和构建 | R:code:README.zh-CN.md,code:API.md,code:app/build.gradle.kts,code:app/src/test/java/com/kilon/agentvscreen/api/AbilitiesTest.kt | A:- | S:能力清单由测试从Abilities表生成；main版本和正式版下载链接可以不同，签名验证比对证书指纹而非APK文件摘要
-README.zh-CN.md[SZ6S]: F:中文项目入口：用途、能力、权限与接入、APK签名验证、当前测试版变更和构建 | R:code:README.md,code:API.md,code:app/build.gradle.kts,code:app/src/test/java/com/kilon/agentvscreen/api/AbilitiesTest.kt | A:- | S:能力清单由测试从Abilities表生成；版本、下载渠道与证书指纹需与英文版同步
+README.md[SZ6S]: F:英文项目入口：用途、界面图与演示动图、能力、权限与接入、APK签名验证、当前测试版变更和构建 | R:code:README.zh-CN.md,code:API.md,code:app/build.gradle.kts,code:app/src/test/java/com/kilon/agentvscreen/api/AbilitiesTest.kt | A:- | S:能力清单由测试从Abilities表生成；main版本和正式版下载链接可以不同，签名验证比对证书指纹而非APK文件摘要
+README.zh-CN.md[SZ6S]: F:中文项目入口：用途、界面图与演示动图、能力、权限与接入、APK签名验证、当前测试版变更和构建 | R:code:README.md,code:API.md,code:app/build.gradle.kts,code:app/src/test/java/com/kilon/agentvscreen/api/AbilitiesTest.kt | A:- | S:能力清单由测试从Abilities表生成；版本、下载渠道、演示图说明与证书指纹需与英文版同步
 build.gradle.kts[FV6T]: F:根构建：AGP9、Kotlin2.4 Compose与序列化插件版本；可写时把构建目录移到/srv/avs-build | R:code:app/build.gradle.kts | A:- | S:AVS_BUILD_DIR可覆盖构建目录
 build.sh[OV7T]: F:本地发版门：重建tsbridge、查OCR模型、跑关键单测再assembleRelease；regen改写生成文件 | R:code:tsbridge/build.sh | A:- | S:在instabox上不要直接运行裸./gradlew，要走这个脚本
 gradle.properties[FV3T]: F:AndroidX、非传递R类、Gradle 3g堆与UTF-8 | R:- | A:- | S:-
@@ -292,4 +292,4 @@ RootWayTest.kt[TI5T]: F:测试root方式：su返回判定、启动脚本接管�
 ===/<repository>/tools/android-smoke/===
 agent_e2e.py[TQ7M]: F:模拟器端到端：像agent一样经真实HTTP API驱动副屏，支持Shizuku与--root/--root-uid0方式，输出SUMMARY | R:code:.github/workflows/device.yml,code:tools/android-smoke/avsu.c | A:SUMMARY | S:靠debug包CiHook拿令牌与端口
 avsu.c[XQ6S]: F:CI模拟器用的替身root管理器：su客户端把标准流交给root守护进程执行，支持su <uid> | R:code:tools/android-smoke/agent_e2e.py | A:avsu --daemon,su | S:只用于CI不得上手机；AVSU_NO_UID=1模拟不能切uid的管理器以测uid0回退
-shizuku.py[TQ4S]: F:经安卓界面检查真实Shizuku管理器授权对话框与Binder状态 | R:code:tools/android-smoke/agent_e2e.py | A:- | S:-
+shizuku.py[TQ4S]: F:经安卓界面走真实Shizuku管理器授权并核对应用上报的状态，覆盖候选包全新安装、已发布测试版基线和1.3到1.4再到候选包的升级，并确认授权在应用重启后仍在 | R:code:tools/android-smoke/agent_e2e.py | A:- | S:升级模式用一次性密钥重签历史包与候选包以模拟原地升级
