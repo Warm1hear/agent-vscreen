@@ -12,6 +12,11 @@ internal interface Vendor {
     fun downscaleHint(): String = tr("在系统 设置 › 显示 里把屏幕分辨率调到最高档，并关闭系统/游戏助手对该应用的降分辨率", "In Settings › Display set the screen resolution to the highest, and turn off downscaling of this app by the system / game assistant")
     /** Things that commonly break background operation on this maker's system, for status. */
     fun hints(): List<String> = emptyList()
+    /**
+     * What turns off this maker's limit on adb when Shizuku says "adb permission limited" (Shizuku's own setup guide:
+     * shizuku.rikka.app/guide/setup). Under that limit Shizuku cannot grant any app, so its "Allow" never shows.
+     */
+    fun adbLimitedFix(): String = tr("在“开发者选项”里找和 USB 调试、权限监控有关的安全开关并按 Shizuku 文档调整（https://shizuku.rikka.app/zh-hans/guide/setup/）", "In Developer options find the switch about USB debugging security or permission monitoring and set it as Shizuku's guide says (https://shizuku.rikka.app/guide/setup/)")
     /** The system property that names this maker's OS version. */
     fun osName(prop: (String) -> String): String = ""
 
@@ -22,6 +27,7 @@ internal interface Vendor {
 
     private object Vivo : Vendor {
         override fun osName(prop: (String) -> String) = prop("ro.vivo.os.build.display.id").ifEmpty { "OriginOS/FuntouchOS " + prop("ro.vivo.os.version") }
+        override fun adbLimitedFix() = tr("vivo/iQOO：“开发者选项”里打开“禁止权限监控”", "vivo/iQOO: in Developer options turn on \"Disable permission monitoring\"")
         override fun downscaleHint() = tr("vivo/iQOO：设置 › 显示与亮度 › 屏幕分辨率 选最高档（关闭“智能切换”）；游戏还要在 游戏魔盒/电竞模式 里对该游戏关闭“超分辨率/插帧/画质增强”", "vivo/iQOO: Settings › Display and brightness › Screen resolution: choose the highest (turn off \"Smart switch\"); for games also turn off \"super resolution / frame interpolation / picture enhancement\" for that game in Game Cube / e-sports mode")
         override fun hints() = listOf(
             tr("开发者选项里打开“禁止权限监控”：否则 Shizuku 下的输入注入、wm/settings 命令可能被系统拦截（点击无效或命令失败）", "Turn on \"Disable permission monitoring\" in Developer options: otherwise input injection and wm/settings commands under Shizuku may be blocked (taps do nothing or commands fail)"),
@@ -39,6 +45,7 @@ internal interface Vendor {
 
     private object Xiaomi : Vendor {
         override fun osName(prop: (String) -> String) = prop("ro.mi.os.version.name").ifEmpty { "MIUI " + prop("ro.miui.ui.version.name") }
+        override fun adbLimitedFix() = tr("小米/POCO：“开发者选项”里打开“USB 调试（安全设置）”（和“USB 调试”是两个开关）", "Xiaomi/POCO: in Developer options turn on \"USB debugging (Security settings)\" (a separate switch from \"USB debugging\")")
         override fun downscaleHint() = tr("小米：设置 › 显示 › 屏幕分辨率 选最高档；游戏加速里关闭该游戏的“画质/分辨率”优化", "Xiaomi: Settings › Display › Screen resolution: choose the highest; in Game Turbo turn off the \"quality / resolution\" optimization for that game")
         override fun hints() = listOf(tr("开发者选项里打开“USB 调试（安全设置）”，否则输入注入会被拒绝；省电策略选“无限制”", "Turn on \"USB debugging (Security settings)\" in Developer options, or input injection is refused; set battery saver to \"No restrictions\""))
     }
@@ -46,7 +53,11 @@ internal interface Vendor {
     private object Oppo : Vendor {
         override fun osName(prop: (String) -> String) = prop("ro.build.version.oplusrom").ifEmpty { prop("ro.build.version.opporom") }
         override fun downscaleHint() = tr("OPPO/一加：设置 › 显示与亮度 › 屏幕分辨率 选最高档（关闭“智能切换”）", "OPPO/OnePlus: Settings › Display and brightness › Screen resolution: choose the highest (turn off \"Smart switch\")")
-        override fun hints() = listOf(tr("设置 › 电池 › 应用耗电管理 允许 Agent-VScreen 和 Shizuku 后台运行", "Settings › Battery › App battery management: allow Agent-VScreen and Shizuku to run in the background"))
+        override fun adbLimitedFix() = tr("OPPO/一加/realme（ColorOS）：“开发者选项”里打开“禁止权限监控”（旧版叫“权限监控”，要关闭）", "OPPO/OnePlus/realme (ColorOS): in Developer options turn on \"Disable permission monitoring\" (older versions call it \"Permission monitoring\": turn it off)")
+        override fun hints() = listOf(
+            tr("开发者选项里打开“禁止权限监控”（旧版 ColorOS 是关闭“权限监控”）：否则 Shizuku 授权时报“adb 权限受限”，授权不了", "Turn on \"Disable permission monitoring\" in Developer options (older ColorOS: turn off \"Permission monitoring\"): otherwise Shizuku says \"adb permission limited\" and cannot grant"),
+            tr("设置 › 电池 › 应用耗电管理 允许 Agent-VScreen 和 Shizuku 后台运行", "Settings › Battery › App battery management: allow Agent-VScreen and Shizuku to run in the background"),
+        )
     }
 
     companion object {

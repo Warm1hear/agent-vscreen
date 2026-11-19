@@ -101,11 +101,20 @@ class MainActivity : ComponentActivity(), AppHost {
             ShizukuBackend.Ask.ALREADY -> say(tr("Shizuku 已授权", "Shizuku is authorized"))
             ShizukuBackend.Ask.NO_BINDER -> { ShizukuManager.openShizukuApp(this); say(ShizukuManager.missingBinderHint()) }
             ShizukuBackend.Ask.DENIED_ON_RECORD, ShizukuBackend.Ask.FAILED -> inManager()
-            // A dialog should show; if no answer comes within 8 s, the request went nowhere.
-            ShizukuBackend.Ask.ASKED -> window.decorView.postDelayed({
-                ShizukuManager.refresh()
-                if (ShizukuManager.snapshot.value.state == ShizukuManager.State.NEED_PERMISSION && !isFinishing && hasWindowFocus()) inManager()
-            }, 8_000L)
+            // A dialog should show; if no answer comes within 8 s, the request went nowhere. If Shizuku answered
+            // "adb permission limited", its own app cannot grant either: say what to change on the phone instead.
+            ShizukuBackend.Ask.ASKED -> {
+                var told = false
+                fun check(last: Boolean) {
+                    ShizukuManager.refresh()
+                    val s = ShizukuManager.snapshot.value
+                    if (told || s.state != ShizukuManager.State.NEED_PERMISSION || isFinishing) return
+                    if (s.adbLimited) { told = true; say(ShizukuManager.adbLimitedHint()) }
+                    else if (last && hasWindowFocus()) inManager()
+                }
+                window.decorView.postDelayed({ check(last = false) }, 3_000L)
+                window.decorView.postDelayed({ check(last = true) }, 8_000L)
+            }
         }
     }
 
