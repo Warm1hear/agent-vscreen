@@ -1,6 +1,7 @@
 package com.kilon.agentvscreen.ui
 
 import androidx.compose.foundation.layout.offset
+import com.kilon.agentvscreen.steps
 import com.kilon.agentvscreen.tr
 
 import android.os.Bundle
@@ -369,7 +370,7 @@ class FullscreenActivity : PageActivity() {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(7.dp).clip(CircleShape).background(if (mode == Mode.ACTING) Brush.sweepGradient(Palette.rainbow) else SolidColor(Palette.of(mode))))
                         Spacer(Modifier.width(5.dp))
-                        val word = if (recording) tr("示教录制中 · 已记 $teachN 步", "Recording a lesson · $teachN steps") else if (prepId != null) tr("示教准备中：先走到起点", "Getting ready to show") else s.agentTitle ?: (Palette.word(mode) + if (mode == Mode.STANDBY && left >= 0) (" · " + tr("${left / 60000}:${"%02d".format((left / 1000) % 60)} 后省电", "power save in ${left / 60000}:${"%02d".format((left / 1000) % 60)}")) else "")
+                        val word = if (recording) tr("示教录制中 · 已记 $teachN 步", "Recording a lesson · ${steps(teachN)}") else if (prepId != null) tr("示教准备中：先走到起点", "Getting ready to show") else s.agentTitle ?: (Palette.word(mode) + if (mode == Mode.STANDBY && left >= 0) (" · " + tr("${left / 60000}:${"%02d".format((left / 1000) % 60)} 后省电", "power save in ${left / 60000}:${"%02d".format((left / 1000) % 60)}")) else "")
                         Text(word, color = Color(0xCCFFFFFF), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }

@@ -98,4 +98,11 @@ class V142Beta1Test {
         assertTrue(ManualScreen.isManual(ManualScreen.SESSION))
         assertFalse(ManualScreen.isManual("you"))
     }
+
+    @Test fun stepCountReadsSingular() {
+        assertEquals("1 step", I18n.with("en") { com.kilon.agentvscreen.steps(1) })
+        assertEquals("3 steps", I18n.with("en") { com.kilon.agentvscreen.steps(3) })
+        assertEquals("0 steps", I18n.with("en") { com.kilon.agentvscreen.steps(0) })
+        assertEquals("1 步", I18n.with("zh") { com.kilon.agentvscreen.steps(1) })
+    }
 }
