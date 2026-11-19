@@ -237,11 +237,21 @@ def root_extras():
     shell("am", "force-stop", APP)
     time.sleep(2)
     check("root service survives the app being killed", rp != "" and root_pid() == rp, "%s -> %s" % (rp, root_pid()))
-    shell("logcat", "-c")
+    # The log is read by the new process's pid, not cleared first: the system may bring the app back before we start it.
     shell("am", "start", "-W", "-n", APP + "/.ui.MainActivity")
-    check("new app process adopts the running root service", wait_priv(("root", "READY"), 45), str(priv_state()))
+    np = pid()
+    def mine(tag):
+        return shell("logcat", "-d", "--pid=" + (np or "0"), "-s", tag) if np else ""
+    ok = False
+    for _ in range(45):
+        found = re.findall(r"via=(\w+) state=(\w+)", mine("Privileged:I"))
+        if found and found[-1] == ("root", "READY"):
+            ok = True
+            break
+        time.sleep(1)
+    check("new app process adopts the running root service", ok, "pid %s: %s" % (np, mine("Privileged:I")[-300:]))
     check("adopted, not restarted", root_pid() == rp, "%s -> %s" % (rp, root_pid()))
-    reused = shell("logcat", "-d", "-s", "RootBackend:*")
+    reused = mine("RootBackend:*")
     check("launcher said reused", "AVS reused" in reused, reused[-600:])
     shell("input", "keyevent", "KEYCODE_HOME")
     TOKEN = seed()
