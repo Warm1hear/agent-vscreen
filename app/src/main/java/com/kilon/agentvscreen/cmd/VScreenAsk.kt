@@ -9,7 +9,6 @@ import com.kilon.agentvscreen.tr
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.io.FileOutputStream
 
 // [vscreen] 1.3: `ask` — ask the user on the phone. Above all "show me": the user taps the place on a picture of the
 // background screen, and the agent gets the point (and the element there) instead of a description.

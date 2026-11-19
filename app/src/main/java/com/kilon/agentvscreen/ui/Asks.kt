@@ -3,7 +3,6 @@ package com.kilon.agentvscreen.ui
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Text
 import android.content.Context
-import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -89,13 +88,11 @@ internal fun AskMark(size: Float, count: Int = 1, alpha: Float = 1f) {
 }
 
 /**
- * Dark glass, over the background screen. [k] scales with the floating window; [inOverlay] marks the buttons as touch
- * targets of the window (the rest of the window lets touches through to the picture).
+ * Dark glass, over the background screen. [k] scales with the floating window.
  */
 @Composable
-internal fun AskQuick(a: UserAsk.Ask, count: Int, k: Float, inOverlay: Boolean, modifier: Modifier = Modifier) {
+internal fun AskQuick(a: UserAsk.Ask, count: Int, k: Float, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
-    @Suppress("UNUSED_PARAMETER") fun Modifier.mark(key: String): Modifier = this
     val shape = RoundedCornerShape((18 * k).dp)
     Column(
         modifier.eatTouches().glassDark(shape).padding(horizontal = (12 * k).dp, vertical = (11 * k).dp),
@@ -112,13 +109,13 @@ internal fun AskQuick(a: UserAsk.Ask, count: Int, k: Float, inOverlay: Boolean, 
         if (a.detail.isNotBlank()) Text(a.detail, color = Color(0xB3FFFFFF), fontSize = (10.5f * k).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         when (a.kind) {
             UserAsk.Kind.CONFIRM -> Row(horizontalArrangement = Arrangement.spacedBy((8 * k).dp)) {
-                GlassPill(tr("允许", "Allow"), true, k, Modifier.weight(1f).mark("yes")) { AskWords.answer(ctx, a, true) }
-                GlassPill(tr("拒绝", "Deny"), false, k, Modifier.weight(1f).mark("no")) { AskWords.answer(ctx, a, false) }
+                GlassPill(tr("允许", "Allow"), true, k, Modifier.weight(1f)) { AskWords.answer(ctx, a, true) }
+                GlassPill(tr("拒绝", "Deny"), false, k, Modifier.weight(1f)) { AskWords.answer(ctx, a, false) }
             }
             UserAsk.Kind.CHOOSE -> Column(verticalArrangement = Arrangement.spacedBy((6 * k).dp)) {
                 a.options.take(4).forEachIndexed { i, o ->
                     Row(
-                        Modifier.fillMaxWidth().mark("opt$i").clip(RoundedCornerShape((12 * k).dp)).background(Glass.darkChip)
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape((12 * k).dp)).background(Glass.darkChip)
                             .border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape((12 * k).dp)).clickable { AskWords.choose(ctx, a, i) }
                             .padding(horizontal = (8 * k).dp, vertical = (7 * k).dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -131,15 +128,15 @@ internal fun AskQuick(a: UserAsk.Ask, count: Int, k: Float, inOverlay: Boolean, 
                     }
                 }
                 Text(tr("不回答", "Decline"), color = Color(0x99FFFFFF), fontSize = (11 * k).sp,
-                    modifier = Modifier.align(Alignment.End).mark("skip").clip(RoundedCornerShape(50)).clickable { AskWords.answer(ctx, a, false) }
+                    modifier = Modifier.align(Alignment.End).clip(RoundedCornerShape(50)).clickable { AskWords.answer(ctx, a, false) }
                         .padding(horizontal = (8 * k).dp, vertical = (3 * k).dp))
             }
             // 1.3.0-beta16: one wide main button and a quiet "decline" under it: fits the smallest window (side by side,
             // "不回答" was cut to "不回答…").
             else -> Column(verticalArrangement = Arrangement.spacedBy((4 * k).dp)) {
-                GlassPill(AskWords.go(a.kind), true, k, Modifier.fillMaxWidth().mark("go")) { AskWords.openPage(ctx, a) }
+                GlassPill(AskWords.go(a.kind), true, k, Modifier.fillMaxWidth()) { AskWords.openPage(ctx, a) }
                 Text(tr("不回答", "Decline"), color = Color(0x99FFFFFF), fontSize = (11 * k).sp, maxLines = 1, softWrap = false,
-                    modifier = Modifier.align(Alignment.End).mark("skip").clip(RoundedCornerShape(50)).clickable { AskWords.answer(ctx, a, false) }
+                    modifier = Modifier.align(Alignment.End).clip(RoundedCornerShape(50)).clickable { AskWords.answer(ctx, a, false) }
                         .padding(horizontal = (8 * k).dp, vertical = (3 * k).dp))
             }
         }

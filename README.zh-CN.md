@@ -18,16 +18,16 @@ Agent-VScreen 在一块看不见的虚拟屏上打开和操作别的应用，你
 
 手机上的任何 agent 都可以调用它：带终端的 agent 用命令行 `vscreen`，支持 MCP 的用 MCP，自己写代码的用 HTTP。
 
-<p align="center"><img src="docs/demo.gif" width="440" alt="agent 在后台副屏里解数独和玩洛克王国，右上角悬浮窗实时显示副屏"></p>
-<p align="center"><sub>左：agent 在后台副屏里打开 Chrome 解数独（8 倍速）。右：agent 在后台副屏里玩洛克王国，完成横屏启动、摇杆长按走动、拖动镜头和战斗弹窗操作（2.6 倍速）。两边用户的主屏都仍是聊天界面。</sub></p>
+<p align="center"><img src="docs/app.png" width="760" alt="Agent-VScreen 接入、记录、经验和设置页面"></p>
+<p align="center"><sub>App 界面：接入（已接入的 agent、Tailscale 远程连接、令牌）、记录（每次任务、提问和预约，带步骤缩略图）、经验（教过的操作和笔记）、设置（谁能连进来、agent 能做多少、应用规则、悬浮窗）。</sub></p>
 
 <p align="center"><img src="docs/agents.png" width="860" alt="Minis、Eta、RikkaHub、Muse 四个安卓 agent 都通过 vscreen 在副屏打开 Linux.do 客户端"></p>
 <p align="center"><sub>同一条安装命令，Minis、Eta、RikkaHub、Muse 四个不同的安卓 agent 都能接入并操作副屏。</sub></p>
 
-<p align="center"><img src="docs/app.png" width="760" alt="Agent-VScreen 接入、记录、经验和设置页面"></p>
-<p align="center"><sub>App 界面：接入（已接入的 agent、Tailscale 远程连接、令牌）、记录（每次任务、提问和预约，带步骤缩略图）、经验（教过的操作和笔记）、设置（谁能连进来、agent 能做多少、应用规则、悬浮窗）。</sub></p>
+<p align="center"><img src="docs/demo.gif" width="440" alt="agent 在后台副屏里解数独和玩洛克王国，右上角悬浮窗实时显示副屏"></p>
+<p align="center"><sub>左：agent 在后台副屏里打开 Chrome 解数独（8 倍速）。右：agent 在后台副屏里玩洛克王国，完成横屏启动、摇杆长按走动、拖动镜头和战斗弹窗操作（2.6 倍速）。两边用户的主屏都仍是聊天界面。</sub></p>
 
-- 版本：1.4.0（versionCode 49）
+- 版本：1.4.1（versionCode 51）
 - 包名：`com.kilon.agentvscreen`
 - 系统：Android 11 及以上（arm64），推荐 Android 14 及以上
 - 特权：只用 [Shizuku](https://shizuku.rikka.app/)，不需要 root
@@ -105,6 +105,13 @@ Agent-VScreen 在一块看不见的虚拟屏上打开和操作别的应用，你
 - [docs/REFERENCE.md](docs/REFERENCE.md)：每条命令的参数和每个结果代码（由代码生成）。
 - [docs/TASKS.md](docs/TASKS.md)：发版前在真机上跑的固定任务集。
 - [docs/CHANGELOG.zh-CN.md](docs/CHANGELOG.zh-CN.md)：更早版本的更新内容。
+
+## 1.4.1 更新内容
+
+- **预约和盯守按 agent 分开**：同名不再互相覆盖；忘掉一个 agent 时一并清掉它的预约和盯守。
+- **自建 Headscale 更稳**：开着代理（如 FlClash）也能解析控制服务器；手机 DNS 全部不通时再退到公共 DNS。
+- **Shizuku**：诊断信息里带上 Shizuku 的版本、授权和用户状态，提示先说最常见的原因（重启后要重新启动 Shizuku）。
+- 修复“远程连接 › 高级选项”打不开；预约、盯守和任务归属更可靠；数据不再进入系统备份。
 
 ## 1.4.0 更新内容
 

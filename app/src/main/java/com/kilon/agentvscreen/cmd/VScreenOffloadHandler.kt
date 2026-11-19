@@ -1,7 +1,6 @@
 package com.kilon.agentvscreen.cmd
 
 import android.content.Context
-import com.kilon.agentvscreen.I18n
 import com.kilon.agentvscreen.core.BackgroundOperation
 import com.kilon.agentvscreen.core.BackgroundOperation.ActionError
 import com.kilon.agentvscreen.core.VScreenDisplay
@@ -139,8 +138,8 @@ class VScreenOffloadHandler(internal val context: Context) : NativeOffloadHandle
     private fun allowed(spec: CommandSpec.Cmd, need: CommandSpec.Scope) {
         val call = Call.current() ?: return
         if (need.key in call.scopes) return
-        throw ActionError("SCOPE_DENIED", tr("这个令牌（${call.tokenName}）的权限不含“${need.key}”，这条 ${spec.name} 没有执行。权限由用户在 Agent-VScreen › 权限 › 令牌 里定，不要换别的办法绕过；需要的话请用户调整",
-            "This token (${call.tokenName}) does not include \"${need.key}\", so this ${spec.name} did not run. The user sets token permissions in Agent-VScreen › Permissions › Tokens; don't work around it, ask the user to change it if needed"))
+        throw ActionError("SCOPE_DENIED", tr("这个令牌（${call.tokenName}）的权限不含“${need.key}”，这条 ${spec.name} 没有执行。权限由用户在 Agent-VScreen › 设置 › 令牌 里定，不要换别的办法绕过；需要的话请用户调整",
+            "This token (${call.tokenName}) does not include \"${need.key}\", so this ${spec.name} did not run. The user sets token permissions in Agent-VScreen › Settings › Tokens; don't work around it, ask the user to change it if needed"))
     }
 
     /** Run [block] in the screen queue when the command works on the screen. */
@@ -237,7 +236,7 @@ class VScreenOffloadHandler(internal val context: Context) : NativeOffloadHandle
         else -> unknown(sub)
     }
 
-    private fun unknown(sub: String): NativeOffloadResult = if (sub in setOf("resume", "continue", "look", "screenshot", "tap", "type", "swipe", "key", "wait", "scroll"))
+    private fun unknown(sub: String): NativeOffloadResult = if (sub in setOf("resume", "continue", "screenshot", "tap", "type", "swipe", "key", "wait", "scroll"))
         NativeOffloadResult(2, tr("vscreen: 没有 $sub 命令：看画面就 act（不带步骤），点击/输入/滑动/等待都写成 act 的步骤（act \"tap 登录; type 你好\"）。用户在悬浮窗上点了“停止”或接管时，只有用户能交还\n",
             "vscreen: there is no $sub command: to see the screen, act (no steps); tapping / typing / swiping / waiting are act steps (act \"tap Login; type hello\"). When the user tapped \"Stop\" or took over on the floating window, only the user can hand back\n"), "UNKNOWN_COMMAND")
     else NativeOffloadResult(2, tr("vscreen: 没有命令 '$sub'", "vscreen: no command '$sub'") + "\n\n" + CommandSpec.quickHelp() + "\n", "UNKNOWN_COMMAND")

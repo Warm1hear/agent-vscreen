@@ -13,7 +13,6 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.kilon.agentvscreen.host.AppLogger
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
-import kotlin.math.hypot
 
 /**
  * [vscreen] On-device text layer for the background screen.
@@ -183,10 +182,6 @@ internal object VScreenOcr {
         return (inside + extra).sortedWith(compareBy<Item>({ it.box.top / 8 }, { it.box.left }))
     }
 
-    /** [readRegion] that also remembers where its short words are ([displayId] < 0: do not). */
-    fun readRegion(displayId: Int, full: List<Item>, frame: Bitmap, r: Rect): List<Item> =
-        readRegion(full, frame, r).also { if (displayId >= 0) remember(displayId, it) }
-
     /** OCR of [r0] alone: enlarged (small regions up to 3×) and set on a plain margin of its own edge colour. */
     fun readCrop(frame: Bitmap, r0: Rect): List<Item> {
         val r = Rect(r0)
@@ -221,8 +216,6 @@ internal object VScreenOcr {
         return (counts.maxByOrNull { it.value }?.key ?: 0xFFFFFF) or 0xFF000000.toInt()
     }
 
-    private val NUMBER = Regex("(\\d{1,3})[:：](\\d{2})(?:[:：](\\d{2}))?(?:[.](\\d{1,3}))?|[-+]?\\d[\\d,，]*(?:\\.\\d+)?")
-
     private fun recognizeFast(displayId: Int, frame: Bitmap, version: Long): Result {
         val c = cache
         if (reusable(c, displayId, frame, version)) return c!!
@@ -241,12 +234,6 @@ internal object VScreenOcr {
             Result(emptyList(), displayId, version, SystemClock.elapsedRealtime() - t0,
                 "${cause.javaClass.simpleName}: ${cause.message}")
         }
-    }
-
-    /** Current OCR of [d]'s latest frame, or null when there is no frame yet. */
-    fun current(d: VScreenDisplay): Result? {
-        val (frame, version) = d.latestWithVersion() ?: return null
-        return recognize(d.displayId, frame, version)
     }
 
     // ── segmentation ──────────────────────────────────────────────────────
@@ -313,22 +300,6 @@ internal object VScreenOcr {
     // ── queries ───────────────────────────────────────────────────────────
 
     fun norm(s: String) = s.filterNot { it.isWhitespace() }.lowercase()
-
-    /**
-     * v45: where each short text was last read on a display (any reading: the screen's, a region's). A short HUD
-     * word ("II", "周二") is sometimes lost by the whole-screen pass; knowing where it was lets a check re-read just
-     * that spot enlarged instead of waiting for the next whole-screen reading.
-     */
-    private val seenBoxes = HashMap<Int, LinkedHashMap<String, Rect>>()
-
-    fun remember(displayId: Int, items: List<Item>) = synchronized(seenBoxes) {
-        val m = seenBoxes.getOrPut(displayId) {
-            object : LinkedHashMap<String, Rect>(64, 0.75f, true) { override fun removeEldestEntry(e: MutableMap.MutableEntry<String, Rect>?) = size > 300 }
-        }
-        for (it in items) { val k = norm(it.text); if (k.isNotEmpty() && k.length <= 8) m[k] = Rect(it.box) }
-    }
-
-    fun forget(displayId: Int) = synchronized(seenBoxes) { seenBoxes.remove(displayId) }
 
     /** Box of the characters of [item] that spell [query] (normalised), or null. */
     private fun subBox(item: Item, query: String): Rect? {

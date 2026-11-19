@@ -7,7 +7,6 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.view.WindowManager
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -39,25 +38,15 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.animation.animateContentSize
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.material.icons.automirrored.filled.Backspace
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.draw.alpha
@@ -65,12 +54,10 @@ import androidx.compose.foundation.layout.ime
 import com.kilon.agentvscreen.core.VScreenTyping
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.CloseFullscreen
 import androidx.compose.material.icons.filled.ScreenRotation
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.SmartToy
@@ -89,8 +76,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -100,9 +85,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -119,11 +102,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.hypot
-import kotlin.math.roundToInt
 
 /**
  * The background screen full screen, as a native page: edge-to-edge and immersive, the picture fitted with the same
- * breathing border as the floating window. Hold the picture 1 s to take over; then taps, long presses and swipes go
+ * breathing border as the floating window. Hold the picture 0.5 s to take over; then taps, long presses and swipes go
  * to the background screen, and the bottom bar gives back / home / typing / enter. Stop, hand back and "move this
  * app to my screen" are one tap away.
  */
@@ -132,14 +114,14 @@ class FullscreenActivity : PageActivity() {
     // The floating window shows the same picture: it steps aside while this page is in front.
 
     /** 1.3 示教: opened from an agent's "show me how" (UserAsk TEACH): take over (1.4.0-beta4: to get ready, not recording yet). */
-    private val teachAsk = mutableStateOf(-1)
+    private val teachAsk = mutableIntStateOf(-1)
     /** 1.4.0-beta4: opened to answer this question (its card comes first). */
-    private val askOpen = mutableStateOf(-1)
+    private val askOpen = mutableIntStateOf(-1)
     /** 1.4.0-beta11: which pane this page shows (the live screen, or saving a lesson). Switching never starts a page. */
     private val pane = mutableStateOf(Pane.LIVE)
     private fun paneOf(i: android.content.Intent?) = runCatching { Pane.valueOf(i?.getStringExtra(Surface.EXTRA) ?: "") }.getOrNull()
     override fun onNewIntent(intent: android.content.Intent) {
-        super.onNewIntent(intent); teachAsk.value = intent.getIntExtra("teach_ask", -1); askOpen.value = intent.getIntExtra("ask", askOpen.value)
+        super.onNewIntent(intent); teachAsk.intValue = intent.getIntExtra("teach_ask", -1); askOpen.intValue = intent.getIntExtra("ask", askOpen.intValue)
         paneOf(intent)?.let { pane.value = it; Surface.report(it) }
         sayNow.value = intent.getBooleanExtra(Surface.SAY, false); if (sayNow.value) BriefPlace.ball = false
     }
@@ -157,8 +139,8 @@ class FullscreenActivity : PageActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (MainDisplay.moved(this)) return
-        teachAsk.value = intent.getIntExtra("teach_ask", -1)
-        askOpen.value = intent.getIntExtra("ask", -1)
+        teachAsk.intValue = intent.getIntExtra("teach_ask", -1)
+        askOpen.intValue = intent.getIntExtra("ask", -1)
         paneOf(intent)?.let { pane.value = it }
         sayNow.value = intent.getBooleanExtra(Surface.SAY, false); if (sayNow.value) BriefPlace.ball = false
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -209,7 +191,6 @@ class FullscreenActivity : PageActivity() {
         val mode = modeOf(s)
         val takenOver = mode == Mode.TAKEOVER
         var typing by remember { mutableStateOf(false) }
-        var text by remember { mutableStateOf("") }
         var hold by remember { mutableFloatStateOf(0f) }
         var holdAt by remember { mutableStateOf(Offset.Zero) }
         var hintAt by remember { mutableLongStateOf(0L) }
@@ -248,7 +229,7 @@ class FullscreenActivity : PageActivity() {
         LaunchedEffect(req?.id, recording, prepId, sayNow.value) {
             val r = req ?: return@LaunchedEffect
             if (sayNow.value) return@LaunchedEffect
-            delay((2_500L + (r.title.length + r.detail.length) * 80L).coerceIn(4_000L, 12_000L))
+            delay((2_500L + (r.title.length + r.detail.length) * 80L).clampIn(4_000L, 12_000L))
             if (!sayNow.value) BriefPlace.ball = true
         }
         val mark = remember { MarkState() }
@@ -264,7 +245,7 @@ class FullscreenActivity : PageActivity() {
             val a = mark.a ?: return null
             val w = picSize.width.toFloat(); val h = picSize.height.toFloat()
             if (w <= 0f || h <= 0f) return null
-            fun scr(o: Offset) = pictureToScreen(o.x.coerceIn(0f, w - 1), o.y.coerceIn(0f, h - 1), android.graphics.RectF(0f, 0f, w, h))
+            fun scr(o: Offset) = pictureToScreen(o.x.clampIn(0f, w - 1), o.y.clampIn(0f, h - 1), android.graphics.RectF(0f, 0f, w, h))
             return when (req?.kind) {
                 UserAsk.Kind.POINT -> scr(a)?.let { (x, y) -> org.json.JSONObject().put("kind", "point").put("x", x).put("y", y) }
                 UserAsk.Kind.AREA -> { val b = mark.b ?: return null; if (kotlin.math.hypot(a.x - b.x, a.y - b.y) < 12f) return null
@@ -276,7 +257,7 @@ class FullscreenActivity : PageActivity() {
         val askId by teachAsk
         LaunchedEffect(askId) {
             val a = UserAsk.byId(askId) ?: return@LaunchedEffect
-            teachAsk.value = -1
+            teachAsk.intValue = -1
             Teach.beginFor(a)
         }
 
@@ -333,7 +314,7 @@ class FullscreenActivity : PageActivity() {
                                     val ev = withTimeoutOrNull(16L) { awaitPointerEvent() }
                                     val elapsed = SystemClock.uptimeMillis() - t0
                                     if (!takenOver && !moved && !held) {
-                                        hold = ((elapsed - 100L) / 400f).coerceIn(0f, 1f); holdAt = down.position
+                                        hold = ((elapsed - 100L) / 400f).clampIn(0f, 1f); holdAt = down.position
                                         if (hold >= 1f) {
                                             held = true; hold = 0f
                                             if (s.userStopped) BackgroundOperation.userResume()
@@ -357,7 +338,7 @@ class FullscreenActivity : PageActivity() {
                                 } else if (!held && !moved) hintAt = SystemClock.uptimeMillis()
                             }
                         }) {
-                        VScreenLiveFrame(session, Modifier.fillMaxSize(), interactive = false)
+                        VScreenLiveFrame(session, Modifier.fillMaxSize())
                         if (marking) Canvas(Modifier.fillMaxSize()) {
                             val pa = mark.a; val pb = mark.b
                             if (req?.kind == UserAsk.Kind.POINT && pa != null) {
@@ -505,7 +486,7 @@ class FullscreenActivity : PageActivity() {
 
     private fun androidx.compose.ui.input.pointer.PointerInputScope.map(p: Offset, w: Float, h: Float): Pair<Int, Int>? {
         val r = android.graphics.RectF(0f, 0f, w, h)
-        return pictureToScreen(p.x.coerceIn(0f, w - 1), p.y.coerceIn(0f, h - 1), r)
+        return pictureToScreen(p.x.clampIn(0f, w - 1), p.y.clampIn(0f, h - 1), r)
     }
 }
 
@@ -571,8 +552,8 @@ private object BriefPlace {
     var open by mutableStateOf(true)
     var bottom by mutableStateOf(false)
     var ball by mutableStateOf(false)
-    var dx by mutableStateOf(0f)
-    var dy by mutableStateOf(0f)
+    var dx by mutableFloatStateOf(0f)
+    var dy by mutableFloatStateOf(0f)
 }
 
 internal fun vscreenUserInput(sessionId: String, op: (Int) -> Unit) {

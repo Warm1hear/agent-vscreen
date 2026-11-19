@@ -9,25 +9,78 @@ import android.os.Parcel
 import android.view.Surface
 import com.kilon.agentvscreen.BuildConfig
 import com.kilon.agentvscreen.host.ShizukuManager
+import com.kilon.agentvscreen.host.Privileged
+import com.kilon.agentvscreen.host.RootBackend
 import com.kilon.agentvscreen.host.AppLogger
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import rikka.shizuku.Shizuku
 
 /**
  * [vscreen] App-side client of [VScreenDisplayService]: binds the Shizuku
  * UserService once and asks it to create / release shell-owned virtual
  * displays that render into the app's own Surface.
+ *
+ * 1.4.2-beta3: the same service also runs in a root-started process ([RootMain]); which one answers depends only on
+ * [Privileged.via]. Every call below is the same for both ways in.
  */
 internal object VScreenRemoteDisplay {
     private const val TAG = "VScreenRemoteDisplay"
     private const val BIND_TIMEOUT_S = 10L
+    /** 1.4.2: the longest one call to the screen service may take (a normal one is well under 100 ms). */
+    internal const val CALL_TIMEOUT_MS = 10_000L
+
+    /**
+     * 1.4.2: every call to the service runs here with a deadline. A binder call into a service the system froze (or one
+     * stuck inside a system call) never returns by itself; before, the caller, and everything queued behind it on the
+     * same lock, waited forever and the whole app looked hung. Now the caller gets "not responding" after
+     * [CALL_TIMEOUT_MS]. The stuck call keeps its pool thread until it returns; while one is stuck past its deadline,
+     * new calls fail at once instead of piling more threads behind a frozen service.
+     *
+     * A timeout leaves one thing open: the service may still carry the call out later. The calls that move things
+     * (release, removeTask, moveTask) are safe to repeat; a create that timed out leaves at most an orphan display,
+     * which the service's own reaper releases.
+     */
+    private val pool = Executors.newCachedThreadPool { r -> Thread(r, "vscreen-call").apply { isDaemon = true } }
+    @Volatile private var stuckSince = 0L
+
+    internal fun notResponding(s: Long) = IllegalStateException(tr("副屏服务 $s 秒没有响应（可能被系统冻结），稍后重试；一直这样就在 App 里重连 Shizuku", "The screen service has not responded for $s s (the system may have frozen it); retry shortly, and reconnect Shizuku in the app if it keeps happening"))
+
+    private fun <T> timed(what: String, extraMs: Long = 0L, block: () -> T): T {
+        val since = stuckSince
+        if (since != 0L) {
+            val s = (android.os.SystemClock.elapsedRealtime() - since) / 1000
+            if (s * 1000 >= CALL_TIMEOUT_MS) throw notResponding(s)
+        }
+        val f = pool.submit<T> {
+            val t0 = android.os.SystemClock.elapsedRealtime()
+            try { block() } finally {
+                val took = android.os.SystemClock.elapsedRealtime() - t0
+                if (took > CALL_TIMEOUT_MS + extraMs) AppLogger.warning(TAG, "$what returned after ${took}ms")
+                synchronized(pool) { if (stuckSince != 0L && stuckSince >= t0) stuckSince = 0L }
+            }
+        }
+        val start = android.os.SystemClock.elapsedRealtime()
+        return try {
+            f.get(CALL_TIMEOUT_MS + extraMs, TimeUnit.MILLISECONDS)
+        } catch (_: TimeoutException) {
+            synchronized(pool) { if (stuckSince == 0L) stuckSince = start }
+            AppLogger.warning(TAG, "$what: no answer in ${CALL_TIMEOUT_MS + extraMs}ms")
+            throw notResponding((android.os.SystemClock.elapsedRealtime() - start) / 1000)
+        } catch (e: java.util.concurrent.ExecutionException) {
+            throw e.cause ?: e
+        }
+    }
 
     data class Created(val displayId: Int, val flags: Int) {
         val trusted: Boolean get() = VScreenDisplayService.isTrusted(flags)
     }
 
-    @Volatile private var binder: IBinder? = null
+    @Volatile private var shizukuBinder: IBinder? = null
+    /** The live service of the chosen way in (Shizuku's UserService or the root process). */
+    private val binder: IBinder? get() = if (Privileged.via == Privileged.Via.ROOT) RootBackend.binder else shizukuBinder
     private val lock = Any()
 
     private val args by lazy {
@@ -40,19 +93,20 @@ internal object VScreenRemoteDisplay {
 
     private val conn = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            binder = service?.takeIf { it.pingBinder() }
+            shizukuBinder = service?.takeIf { it.pingBinder() }
             latch?.countDown()
         }
-        override fun onServiceDisconnected(name: ComponentName?) { binder = null }
+        override fun onServiceDisconnected(name: ComponentName?) { shizukuBinder = null }
     }
     @Volatile private var latch: CountDownLatch? = null
 
     /** A live service binder, binding (and waiting) if needed. Never on the main thread. */
     private fun service(): Result<IBinder> {
-        binder?.takeIf { it.isBinderAlive }?.let { return Result.success(it) }
+        if (Privileged.via == Privileged.Via.ROOT) return RootBackend.awaitBinder()
+        shizukuBinder?.takeIf { it.isBinderAlive }?.let { return Result.success(it) }
         if (!ShizukuManager.isReady()) return Result.failure(IllegalStateException(tr("Shizuku 未就绪", "Shizuku not ready")))
         synchronized(lock) {
-            binder?.takeIf { it.isBinderAlive }?.let { return Result.success(it) }
+            shizukuBinder?.takeIf { it.isBinderAlive }?.let { return Result.success(it) }
             val l = CountDownLatch(1).also { latch = it }
             try {
                 Shizuku.bindUserService(args, conn)
@@ -62,48 +116,93 @@ internal object VScreenRemoteDisplay {
             if (!l.await(BIND_TIMEOUT_S, TimeUnit.SECONDS)) {
                 return Result.failure(IllegalStateException(tr("等待 Shizuku 启动副屏服务超时", "Timed out waiting for Shizuku to start the screen service")))
             }
-            return binder?.let { Result.success(it) }
+            return shizukuBinder?.let { Result.success(it) }
                 ?: Result.failure(IllegalStateException(tr("副屏服务连接失败", "Connecting to the screen service failed")))
         }
     }
 
     fun create(name: String, width: Int, height: Int, dpi: Int, surface: Surface): Result<Created> = runCatching {
         val b = service().getOrThrow()
-        val data = Parcel.obtain(); val reply = Parcel.obtain()
-        try {
-            data.writeInterfaceToken(VScreenDisplayService.DESCRIPTOR)
-            data.writeString(name); data.writeInt(width); data.writeInt(height); data.writeInt(dpi)
-            data.writeInt(0) // 0 = let the service walk its flag ladder
-            surface.writeToParcel(data, 0)
-            b.transact(VScreenDisplayService.CREATE, data, reply, 0)
-            if (reply.readInt() != 0) error(reply.readString() ?: "unknown error")
-            Created(reply.readInt(), reply.readInt())
-        } finally { data.recycle(); reply.recycle() }
+        timed("create") {
+            val data = Parcel.obtain(); val reply = Parcel.obtain()
+            try {
+                data.writeInterfaceToken(VScreenDisplayService.DESCRIPTOR)
+                data.writeString(name); data.writeInt(width); data.writeInt(height); data.writeInt(dpi)
+                data.writeInt(0) // 0 = let the service walk its flag ladder
+                surface.writeToParcel(data, 0)
+                b.transact(VScreenDisplayService.CREATE, data, reply, 0)
+                if (reply.readInt() != 0) error(reply.readString() ?: "unknown error")
+                Created(reply.readInt(), reply.readInt())
+            } finally { data.recycle(); reply.recycle() }
+        }
     }.onFailure { AppLogger.warning(TAG, "remote create failed: ${it.message}") }
 
     fun release(displayId: Int) {
         val b = binder?.takeIf { it.isBinderAlive } ?: return
-        val data = Parcel.obtain(); val reply = Parcel.obtain()
         try {
-            data.writeInterfaceToken(VScreenDisplayService.DESCRIPTOR)
-            data.writeInt(displayId)
-            b.transact(VScreenDisplayService.RELEASE, data, reply, 0)
+            timed("release") {
+                val data = Parcel.obtain(); val reply = Parcel.obtain()
+                try {
+                    data.writeInterfaceToken(VScreenDisplayService.DESCRIPTOR)
+                    data.writeInt(displayId)
+                    b.transact(VScreenDisplayService.RELEASE, data, reply, 0)
+                } finally { data.recycle(); reply.recycle() }
+            }
         } catch (t: Throwable) {
             AppLogger.warning(TAG, "remote release($displayId) failed: ${t.message}")
-        } finally { data.recycle(); reply.recycle() }
+        }
     }
 
     /** Run one call on the service; null when the service is not available. */
-    private fun <T> call(code: Int, write: (Parcel) -> Unit, read: (Parcel) -> T): Result<T> = runCatching {
+    private fun <T> call(code: Int, write: (Parcel) -> Unit, extraMs: Long = 0L, read: (Parcel) -> T): Result<T> = runCatching {
         val b = service().getOrThrow()
-        val data = Parcel.obtain(); val reply = Parcel.obtain()
-        try {
-            data.writeInterfaceToken(VScreenDisplayService.DESCRIPTOR)
-            write(data)
-            if (!b.transact(code, data, reply, 0)) error(tr("副屏服务不认识这个调用（旧版本服务仍在运行，重连后会更新）", "The screen service does not know this call (an old service version is still running; it updates after a reconnect)"))
-            if (reply.readInt() != 0) error(reply.readString() ?: "unknown error")
-            read(reply)
-        } finally { data.recycle(); reply.recycle() }
+        timed("call $code", extraMs) {
+            val data = Parcel.obtain(); val reply = Parcel.obtain()
+            try {
+                data.writeInterfaceToken(VScreenDisplayService.DESCRIPTOR)
+                write(data)
+                if (!b.transact(code, data, reply, 0)) error(tr("副屏服务不认识这个调用（旧版本服务仍在运行，重连后会更新）", "The screen service does not know this call (an old service version is still running; it updates after a reconnect)"))
+                if (reply.readInt() != 0) error(reply.readString() ?: "unknown error")
+                read(reply)
+            } finally { data.recycle(); reply.recycle() }
+        }
+    }
+
+    /**
+     * 1.4.2-beta3: a command run by the service's user (the root way in has no Shizuku to spawn it). The output streams
+     * back through pipes, read here while the call runs, so a long `dumpsys` is not cut by the binder size limit.
+     */
+    fun exec(argv: Array<String>, env: Array<String>?, cwd: String?, timeoutMs: Long): ShizukuManager.ProcessResult {
+        val b = service().getOrElse { return ShizukuManager.ProcessResult(126, "", it.message ?: "service unavailable") }
+        val outPipe = android.os.ParcelFileDescriptor.createPipe()
+        val errPipe = android.os.ParcelFileDescriptor.createPipe()
+        fun reader(fd: android.os.ParcelFileDescriptor, into: StringBuilder, name: String) = Thread {
+            runCatching { android.os.ParcelFileDescriptor.AutoCloseInputStream(fd).bufferedReader().use { r -> synchronized(into) { into.append(r.readText()) } } }
+        }.apply { isDaemon = true; this.name = name; start() }
+        val out = StringBuilder(); val err = StringBuilder()
+        val t1 = reader(outPipe[0], out, "vscreen-exec-out")
+        val t2 = reader(errPipe[0], err, "vscreen-exec-err")
+        val code = try {
+            timed("exec ${argv.firstOrNull()}", timeoutMs + 2_000L) {
+                val data = Parcel.obtain(); val reply = Parcel.obtain()
+                try {
+                    data.writeInterfaceToken(VScreenDisplayService.DESCRIPTOR)
+                    data.writeStringArray(argv); data.writeStringArray(env); data.writeString(cwd); data.writeLong(timeoutMs)
+                    outPipe[1].writeToParcel(data, 0); errPipe[1].writeToParcel(data, 0)
+                    if (!b.transact(VScreenDisplayService.EXEC, data, reply, 0)) error(tr("副屏服务太旧，不支持运行命令", "The screen service is too old to run commands"))
+                    if (reply.readInt() != 0) error(reply.readString() ?: "unknown error")
+                    reply.readInt()
+                } finally { data.recycle(); reply.recycle() }
+            }
+        } catch (t: Throwable) {
+            synchronized(err) { err.append(t.message ?: t.javaClass.simpleName) }
+            1
+        } finally {
+            // Our copies of the write ends: closed, so the readers see the end once the service closes its own.
+            runCatching { outPipe[1].close() }; runCatching { errPipe[1].close() }
+        }
+        t1.join(3_000); t2.join(3_000)
+        return ShizukuManager.ProcessResult(code, synchronized(out) { out.toString() }.trimEnd('\n'), synchronized(err) { err.toString() }.trimEnd('\n'))
     }
 
     /** Key event with the display id set (reaches a display with its own focus). */
@@ -123,7 +222,7 @@ internal object VScreenRemoteDisplay {
         call(VScreenDisplayService.INJECT_DRAG, {
             it.writeInt(displayId); it.writeInt(x1); it.writeInt(y1); it.writeInt(x2); it.writeInt(y2)
             it.writeInt(durationMs); it.writeInt(holdMs)
-        }) { it.readInt() != 0 }
+        }, extraMs = (durationMs.coerceAtLeast(0) + holdMs.coerceAtLeast(0)).toLong()) { it.readInt() != 0 }
 
     /** (rotation, logicalWidth, logicalHeight) as the system sees [displayId]. */
     fun rotation(displayId: Int): Result<Triple<Int, Int, Int>> =

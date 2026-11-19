@@ -77,8 +77,8 @@ object AgentGuide {
     fun advice(): String = tr("Agent-VScreen 使用建议：\n", "Agent-VScreen advice:\n") +
         tr("- 用户要你在手机上做事时，用 vscreen 在后台副屏上做；不要动用户的主屏，也不要用 adb、screencap、input 代替。\n",
             "- When the user asks for anything on the phone, do it with vscreen on the background screen; don't touch the user's screen, and don't use adb, screencap or input instead.\n") +
-        tr("- 每次任务开头调用 vscreen，命令填 guide（一页用法）；提示缺令牌时，请用户在 Agent-VScreen › 接入 agent › 令牌 里复制，再用 vscreen_configure 保存。\n",
-            "- At the start of each task call vscreen with the command guide (one page of usage); if it says the token is missing, ask the user to copy it in Agent-VScreen › Connect an agent › Token, then save it with vscreen_configure.\n") +
+        tr("- 每次任务开头调用 vscreen，命令填 guide（一页用法）；提示缺令牌时，请用户在 Agent-VScreen › 接入 › 新建接入（或 设置 › 令牌）里生成令牌，再用 vscreen_configure 保存。\n",
+            "- At the start of each task call vscreen with the command guide (one page of usage); if it says the token is missing, ask the user to create one in Agent-VScreen › Connect › Connect an agent (or Settings › Tokens), then save it with vscreen_configure.\n") +
         "- " + loop() + "\n" +
         tr("- 付款等高风险步骤由用户在手机上确认（CONFIRM_PENDING：请用户去手机上确认再重发；USER_DENIED：不要重试）；USER_STOPPED 时停下并转告怎么解除。\n",
             "- High-risk steps such as paying are confirmed by the user on the phone (CONFIRM_PENDING: ask the user to confirm there, then send again; USER_DENIED: don't retry); on USER_STOPPED stop and pass on how to undo it.\n") +

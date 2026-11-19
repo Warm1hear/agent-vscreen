@@ -42,7 +42,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -70,10 +69,8 @@ import top.yukonga.miuix.kmp.icon.extended.Copy
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Show
 import top.yukonga.miuix.kmp.icon.extended.Hide
-import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
-import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -154,6 +151,13 @@ fun SettingsTab(bottom: Dp) {
                 Value(if (app.items.isEmpty()) "…" else if (app.allOk) tr("已就绪", "Ready") else tr("还差 ${app.left} 项", "${app.left} left"),
                     if (app.items.isNotEmpty() && !app.allOk) Palette.stopped else MiuixTheme.colorScheme.onSurfaceVariantActions)
             }, onClick = { nav.go(Route.Setup) })
+            // 1.4.2-beta3: where the shell-level permission comes from (what each means: the "?" on the setup step).
+            val pv by com.kilon.agentvscreen.host.Privileged.snapshot.collectAsState()
+            OverlayDropdownPreference(items = listOf("Shizuku", "Root"), selectedIndex = pv.via.ordinal,
+                title = tr("权限来源", "Permission source"),
+                summary = if (pv.state == com.kilon.agentvscreen.host.ShizukuManager.State.READY) pv.label else com.kilon.agentvscreen.host.Privileged.notReadyHint().take(60),
+                onSelectedIndexChange = { i -> val v = com.kilon.agentvscreen.host.Privileged.Via.entries[i]
+                    if (v != pv.via) scope.launch(Dispatchers.IO) { com.kilon.agentvscreen.host.Privileged.choose(ctx, v) } })
             SwitchPreference(checked = s.accurateOcr, onCheckedChange = { BackgroundOperation.setAccurateOcr(it) },
                 title = tr("精确文字识别", "Accurate text recognition"), summary = tr("PP-OCRv6，在本机运行", "PP-OCRv6, on this phone"))
             SwitchPreference(checked = s.recording, onCheckedChange = { BackgroundOperation.setRecording(it) },
@@ -174,6 +178,12 @@ fun SettingsTab(bottom: Dp) {
                 Value(when { checking -> tr("检查中…", "Checking…"); newer != null -> tr("有新版本 ${newer!!.version}", "New: ${newer!!.version}"); else -> BuildConfig.VERSION_NAME },
                     if (newer != null) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantActions)
             }, onClick = { if (!checking) scope.launch { update = withContext(Dispatchers.IO) { Updates.check(ctx) } } })
+            // 1.4.2 (rainbow): which releases the check looks at.
+            var channel by remember { mutableStateOf(Updates.channel(ctx)) }
+            OverlayDropdownPreference(items = listOf(tr("正式版", "Releases"), tr("测试版（含正式版）", "Betas (and releases)")), selectedIndex = channel.ordinal,
+                title = tr("更新渠道", "Update channel"),
+                onSelectedIndexChange = { i -> val c = Updates.Channel.entries[i]; if (c != channel) { channel = c; Updates.setChannel(ctx, c)
+                    scope.launch { update = withContext(Dispatchers.IO) { Updates.check(ctx) } } } })
             ArrowPreference(title = tr("事件广播", "Event broadcast"), endActions = { Value(ApiConfig.eventTarget ?: tr("不广播", "Off")) }, onClick = { eventDialog = true })
             ArrowPreference(title = tr("操作日志", "Activity log"), summary = tr("agent 发来的每条命令", "Every command agents sent"), onClick = { nav.go(Route.Log) })
             ArrowPreference(title = tr("诊断", "Diagnostics"), onClick = { nav.go(Route.Diag) })
@@ -242,11 +252,12 @@ private fun UpdateDialog(u: Updates.Outcome, close: () -> Unit) {
     when (u) {
         is Updates.Outcome.Newer -> GlassDialog(
             onDismissRequest = close,
-            title = { DialogTitle(tr("新版本 ${u.r.version}", "New version ${u.r.version}")) },
+            title = { DialogTitle(if (u.r.prerelease || u.r.version.contains('-')) tr("测试版 ${u.r.version}", "Beta ${u.r.version}") else tr("新版本 ${u.r.version}", "New version ${u.r.version}")) },
             text = {
                 Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(tr("现在是 ${BuildConfig.VERSION_NAME}", "You have ${BuildConfig.VERSION_NAME}"), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    if (u.r.notes.isNotBlank()) Text(u.r.notes.take(3000), fontSize = 13.sp, lineHeight = 19.sp)
+                    // 1.4.2: the notes are Markdown (GitHub release body); shown rendered, not as raw marks.
+                    if (u.r.notes.isNotBlank()) MarkdownText(u.r.notes.take(6000))
                 }
             },
             confirmButton = { LinkButton(onClick = { view(u.r.apk ?: u.r.page) }) { Text(if (u.r.apk != null) tr("下载 APK", "Download APK") else tr("打开发布页", "Open the release")) } },
@@ -356,8 +367,8 @@ internal object H {
         "Blocked: the AI cannot open, read or operate the app in the background.\nRead-only: the AI can open, look and scroll, but not tap, type or swipe.\nAsk every time: before the AI taps or types, the phone asks you; once allowed it does not ask again for 5 minutes.\n\nApplies only to the background screen, not to your own use.")
     val tokens get() = tr("给每个 agent 单独发一个令牌：可以只给“只看”或“可操作”的权限，单独撤销，日志里也分得清是谁做的。不同令牌的 agent 互相抢不了对方的会话。\n\n免确认：这段时间里这个令牌连付款也不再问你（仍会记进日志）。只在你盯着它付款时开。",
         "Give each agent its own token: it can be limited to \"look only\" or \"operate\", revoked alone, and the log shows who did what. Agents with different tokens cannot take each other's sessions.\n\nNo confirmations: during this period this token is not asked even about payments (still logged). Turn it on only while you watch it pay.")
-    val window get() = tr("有副屏时在所有应用上方显示。拖动移动，双指缩放，推到屏幕边上收成胶囊，长按画面 1 秒接管。agent 在等你回答时，胶囊会变成紫色的问号。",
-        "Shown above all apps while there is a screen. Drag to move, pinch to resize, push to an edge to fold it into a tab, hold the picture 1 s to take over. While an agent waits for your answer, the tab turns into a violet question mark.")
+    val window get() = tr("有副屏时在所有应用上方显示。拖动移动，双指缩放，推到屏幕边上收成胶囊，长按画面 0.5 秒接管。agent 在等你回答时，胶囊会变成紫色的问号。",
+        "Shown above all apps while there is a screen. Drag to move, pinch to resize, push to an edge to fold it into a tab, hold the picture 0.5 s to take over. While an agent waits for your answer, the tab turns into a violet question mark.")
     val idle get() = tr("一轮结束后暂停副屏渲染，页面保留，下一条命令自动恢复。个别应用恢复时会重新加载，遇到可以关掉。", "Pauses rendering after a turn ends; the page is kept and the next command resumes it. A few apps reload on resume: turn this off if you see that.")
     val mute get() = tr("副屏里的应用不从手机放声音（视频、直播）。应用移到主屏、副屏释放时恢复声音；App 异常退出后，下次连接时先恢复。", "Apps on the background screen make no sound on the phone (videos, live streams). Their sound comes back when they move to the main screen or the screen is released; after a crash it is restored on the next connection.")
     val turn get() = tr("agent 安静多久算这一轮结束：之后副屏省电暂停，10 分钟后释放。agent 也可以用 vscreen done 马上结束。", "How long the agent stays quiet before its turn ends: the screen then pauses to save power and is released after 10 minutes. The agent can also end at once with vscreen done.")
@@ -367,7 +378,9 @@ internal object H {
         "An agent whose timed task uses the phone can book the time with vscreen schedule. 3 minutes before, the service is started and checked here, and you are notified if it is not ready.\n\nWhile the service is paused, the next booking turns it on; while it is off, a booking only notifies you.\n\nOpen one to change its time, repeat and length like an alarm; switching it off keeps it but it does not fire.")
     val audit get() = tr("每条命令都记在这里：谁（哪个令牌、哪台设备）、什么时候、做了什么、结果。输入的文字只记字数。", "Every command is recorded here: who (which token, which device), when, what, and the result. Typed text is recorded as a length only.")
     val events get() = tr("盯守看到条件时的事件默认只放进队列（agent 用 vscreen events 取）。填了包名才会另外广播给那一个应用，别的应用收不到。", "When a watch sees its condition the event is only queued by default (agents collect it with vscreen events). With a package here it is also broadcast to that one app; no other app receives it.")
-    val setup get() = tr("只用 Shizuku 这一条可共享的特权通道：不占用 adb，不改无线调试，不重启 adbd。每一项都只把本应用“加进去”，不动别的应用的设置。你的 agent 自己的 adb / Shizuku 照常用。", "Uses only Shizuku, a privilege channel that can be shared: adb is not taken, wireless debugging is not changed, adbd is not restarted. Each item only adds this app and leaves other apps' settings alone. Your agent's own adb / Shizuku keep working.")
+    val privilege get() = tr("Agent-VScreen 需要 shell 级权限来开副屏、点按和启动应用，有两种来源，二选一：\n\n• Shizuku（默认）：不需要 root。Shizuku 每次手机重启后要在它的 App 里重新启动。\n• Root：手机已用 Magisk、KernelSU、APatch 等 root 时可用，不需要装 Shizuku。第一次会弹 root 授权框，之后开机打开 App 就自动启动。副屏服务尽量以 shell 身份运行，和 Shizuku 的 ADB 模式完全一样。\n\n切换时当前副屏会关闭，下一条命令通过新来源自动重连。",
+        "Agent-VScreen needs shell-level permission to open the background screen, tap and start apps. It comes from one of two sources:\n\n• Shizuku (default): no root needed. Shizuku must be started again in its app after each phone restart.\n• Root: for phones rooted with Magisk, KernelSU, APatch and the like; Shizuku is not needed. The root manager asks once; after that it starts by itself when the app opens. The screen service runs as the shell user where it can, exactly as under Shizuku's ADB mode.\n\nSwitching closes the current screen; the next command reconnects through the new source by itself.")
+    val setup get() = tr("只用 Shizuku（或 Root）这一条特权通道：不占用 adb，不改无线调试，不重启 adbd。每一项都只把本应用“加进去”，不动别的应用的设置。你的 agent 自己的 adb / Shizuku 照常用。", "Uses only Shizuku (or root) as its privilege channel: adb is not taken, wireless debugging is not changed, adbd is not restarted. Each item only adds this app and leaves other apps' settings alone. Your agent's own adb / Shizuku keep working.")
     val diag get() = tr("出问题时把诊断信息发给开发者：版本、配置状态和最近日志（不含令牌、不含你输入的字）。", "When something goes wrong, send this to the developer: version, setup state and recent log (no token, nothing you typed).")
 }
 

@@ -387,9 +387,24 @@ internal object CommandSpec {
     }
 
     /** The argv of a structured call (MCP typed tool / HTTP `{"command":"act","args":…,"options":{…}}`). */
+    private fun singleTextArg(s: String): String {
+        val t = s.trim()
+        if (t.length >= 2 && ((t.startsWith('"') && t.endsWith('"') && '"' !in t.substring(1, t.length - 1)) ||
+                (t.startsWith('\'') && t.endsWith('\'') && '\'' !in t.substring(1, t.length - 1)))) {
+            return t.substring(1, t.length - 1)
+        }
+        return t
+    }
+
     fun argvOf(c: Cmd, args: String?, options: JSONObject?): List<String> {
         val out = arrayListOf(c.name)
-        args?.takeIf { it.isNotBlank() }?.let { a -> if (c.name == "act" || c.name == "title" || c.name == "launch") out += a else out += com.kilon.agentvscreen.api.ApiServer.splitCommand(a) }
+        args?.takeIf { it.isNotBlank() }?.let { a ->
+            when (c.name) {
+                "act", "title", "launch" -> out += a
+                "ask", "teach" -> out += singleTextArg(a)
+                else -> out += com.kilon.agentvscreen.api.ApiServer.splitCommand(a)
+            }
+        }
         if (options != null) for (o in c.allOpts) {
             val k = listOf(o.name, o.name.replace('-', '_')).firstOrNull { options.has(it) } ?: continue
             if (o.kind == Kind.SWITCH) { if (options.optBoolean(k, false)) out += "--${o.name}" }

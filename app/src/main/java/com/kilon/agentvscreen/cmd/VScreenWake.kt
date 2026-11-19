@@ -12,15 +12,16 @@ import org.json.JSONObject
 internal fun VScreenOffloadHandler.scheduleCmd(sid: String?, args: OffloadArgs): NativeOffloadResult {
     val p = args.positional
     val session = sid ?: VScreenOffloadHandler.DEFAULT_SESSION
+    val me = Call.current()?.tokenId ?: com.kilon.agentvscreen.api.Agents.ofSession(session)
     if (p.firstOrNull()?.lowercase() == "off") {
         val name = p.getOrNull(1) ?: throw ActionError("INVALID_ARGS", tr("schedule off <名字|all>", "schedule off <name|all>"))
-        // 1.4.0-beta7: only this agent's bookings.
-        val n = Wake.remove(context, name, com.kilon.agentvscreen.api.Agents.ofSession(session))
+        // 1.4.0-beta7 / 1.4.1-beta1: only this agent's bookings, keyed by (agentId, name).
+        val n = Wake.remove(context, name.takeUnless { it == "all" }, me)
         if (n == 0) throw ActionError("NOT_FOUND", tr("没有叫「$name」的预约：schedule 看列表", "no schedule called \"$name\": schedule lists them"))
-        return ok(args, JSONObject().put("removed", n).put("schedules", JSONArray(Wake.list(context).filter { com.kilon.agentvscreen.api.Agents.ofSession(it.session) == com.kilon.agentvscreen.api.Agents.ofSession(session) }.map { it.json() })))
+        return ok(args, JSONObject().put("removed", n).put("schedules", JSONArray(Wake.list(context).filter { it.agentId == me }.map { it.json() })))
     }
     if (p.isEmpty()) {
-        val list = Wake.list(context).filter { com.kilon.agentvscreen.api.Agents.ofSession(it.session) == com.kilon.agentvscreen.api.Agents.ofSession(session) }
+        val list = Wake.list(context).filter { it.agentId == me }
         return ok(args, JSONObject()
             .put("schedules", JSONArray(list.map { it.json() }))
             .put("exact_alarm", Wake.exactAllowed(context))
@@ -32,7 +33,7 @@ internal fun VScreenOffloadHandler.scheduleCmd(sid: String?, args: OffloadArgs):
     val text = p.joinToString(" ")
     val forMin = args.get("for")?.let { (parseDuration(it, 0L) / 60_000L).toInt() }?.let { bounded("for", it, 1, Wake.MAX_FOR_MIN) }
     val added = try {
-        Wake.add(context, args.get("name"), text, forMin, session, Call.current()?.tokenName ?: "main")
+        Wake.add(context, args.get("name"), text, forMin, session, Call.current()?.tokenName ?: "main", me)
     } catch (x: Wake.BadSpec) {
         throw ActionError("INVALID_ARGS", tr("看不懂时间「$text」：${x.message}。写法：\"07:00\"（每天）、\"07:00,19:30\"、\"weekdays 08:30\"、\"mon,wed,fri 21:00\"、\"every 2h from 08:00 to 22:00\"（间隔至少 ${Wake.MIN_EVERY_MIN} 分钟）；只约一次：\"today 10:30\"、\"tomorrow 07:00\"、\"once 10:30\"、\"11-15 10:30\"",
             "Cannot read the time \"$text\": ${x.message}. Forms: \"07:00\", \"07:00,19:30\", \"weekdays 08:30\", \"mon,wed,fri 21:00\", \"every 2h from 08:00 to 22:00\" (at least ${Wake.MIN_EVERY_MIN} minutes apart); once only: \"today 10:30\", \"tomorrow 07:00\", \"once 10:30\", \"11-15 10:30\""))

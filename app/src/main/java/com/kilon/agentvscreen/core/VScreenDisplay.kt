@@ -321,17 +321,29 @@ class VScreenDisplay private constructor(
     private val _previewVersion = MutableStateFlow(0L)
     val previewVersion: StateFlow<Long> = _previewVersion.asStateFlow()
 
-    /** A viewer shows the screen [longSidePx] long, and wants a picture every [intervalMs]. */
-    fun setPreview(intervalMs: Long, longSidePx: Int) {
+    private val viewers = mutableMapOf<Any, Pair<Long, Int>>()
+
+    @Synchronized fun setPreview(viewer: Any, intervalMs: Long, longSidePx: Int) {
+        if (released) return
+        viewers[viewer] = intervalMs to longSidePx
+        updatePreview()
+    }
+
+    @Synchronized fun clearPreview(viewer: Any) {
+        viewers.remove(viewer)
+        updatePreview()
+    }
+
+    private fun updatePreview() {
+        val longSidePx = viewers.values.maxOfOrNull { it.second } ?: 0
+        val intervalMs = viewers.values.minOfOrNull { it.first } ?: Long.MAX_VALUE
         val resized = longSidePx != previewLongSide
         val first = previewIntervalMs == Long.MAX_VALUE
         previewLongSide = longSidePx
         previewIntervalMs = intervalMs.coerceAtLeast(16L)
         // A still screen sends no frames: paint the viewer's picture from the frame we already have.
-        if (resized || first) pumpHandler?.post { latest?.let { paintPreview(it, it.width, it.height, 0) } }
+        if (longSidePx > 0 && (resized || first)) pumpHandler?.post { latest?.let { paintPreview(it, it.width, it.height, 0) } }
     }
-
-    fun clearPreview() { previewIntervalMs = Long.MAX_VALUE }
 
     /** The viewer's picture (scaled to the size it is shown at); null before the first one. Do not recycle it. */
     fun previewFrame(): Bitmap? = previewBitmap
@@ -454,28 +466,6 @@ class VScreenDisplay private constructor(
     fun requestFreshFrame() { lastConvertMs = 0L }
 
     /**
-     * Wait until the screen stops changing: [stableSamples] consecutive
-     * samples [sampleMs] apart with no visible change (structural signature),
-     * after at least [minMs], or until [timeoutMs]. Returns (frame, waitedMs,
-     * stable). A static screen produces no new frames, which counts as stable.
-     */
-    fun settle(minMs: Long = 300, timeoutMs: Long = 1_500, stableSamples: Int = 2, sampleMs: Long = 150): Triple<Bitmap?, Long, Boolean> {
-        val start = SystemClock.elapsedRealtime()
-        var prev: ScreenSig? = null
-        var same = 0
-        while (true) {
-            requestFreshFrame()
-            Thread.sleep(sampleMs)
-            val now = SystemClock.elapsedRealtime()
-            val sig = ScreenSig.of(latest)
-            if (sig != null && prev != null && sig.compare(prev).kind == ScreenSig.Kind.NONE) same++ else same = 0
-            prev = sig ?: prev
-            if (same >= stableSamples && now - start >= minMs) return Triple(latest, now - start, true)
-            if (now - start >= timeoutMs) return Triple(latest, now - start, false)
-        }
-    }
-
-    /**
      * A frame at least as new as [notOlderThanMs] (elapsed realtime), waiting
      * up to [timeoutMs] for one. Used by screenshots taken right after an
      * action, so the agent sees the result of what it just did.
@@ -513,7 +503,8 @@ class VScreenDisplay private constructor(
         }.getOrDefault(false)
         if (!queued) { runCatching { pending?.close() }; pending = null; runCatching { reader.close() } }
         com.kilon.agentvscreen.host.quiet("VScreenDisplay:418") { thread.quitSafely() }
-        previewIntervalMs = Long.MAX_VALUE; previewBitmap = null
+        synchronized(this) { viewers.clear(); previewIntervalMs = Long.MAX_VALUE }
+        previewBitmap = null
         latestRaw = null
     }
 

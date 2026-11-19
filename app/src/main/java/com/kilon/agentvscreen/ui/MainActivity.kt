@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 
 /**
- * 1.4: the activity only hosts the app (AppRoot: three tabs and a page stack) and does what needs an activity:
+ * 1.4: the activity only hosts the app (AppRoot: four tabs and a page stack) and does what needs an activity:
  * the clipboard, the Shizuku permission request, recreating for a new language. Short results go to the snackbar.
  */
 class MainActivity : ComponentActivity(), AppHost {
@@ -78,8 +78,8 @@ class MainActivity : ComponentActivity(), AppHost {
         if (Prefs.serviceOn(this)) HostService.start(this)
         com.kilon.agentvscreen.host.Updates.checkDaily(this)
         Overlay.refresh()
-        // Shizuku's answer can change while we are away: read it again.
-        ShizukuManager.refresh()
+        // Shizuku's (or root's) answer can change while we are away: read it again.
+        com.kilon.agentvscreen.host.Privileged.refresh()
     }
 
     override fun say(text: String) { lifecycleScope.launch { snack.showSnackbar(text) } }
@@ -99,7 +99,7 @@ class MainActivity : ComponentActivity(), AppHost {
         }
         when (ShizukuManager.requestPermission()) {
             ShizukuBackend.Ask.ALREADY -> say(tr("Shizuku 已授权", "Shizuku is authorized"))
-            ShizukuBackend.Ask.NO_BINDER -> { ShizukuManager.openShizukuApp(this); say(tr("Shizuku 没在运行：先在 Shizuku 里启动它", "Shizuku is not running: start it in Shizuku first")) }
+            ShizukuBackend.Ask.NO_BINDER -> { ShizukuManager.openShizukuApp(this); say(ShizukuManager.missingBinderHint()) }
             ShizukuBackend.Ask.DENIED_ON_RECORD, ShizukuBackend.Ask.FAILED -> inManager()
             // A dialog should show; if no answer comes within 8 s, the request went nowhere.
             ShizukuBackend.Ask.ASKED -> window.decorView.postDelayed({

@@ -80,6 +80,28 @@ internal object VScreenPaddleOcr {
         } finally { bmp.recycle() }
     }
 
+    /**
+     * 1.4.1-beta1: unpack an asset ONNX model to noBackupFilesDir once per app version via a small streaming buffer,
+     * so ONNX Runtime loads directly from a file path instead of copying megabytes into a JVM ByteArray on cold start.
+     */
+    internal fun modelFile(context: Context, name: String): java.io.File {
+        val root = java.io.File(context.noBackupFilesDir ?: context.filesDir, DIR).apply { mkdirs() }
+        val out = java.io.File(root, name)
+        val stamp = java.io.File(root, "$name.ver")
+        val want = com.kilon.agentvscreen.BuildConfig.VERSION_CODE.toString()
+        if (out.isFile && out.length() > 0L && stamp.isFile && runCatching { stamp.readText().trim() }.getOrNull() == want) return out
+        val tmp = java.io.File(root, "$name.tmp")
+        context.assets.open("$DIR/$name").use { input ->
+            java.io.FileOutputStream(tmp).use { output -> input.copyTo(output, 8192) }
+        }
+        if (!tmp.renameTo(out)) {
+            tmp.copyTo(out, overwrite = true)
+            tmp.delete()
+        }
+        runCatching { stamp.writeText(want) }
+        return out
+    }
+
     @Synchronized
     private fun engine(context: Context): Engine {
         engine?.let { return it }
@@ -90,11 +112,11 @@ internal object VScreenPaddleOcr {
             // beta1's phone that rewrite asked for a kernel the runtime does not have. A model that cannot be built that
             // way is built again without the CPU-specific rewrite (plain kernels, the same answers), and that is logged.
             fun session(name: String): OrtSession {
-                val bytes = context.assets.open("$DIR/$name").use { it.readBytes() }
-                fun build(level: OrtSession.SessionOptions.OptLevel): OrtSession = env.createSession(bytes, OrtSession.SessionOptions().apply {
+                val path = modelFile(context, name).absolutePath
+                fun build(level: OrtSession.SessionOptions.OptLevel): OrtSession = OrtSession.SessionOptions().apply {
                     setIntraOpNumThreads(max(1, min(4, Runtime.getRuntime().availableProcessors() / 2)))
                     setOptimizationLevel(level)
-                })
+                }.use { opts -> env.createSession(path, opts) }
                 return try { build(OrtSession.SessionOptions.OptLevel.ALL_OPT) } catch (e: ai.onnxruntime.OrtException) {
                     AppLogger.warning(TAG, "$name at ALL_OPT failed (${e.message?.take(200)}); building at EXTENDED_OPT")
                     optNote = "$name: EXTENDED_OPT (${e.message?.take(120)})"
@@ -113,13 +135,46 @@ internal object VScreenPaddleOcr {
         }
     }
 
-    /** Items in frame pixels. Throws on any failure. Not on the main thread. One reading at a time (v44: callers on several threads). */
-    @Synchronized
+    /** 1.4.2: the longest one accurate reading may take before the caller falls back to ML Kit. */
+    internal const val TIMEOUT_MS = 15_000L
+    /** One reading at a time (v44: callers on several threads); the ONNX sessions are used by one reader. */
+    private val reading = java.util.concurrent.locks.ReentrantLock()
+    @Volatile private var stuckSince = 0L
+
+    /**
+     * Items in frame pixels. Throws on any failure. Not on the main thread.
+     *
+     * 1.4.2: with a deadline. The native inference has no timeout of its own, and before, one stuck reading held the
+     * engine forever: every later read queued behind it and the agent's call never came back. Now the reading runs on
+     * its own thread and the caller waits at most [TIMEOUT_MS], then gets an error (VScreenOcr falls back to ML Kit and
+     * says so). A stuck native call cannot be stopped: its thread stays until the call returns, and while it does,
+     * later readings fail at once instead of queueing, then recover by themselves.
+     */
     fun recognize(context: Context, frame: Bitmap): List<VScreenOcr.Item> {
-        val e = engine(context)
-        val boxes = detect(e, frame)
-        if (boxes.isEmpty()) return emptyList()
-        return recognizeBoxes(e, frame, boxes)
+        val since = stuckSince
+        if (since != 0L && reading.isLocked) error("PP-OCRv6 busy: a reading has not finished for ${(android.os.SystemClock.elapsedRealtime() - since) / 1000} s")
+        val task = java.util.concurrent.FutureTask {
+            reading.lock()
+            try {
+                val e = engine(context)
+                val boxes = detect(e, frame)
+                if (boxes.isEmpty()) emptyList() else recognizeBoxes(e, frame, boxes)
+            } finally {
+                stuckSince = 0L
+                reading.unlock()
+            }
+        }
+        Thread(task, "vscreen-ocr").apply { isDaemon = true }.start()
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        return try {
+            task.get(TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: java.util.concurrent.TimeoutException) {
+            if (stuckSince == 0L) stuckSince = t0
+            AppLogger.warning(TAG, "PP-OCRv6 no result in ${TIMEOUT_MS}ms")
+            error("PP-OCRv6 timed out after ${TIMEOUT_MS / 1000} s")
+        } catch (e: java.util.concurrent.ExecutionException) {
+            throw e.cause ?: e
+        }
     }
 
     // ── detection ─────────────────────────────────────────────────────────

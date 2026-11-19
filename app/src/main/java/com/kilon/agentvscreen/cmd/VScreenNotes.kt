@@ -90,7 +90,7 @@ internal fun VScreenOffloadHandler.noteCmd(sid: String?, args: OffloadArgs): Nat
             Steps.parseAll(body)
             val had = VScreenMap.segment(pkg, name) != null
             VScreenMap.saveSegment(pkg, name, body)
-            val n = Regex("\\{(\\d)\\}").findAll(body).maxOfOrNull { it.groupValues[1].toInt() } ?: 0
+            val n = Regex("\\{([1-9]\\d*)\\}").findAll(body).maxOfOrNull { it.groupValues[1].toInt() } ?: 0
             val use = "use $name" + (1..n).joinToString("") { " <$it>" }
             tr("已${if (had) "改写" else "存下"} $pkg 的段“$name”（没有执行）。用：act \"$use\"", "${if (had) "Rewrote" else "Saved"} $pkg's segment \"$name\" (not run). Run it: act \"$use\"")
         }
@@ -99,7 +99,7 @@ internal fun VScreenOffloadHandler.noteCmd(sid: String?, args: OffloadArgs): Nat
             val name = p.drop(1).joinToString(" ").trim().ifEmpty { throw ActionError("INVALID_ARGS", tr("note show <段名>", "note show <segment>")) }
             val seg = VScreenMap.segment(pkg, name) ?: throw ActionError("NOT_FOUND", tr("$pkg 没有叫“$name”的段（note 列出全部）", "$pkg has no segment called \"$name\" (note lists them)"))
             val lines = Steps.outline(seg.steps).mapIndexed { i, (depth, line) -> "  " + "  ".repeat(depth) + line }
-            val pic = VScreenMap.picture(pkg, name)?.let { f -> runCatching { android.graphics.BitmapFactory.decodeFile(f.path) }.getOrNull() }?.let { ShotStore.save(context, it, "lesson") }
+            val pic = VScreenMap.picture(pkg, name)?.let { f -> runCatching { android.graphics.BitmapFactory.decodeFile(f.path) }.getOrNull() }?.let { bmp -> try { ShotStore.save(context, bmp, "lesson") } finally { bmp.recycle() } }
             val picLine = when {
                 pic == null -> tr("没有缩略图（不是示教存的，或是 1.3.0 以前存的）", "No thumbnails (not taught, or saved before 1.3.0)")
                 VScreenMap.pictureStale(pkg, name) -> tr("示教缩略图（步骤后来改写过，图是改写前录的，序号可能对不上）：$pic", "Lesson thumbnails (the steps were rewritten later; the picture is from before, numbers may not match): $pic")
@@ -138,21 +138,21 @@ internal fun VScreenOffloadHandler.noteCmd(sid: String?, args: OffloadArgs): Nat
 /** `keep` — the watches kept after turns; `keep off <名字|all>` — stop them. Started by `act --stop … --keep notify|wake`. */
 internal fun VScreenOffloadHandler.keepCmd(sid: String?, args: OffloadArgs): NativeOffloadResult {
     val p = args.positional
-    // 1.4.0-beta7: an agent lists and stops its own watches only (another agent's `keep off all` left this one's gone).
-    val me = com.kilon.agentvscreen.api.Agents.ofSession(sid ?: VScreenOffloadHandler.DEFAULT_SESSION)
-    fun mine(l: VScreenRules.Live) = com.kilon.agentvscreen.api.Agents.ofSession(l.spec.sid) == me
+    // 1.4.0-beta7 / 1.4.1-beta1: each agent owns its own (agentId, name) namespace of watches.
+    val me = Call.current()?.tokenId ?: com.kilon.agentvscreen.api.Agents.ofSession(sid ?: VScreenOffloadHandler.DEFAULT_SESSION)
+    fun mine(l: VScreenRules.Live) = l.spec.agentId == me
     if (p.firstOrNull()?.lowercase() == "off") {
         val name = p.getOrNull(1) ?: throw ActionError("INVALID_ARGS", tr("keep off <名字|all>", "keep off <name|all>"))
         // 1.1: ended watches (seen / timed out) stay listed until cleared; off clears them too.
         if (name == "all") {
             val own = VScreenRules.list().filter(::mine)
-            val stopped = own.count { !it.stopped && VScreenRules.stop(it.spec.name) }
-            val cleared = own.filter { it.stopped }.sumOf { VScreenRules.clearEnded(it.spec.name) }
+            val stopped = own.count { !it.stopped && VScreenRules.stop(me, it.spec.name) }
+            val cleared = VScreenRules.clearEnded(me, null)
             return text(tr("已停 $stopped 个正在盯的", "Stopped $stopped running watches") + if (cleared > 0) tr("，清掉 $cleared 条已结束的", ", cleared $cleared ended ones") else "")
         }
+        if (VScreenRules.stop(me, name)) { VScreenRules.clearEnded(me, name); return text(tr("已停「$name」", "Stopped \"$name\"")) }
+        if (VScreenRules.clearEnded(me, name) > 0) return text(tr("「$name」已经结束了，已从列表清掉", "\"$name\" had already ended; cleared from the list"))
         if (VScreenRules.list().any { it.spec.name == name && !mine(it) }) throw ActionError("NOT_FOUND", tr("没有叫「$name」的盯守（同名的那个是别的 agent 的）：keep 看你的列表", "no watch of yours called \"$name\" (that one is another agent's): keep lists yours"))
-        if (VScreenRules.stop(name)) { VScreenRules.clearEnded(name); return text(tr("已停「$name」", "Stopped \"$name\"")) }
-        if (VScreenRules.clearEnded(name) > 0) return text(tr("「$name」已经结束了，已从列表清掉", "\"$name\" had already ended; cleared from the list"))
         throw ActionError("NOT_FOUND", tr("没有叫「$name」的盯守：keep 看列表", "no watch called \"$name\": keep lists them"))
     }
     if (p.isNotEmpty()) throw ActionError("INVALID_ARGS", tr("keep（列表）| keep off <名字|all>。开始盯守用 act --stop \"条件\" --keep notify|wake [--for 1h]", "keep (list) | keep off <name|all>. Start a watch with act --stop \"condition\" --keep notify|wake [--for 1h]"))

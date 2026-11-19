@@ -2,12 +2,9 @@ package com.kilon.agentvscreen.core
 
 import com.kilon.agentvscreen.tr
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Bitmap
-import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -22,8 +19,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /**
  * [vscreen] 后台操作 — the coordinator behind Settings › 会话 › 后台操作,
@@ -55,8 +50,6 @@ object BackgroundOperation {
     private const val K_ACCURATE_OCR = "accurate_ocr_enabled"
     private const val K_RECORDING = "recording_enabled"
     private const val K_WIN_SCALE = "window_scale"
-    private const val K_WIN_RIGHT = "window_right"
-    private const val K_WIN_Y = "window_y_fraction"
     private const val K_SCREEN_SIZE = "screen_size"
 
     /** How long a screen survives with no task using it. */
@@ -304,8 +297,8 @@ object BackgroundOperation {
     /** Re-read Shizuku, accessibility and main-screen metrics. Cheap; call from UI. */
     fun refreshStatus() {
         val context = appContext ?: return
-        ShizukuManager.refresh()
-        val snap = ShizukuManager.snapshot.value
+        com.kilon.agentvscreen.host.Privileged.refresh()
+        val snap = com.kilon.agentvscreen.host.Privileged.snapshot.value
         val priv = when (snap.state) {
             ShizukuManager.State.READY -> Privilege.READY
             ShizukuManager.State.NEED_PERMISSION -> Privilege.NOT_AUTHORIZED
@@ -326,7 +319,7 @@ object BackgroundOperation {
             if (next.connection == Connection.READY && priv != Privilege.READY) {
                 next = next.copy(
                     connection = Connection.ERROR,
-                    connectionError = tr("特权连接已断开（Shizuku ${priv.label()}）", "Privileged connection lost (Shizuku ${priv.label()})"),
+                    connectionError = tr("特权连接已断开（${com.kilon.agentvscreen.host.Privileged.name()} ${priv.label()}）", "Privileged connection lost (${com.kilon.agentvscreen.host.Privileged.name()} ${priv.label()})"),
                     needsExplicitReconnect = true,
                 )
             }
@@ -347,13 +340,10 @@ object BackgroundOperation {
         refreshStatus()
         val s = _state.value
         val error: String? = when (s.privilege) {
-            Privilege.NOT_INSTALLED -> tr("未安装 Shizuku：请用户安装并启动 Shizuku（或 Sui），再打开 Agent-VScreen 授权", "Shizuku is not installed: ask the user to install and start Shizuku (or Sui), then grant it in Agent-VScreen")
-            Privilege.NOT_RUNNING -> tr("Shizuku 服务未启动，请用无线调试启动后重试", "The Shizuku service is not running: start it (e.g. with wireless debugging) and retry")
-            Privilege.NOT_AUTHORIZED -> tr("Agent-VScreen 尚未获得 Shizuku 授权", "Agent-VScreen has no Shizuku permission yet")
+            Privilege.NOT_INSTALLED, Privilege.NOT_RUNNING, Privilege.NOT_AUTHORIZED -> com.kilon.agentvscreen.host.Privileged.notReadyHint()
             Privilege.READY -> {
                 val r = VScreenShell.run(arrayOf("id"), 5_000L)
                 if (r.exitCode != 0) tr("特权通道无响应：${r.combined.take(160)}", "The privileged channel does not answer: ${r.combined.take(160)}")
-                else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) tr("需要 Android 10 及以上（副屏输入定位）", "Needs Android 10 or later (input targeting on the screen)")
                 else null
             }
         }
@@ -363,6 +353,16 @@ object BackgroundOperation {
         }
         AppLogger.info(TAG, "connect -> ${_state.value.connection} ${error ?: ""}")
         return _state.value
+    }
+
+    /**
+     * 1.4.2-beta3: the user switched the way in (Shizuku <-> root). The screen belongs to the old service, so it is
+     * released; the next command connects through the new one by itself (this is not a stop).
+     */
+    fun privilegeChanged() {
+        releaseScreen(tr("换了权限来源", "Permission source changed"))
+        _state.update { it.copy(connection = Connection.DISCONNECTED, connectionError = null, needsExplicitReconnect = false, operating = false) }
+        refreshStatus()
     }
 
     /** 停止并释放: stop operating, destroy the screen; reuse needs an explicit connect. */
@@ -436,6 +436,8 @@ object BackgroundOperation {
         // is released (before, it read a destroyed screen for up to 10 s and the end picture was blank).
         if (com.kilon.agentvscreen.cmd.Teach.lesson.value is com.kilon.agentvscreen.cmd.Lesson.Recording)
             runCatching { com.kilon.agentvscreen.cmd.Teach.endRecording(appContext, byDone = false, screenGone = true, endWaitMs = 800L) }
+        // 1.4.2: the open task keeps the screen as it is left (the home page's resting picture), before it goes.
+        _state.value.ownerSessionId?.let { TaskLog.captureNow(it) }
         val d = synchronized(lock) { display.also { display = null } } ?: return
         // Close whatever app was left on the screen so it does not hop to the
         // main display when its display disappears.
@@ -480,6 +482,7 @@ object BackgroundOperation {
     fun onTaskFinished(sessionId: String) {
         if (sessionId.isEmpty()) return
         synchronized(lock) { tasks.remove(sessionId); turns.remove(sessionId) }
+        TaskLog.captureNow(sessionId)
         TaskLog.onTurnEnd(sessionId, _state.value.userStopped)
         appContext?.let { c -> com.kilon.agentvscreen.host.UserAsk.withdrawSession(c, sessionId) }
         // 1.4.0-beta10: a lesson the user took is theirs to finish; the agent's turn ending does not end it (withdraw
@@ -534,6 +537,8 @@ object BackgroundOperation {
         _state.update { it.copy(userStopped = false, stoppedAt = 0L, takeoverSessionId = null) }
         if (s.takeoverSessionId != null) com.kilon.agentvscreen.cmd.Teach.onTakeoverEnded(appContext)
         AppLogger.info(TAG, "user allowed the AI to continue")
+        // 1.4.2: handing back the user's own screen ends their turn: it idles, and the next agent may take it over.
+        if (ManualScreen.isManual(s.ownerSessionId)) { ManualScreen.end(); return }
         // 1.3.0-beta16: the agent hears it (vscreen events) instead of finding out on its next call.
         if (s.takeoverSessionId != null || s.userStopped) s.ownerSessionId?.let { sid ->
             appContext?.let { c -> com.kilon.agentvscreen.host.quiet("handback-event") {
@@ -554,6 +559,12 @@ object BackgroundOperation {
     fun closeWindow(): String {
         val s = _state.value
         val owner = s.ownerSessionId ?: return tr("没有副屏", "No screen")
+        // 1.4.2: the user's own screen (opened from the app) closes when they close its window.
+        if (ManualScreen.isManual(owner)) {
+            _state.update { it.copy(windowHidden = false) }
+            ManualScreen.end { releaseScreen(tr("你关闭了自己打开的副屏", "You closed the screen you opened")) }
+            return tr("副屏已关闭", "Screen closed")
+        }
         val turnRunning = synchronized(lock) { owner in turns }
         if (s.userStopped || !turnRunning) {
             releaseScreen(if (s.userStopped) tr("你从悬浮窗关闭了副屏（AI 仍处于停止状态）", "You closed the screen from the floating window (the AI is still stopped)") else tr("你从悬浮窗关闭了副屏", "You closed the screen from the floating window"))
@@ -589,19 +600,6 @@ object BackgroundOperation {
     fun setTitle(sessionId: String, title: String?) {
         if (_state.value.ownerSessionId != null && _state.value.ownerSessionId != sessionId) return
         _state.update { it.copy(agentTitle = title?.trim()?.take(40)?.takeIf { t -> t.isNotEmpty() }) }
-    }
-
-    /** User touch while holding the screen. Maps preview coordinates already converted to screen px. */
-    fun userTap(sessionId: String, x: Int, y: Int) = userInput(sessionId) { VScreenShell.tap(it, x, y) }
-
-    fun userSwipe(sessionId: String, x1: Int, y1: Int, x2: Int, y2: Int, ms: Int) =
-        userInput(sessionId) { VScreenShell.swipe(it, x1, y1, x2, y2, ms) }
-
-    private fun userInput(sessionId: String, op: (Int) -> VScreenShell.Outcome) {
-        val s = _state.value
-        val id = s.displayId ?: return
-        if (s.takeoverSessionId != sessionId) return
-        Thread { runCatching { op(id) } }.apply { isDaemon = true; name = "vscreen-user-input" }.start()
     }
 
     // ── agent side ─────────────────────────────────────────────────────────
@@ -842,7 +840,10 @@ object BackgroundOperation {
     /** 1.1: BUSY says who owns the screen, when it will be free by itself, and how the owner frees it now. */
     private fun busy(owner: String?, sid: String): ActionError = com.kilon.agentvscreen.host.Needs.refused(sid, owner).let { busyError(owner) }
 
-    private fun busyError(owner: String?): ActionError = ActionError("BUSY",
+    private fun busyError(owner: String?): ActionError = if (ManualScreen.isManual(owner)) ActionError("BUSY",
+        data = org.json.JSONObject().put("owner", "user").put("frees_in_s", org.json.JSONObject.NULL),
+        message = tr("用户正在副屏上手动用应用（自己打开的）。等用户交还副屏后再用；不要催，也不要换别的办法绕开",
+            "The user is using an app on the background screen themselves (they opened it). Wait until they hand the screen back; don't press them or work around it")) else ActionError("BUSY",
         data = org.json.JSONObject().put("owner", owner ?: org.json.JSONObject.NULL)
             .put("frees_in_s", owner?.let { ownerFreesInMs(it) }?.let { (it + 999) / 1000 } ?: org.json.JSONObject.NULL),
         message =
@@ -1000,14 +1001,8 @@ object BackgroundOperation {
 
     private fun mainScreenMetrics(context: Context): Triple<Int, Int, Int> {
         val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val b = wm.maximumWindowMetrics.bounds
-            Triple(b.width(), b.height(), context.resources.configuration.densityDpi)
-        } else {
-            val m = DisplayMetrics()
-            @Suppress("DEPRECATION") wm.defaultDisplay.getRealMetrics(m)
-            Triple(m.widthPixels, m.heightPixels, m.densityDpi)
-        }
+        val b = wm.maximumWindowMetrics.bounds
+        return Triple(b.width(), b.height(), context.resources.configuration.densityDpi)
     }
 
     fun Privilege.label(): String = when (this) {

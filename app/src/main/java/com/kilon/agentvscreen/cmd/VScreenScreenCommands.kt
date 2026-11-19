@@ -3,18 +3,13 @@ package com.kilon.agentvscreen.cmd
 import com.kilon.agentvscreen.tr
 
 import android.content.Intent
-import android.graphics.Rect
 import android.os.SystemClock
-import android.view.accessibility.AccessibilityNodeInfo
 import com.kilon.agentvscreen.host.VScreenAccessibilityService
 import com.kilon.agentvscreen.cmd.NativeOffloadResult
 import com.kilon.agentvscreen.core.BackgroundOperation
-import com.kilon.agentvscreen.core.BackgroundOperation.ActionError
-import com.kilon.agentvscreen.core.ScreenSig
 import com.kilon.agentvscreen.core.VScreenDisplay
 import com.kilon.agentvscreen.core.VScreenDisplayService
 import com.kilon.agentvscreen.core.VScreenRemoteDisplay
-import com.kilon.agentvscreen.core.VScreenDownscale
 import com.kilon.agentvscreen.core.VScreenOcr
 import com.kilon.agentvscreen.core.VScreenRules
 import com.kilon.agentvscreen.core.VScreenShell
@@ -22,8 +17,6 @@ import com.kilon.agentvscreen.core.VScreenStore
 import com.kilon.agentvscreen.core.Vendor
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
-import kotlin.math.roundToInt
 import com.kilon.agentvscreen.cmd.VScreenOffloadHandler.Companion.lastActivity
 
 // [vscreen] vscreen — 副屏与诊断：status / fix / apps.
@@ -32,20 +25,27 @@ import com.kilon.agentvscreen.cmd.VScreenOffloadHandler.Companion.lastActivity
 private val AUTO_FIXABLE = setOf("background_network", "not_connected", "no_accessibility", "app_owned_display", "a11y_not_ready", "accessibility_cannot_see_display",
     "not_foreground_service", "remote_down", "silent_apps")
 
-private val FIX_WHAT = mapOf(
-    "not_connected" to tr("重新连接特权通道", "reconnect the privileged channel"),
-    "not_foreground_service" to tr("先加电池白名单，再把服务重新启动成前台服务；系统仍不允许时请用户打开一次 App", "grant the battery exemption, then start the service again as a foreground service; if the system still refuses, ask the user to open the app once"),
-    "remote_down" to tr("重启内置 Tailscale 并等它连上；要登录或批准时说明用户要做什么", "restart the built-in Tailscale and wait for it to connect; say what the user must do when it needs a login or approval"),
-    "silent_apps" to tr("把被留下静音的应用（不含手动静音的和正在副屏上的）恢复声音并逐个核实；fix 不带参数时总会检查", "give sound back to apps left silent (not the ones muted by hand or on the screen now), each read back; fix without arguments always checks this"),
-    "frozen_in_background" to tr("用 Shizuku 加电池白名单和后台运行许可，并说明厂商后台管理里要用户手动打开的项", "grant the battery exemption and background running via Shizuku, and explain what the user must allow by hand in the vendor's background management"),
-    "no_privilege" to tr("Shizuku 未启动/未授权：给出用户步骤，--open 在主屏打开 Shizuku", "Shizuku not running / not granted: give the user the steps; --open opens Shizuku on the main screen"),
-    "no_accessibility" to tr("通过 Shizuku 打开 Agent-VScreen 的无障碍服务（改系统设置）", "turn on Agent-VScreen's accessibility service via Shizuku (changes system settings)"),
-    "app_owned_display" to tr("重新连接并释放旧副屏，下次 launch 用 Shizuku 副屏", "reconnect and release the old screen; the next launch uses a Shizuku screen"),
-    "no_display_focus" to tr("系统版本限制（需 Android 14+），无法修复", "system version limit (needs Android 14+), cannot be fixed"),
-    "accessibility_cannot_see_display" to tr("重启无障碍服务后重新检查", "restart the accessibility service and check again"),
-    "a11y_not_ready" to tr("等待并重新检查控件树", "wait and check the widget tree again"),
-    "background_network" to tr("通过 Shizuku 把 Agent-VScreen 加入电池优化/后台运行/后台数据白名单（改系统设置）；没有 Shizuku 时给出手动步骤", "exempt Agent-VScreen from battery optimization / background limits / background data limits via Shizuku (changes system settings); without Shizuku, give manual steps"),
+private val FIX_KEYS = listOf(
+    "not_connected", "not_foreground_service", "remote_down", "silent_apps", "frozen_in_background",
+    "no_privilege", "no_accessibility", "app_owned_display", "no_display_focus",
+    "accessibility_cannot_see_display", "a11y_not_ready", "background_network",
 )
+
+private fun fixWhat(code: String): String? = when (code) {
+    "not_connected" -> tr("重新连接特权通道", "reconnect the privileged channel")
+    "not_foreground_service" -> tr("先加电池白名单，再把服务重新启动成前台服务；系统仍不允许时请用户打开一次 App", "grant the battery exemption, then start the service again as a foreground service; if the system still refuses, ask the user to open the app once")
+    "remote_down" -> tr("重启内置 Tailscale 并等它连上；要登录或批准时说明用户要做什么", "restart the built-in Tailscale and wait for it to connect; say what the user must do when it needs a login or approval")
+    "silent_apps" -> tr("把被留下静音的应用（不含手动静音的和正在副屏上的）恢复声音并逐个核实；fix 不带参数时总会检查", "give sound back to apps left silent (not the ones muted by hand or on the screen now), each read back; fix without arguments always checks this")
+    "frozen_in_background" -> tr("用 Shizuku 加电池白名单和后台运行许可，并说明厂商后台管理里要用户手动打开的项", "grant the battery exemption and background running via Shizuku, and explain what the user must allow by hand in the vendor's background management")
+    "no_privilege" -> tr("Shizuku 未启动/未授权：给出用户步骤，--open 在主屏打开 Shizuku", "Shizuku not running / not granted: give the user the steps; --open opens Shizuku on the main screen")
+    "no_accessibility" -> tr("通过 Shizuku 打开 Agent-VScreen 的无障碍服务（改系统设置）", "turn on Agent-VScreen's accessibility service via Shizuku (changes system settings)")
+    "app_owned_display" -> tr("重新连接并释放旧副屏，下次 launch 用 Shizuku 副屏", "reconnect and release the old screen; the next launch uses a Shizuku screen")
+    "no_display_focus" -> tr("系统版本限制（需 Android 14+），无法修复", "system version limit (needs Android 14+), cannot be fixed")
+    "accessibility_cannot_see_display" -> tr("重启无障碍服务后重新检查", "restart the accessibility service and check again")
+    "a11y_not_ready" -> tr("等待并重新检查控件树", "wait and check the widget tree again")
+    "background_network" -> tr("通过 Shizuku 把 Agent-VScreen 加入电池优化/后台运行/后台数据白名单（改系统设置）；没有 Shizuku 时给出手动步骤", "exempt Agent-VScreen from battery optimization / background limits / background data limits via Shizuku (changes system settings); without Shizuku, give manual steps")
+    else -> null
+}
 
 
 
@@ -65,13 +65,14 @@ internal fun VScreenOffloadHandler.status(sid: String?, args: OffloadArgs): Nati
     val d = BackgroundOperation.previewDisplayFor(sid ?: "")
     val idleAt = BackgroundOperation.idleReleaseAt
     // 1.3: the one yes/no an agent (above all a timed one) reads first; the same rules as ping and the schedule check.
+    val me = Call.current()?.tokenId ?: com.kilon.agentvscreen.api.Agents.ofSession(sid ?: VScreenOffloadHandler.DEFAULT_SESSION)
     val readiness = com.kilon.agentvscreen.host.Readiness.now(context)
     val data = JSONObject()
         .put("ready", com.kilon.agentvscreen.host.Readiness.ready(readiness))
         .put("readiness", com.kilon.agentvscreen.host.Readiness.json(readiness))
         .put("app_version", com.kilon.agentvscreen.BuildConfig.VERSION_NAME)
-        .put("your_note_version", com.kilon.agentvscreen.api.AgentLedger.ackVersion(Call.current()?.tokenId ?: "main").let { if (it <= 0) JSONObject.NULL else com.kilon.agentvscreen.api.AgentNews.nameOf(it) })
-        .put("schedules", JSONArray(com.kilon.agentvscreen.host.Wake.list(context).map { it.json() }))
+        .put("your_note_version", com.kilon.agentvscreen.api.AgentLedger.ackVersion(me).let { if (it <= 0) JSONObject.NULL else com.kilon.agentvscreen.api.AgentNews.nameOf(it) })
+        .put("schedules", JSONArray(com.kilon.agentvscreen.host.Wake.list(context).filter { it.agentId == me }.map { it.json() }))
         .put("enabled", s.enabled)
         .put("connection", s.connection.name)
         .put("connection_error", s.connectionError ?: JSONObject.NULL)
@@ -114,7 +115,7 @@ internal fun VScreenOffloadHandler.status(sid: String?, args: OffloadArgs): Nati
         .put("power_saving", s.powerSaving)
         .put("background_network", com.kilon.agentvscreen.core.VScreenPower.check(context).json())
         .put("app_rules", JSONObject().also { o -> VScreenStore.rules.value.forEach { (k, v) -> o.put(k, v.key) } })
-        .put("keeps", JSONArray(VScreenRules.list().map { it.json() }))
+        .put("keeps", JSONArray(VScreenRules.list().filter { it.spec.agentId == me }.map { it.json() }))
         .put("idle_release_in_s", if (idleAt > 0) ((idleAt - SystemClock.elapsedRealtime()) / 1000).coerceAtLeast(0) else JSONObject.NULL)
         .also { o -> BackgroundOperation.hostRestartNote?.let { o.put("host_restarted", it) } }
         .put("version", JSONObject().put("app", com.kilon.agentvscreen.BuildConfig.VERSION_NAME).put("code", com.kilon.agentvscreen.BuildConfig.VERSION_CODE)
@@ -160,7 +161,7 @@ internal fun VScreenOffloadHandler.status(sid: String?, args: OffloadArgs): Nati
         for (i in 0 until deg.length()) {
             val code = deg.getString(i)
             fixes.put(JSONObject().put("code", code).put("command", "vscreen fix $code")
-                .put("auto", code in AUTO_FIXABLE).put("what", FIX_WHAT[code] ?: tr("说明原因和用户要做的步骤", "explain the cause and the user's steps")))
+                .put("auto", code in AUTO_FIXABLE).put("what", fixWhat(code) ?: tr("说明原因和用户要做的步骤", "explain the cause and the user's steps")))
         }
         data.put("fixes", fixes).put("fix_hint", tr("vscreen fix（不带参数）会依次处理全部问题；会改系统设置的步骤先征得用户同意", "vscreen fix (no arguments) handles every problem in turn; ask the user before steps that change system settings"))
     }
@@ -170,10 +171,10 @@ internal fun VScreenOffloadHandler.status(sid: String?, args: OffloadArgs): Nati
 
 /** Accessibility as it is right now (not the cached status), waiting up to [waitMs] for it to bind. */
 internal fun VScreenOffloadHandler.a11yLive(waitMs: Long = 0): Boolean {
-    val t0 = SystemClock.elapsedRealtime()
+    val deadline = System.nanoTime() + waitMs * 1_000_000L
     while (true) {
         if (VScreenAccessibilityService.getInstance() != null) return true
-        if (SystemClock.elapsedRealtime() - t0 >= waitMs) return false
+        if (System.nanoTime() >= deadline) return false
         Thread.sleep(150)
     }
 }
@@ -291,7 +292,7 @@ internal fun VScreenOffloadHandler.fixOne(sid: String?, code: String, args: Offl
             val (ok, msg) = com.kilon.agentvscreen.host.Heal.power(context)
             (ok && !com.kilon.agentvscreen.host.Liveness.frozenUnresolved()) to tr("系统白名单：$msg${if (ok) "（已全部生效）" else ""}。厂商自己的后台管理只能用户手动设：请用户打开 Agent-VScreen，点“后台运行受限”的“去设置”，允许自启动、关联启动和后台活动", "System exemptions: $msg${if (ok) " (all in effect)" else ""}. The vendor's own background management can only be set by the user: ask the user to open Agent-VScreen, tap Settings on \"Background running restricted\", and allow auto-start, start by other apps and background activity")
         }
-        else -> false to run { val keys = FIX_WHAT.keys.joinToString(tr("、", ", ")); tr("不认识的问题代码：$code（可用：$keys）", "Unknown problem code: $code (available: $keys)") }
+        else -> false to run { val keys = FIX_KEYS.joinToString(tr("、", ", ")); tr("不认识的问题代码：$code（可用：$keys）", "Unknown problem code: $code (available: $keys)") }
     }
 }
 

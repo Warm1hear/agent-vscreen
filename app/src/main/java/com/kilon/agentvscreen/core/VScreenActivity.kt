@@ -2,7 +2,6 @@ package com.kilon.agentvscreen.core
 
 import android.graphics.Bitmap
 import android.graphics.Rect
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**

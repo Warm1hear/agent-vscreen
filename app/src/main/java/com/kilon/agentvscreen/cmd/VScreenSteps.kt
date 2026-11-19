@@ -321,7 +321,7 @@ internal object Steps {
         }
         for (c in raw) when {
             q != null -> { out.append(c); if (c == q) q = null }
-            c == '"' || c == '“' -> { flush(); out.append(c); q = if (c == '“') '”' else c }
+            c == '"' || c == '\'' || c == '“' -> { flush(); out.append(c); q = if (c == '“') '”' else c }
             else -> seg.append(c)
         }
         flush()
@@ -392,7 +392,7 @@ internal object Steps {
             }
             "type", "type+", "输入" -> {
                 var bodyRaw = rawAfterVerb(raw, toks0[0]).let { r ->
-                    if (until != null) r.substring(0, r.lastIndexOf("until").coerceAtLeast(0)).trimEnd() else r
+                    if (until != null) r.substring(0, r.lastIndexOf("until", ignoreCase = true).coerceAtLeast(0)).trimEnd() else r
                 }
                 // 1.4.0-beta13 (rainbow): `type "文字" slow [200ms]` types it one character at a time, so input
                 // listeners (suggestions, search as you type) react as to a person typing. Only after quoted text, so

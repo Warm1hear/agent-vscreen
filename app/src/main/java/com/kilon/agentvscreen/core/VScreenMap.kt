@@ -55,6 +55,7 @@ internal object VScreenMap {
 
     @Volatile private var appContext: Context? = null
     private val cache = HashMap<String, AppMap>()
+    private val filePkgCache = HashMap<String, Pair<Long, String>>()
 
     fun init(context: Context) { if (appContext == null) appContext = context.applicationContext }
 
@@ -84,22 +85,17 @@ internal object VScreenMap {
     @Synchronized fun save(m: AppMap) {
         val f = file(m.pkg) ?: return
         runCatching {
-            if (m.empty()) { f.delete(); return }
+            if (m.empty()) { f.delete(); filePkgCache.remove(f.name); return }
             f.writeText(JSONObject().put("package", m.pkg).put("seq", m.seq)
                 .put("notes", JSONArray(m.notes.map { it.json() }))
                 .put("segments", JSONArray(m.segments.map { it.json() }))
                 .put("profile", JSONObject(m.profile as Map<*, *>)).toString(1))
+            filePkgCache[f.name] = f.lastModified() to m.pkg
         }.onFailure { AppLogger.warning(TAG, "save(${m.pkg}): ${it.message}") }
     }
 
     /** Every app with something written down. */
-    fun packages(): List<String> {
-        val out = LinkedHashSet<String>()
-        dir()?.listFiles()?.filter { it.name.endsWith(".json") }?.forEach { f ->
-            runCatching { JSONObject(f.readText()).getString("package") }.getOrNull()?.let { out += it }
-        }
-        return out.filter { !load(it).empty() }
-    }
+    @Synchronized fun packages(): List<String> = knownPkgs().filter { !load(it).empty() }
 
     // ── notes ────────────────────────────────────────────────────────
 
@@ -149,8 +145,17 @@ internal object VScreenMap {
         return s
     }
 
-    private fun knownPkgs(): List<String> = dir()?.listFiles { f -> f.isFile && f.name.endsWith(".json") }.orEmpty().mapNotNull { f ->
-        runCatching { JSONObject(f.readText()).optString("package").ifEmpty { null } }.getOrNull()
+    @Synchronized private fun knownPkgs(): List<String> {
+        val out = LinkedHashSet<String>()
+        cache.forEach { (pkg, m) -> if (!m.empty()) out += pkg }
+        dir()?.listFiles { f -> f.isFile && f.name.endsWith(".json") }.orEmpty().forEach { f ->
+            val mod = f.lastModified()
+            val cached = filePkgCache[f.name]?.takeIf { it.first == mod }?.second
+            val pkg = cached ?: runCatching { JSONObject(f.readText()).optString("package").ifEmpty { null } }.getOrNull()
+                ?.also { filePkgCache[f.name] = mod to it }
+            if (pkg != null) out += pkg
+        }
+        return out.toList()
     }
 
     /** 1.4.0-beta13: the user showed it (kept as taught, or a lesson from before the mark: it has a contact sheet). */

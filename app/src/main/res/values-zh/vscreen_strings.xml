@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- [vscreen] 后台操作 -->
-    <string name="vscreen_loading">正在加载…</string>
-    <string name="vscreen_no_preview">当前没有副屏画面</string>
-    <string name="vscreen_blank_frame">副屏暂时没有画面</string>
-    <string name="vscreen_no_app">副屏上没有运行的应用（空闲）</string>
-</resources>

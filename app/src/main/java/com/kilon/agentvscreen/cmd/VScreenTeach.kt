@@ -1,7 +1,6 @@
 package com.kilon.agentvscreen.cmd
 
 import android.content.Context
-import android.content.Intent
 import com.kilon.agentvscreen.core.BackgroundOperation
 import com.kilon.agentvscreen.core.BackgroundOperation.ActionError
 import com.kilon.agentvscreen.host.UserAsk
@@ -850,7 +849,7 @@ internal object Teach {
     /** Replace {1}, {2} … in [body] by [params]; the names of the ones not given. */
     internal fun fill(body: String, params: List<String>): Pair<String, List<Int>> {
         val missing = ArrayList<Int>()
-        val s = Regex("\\{(\\d)\\}").replace(body) { m ->
+        val s = Regex("\\{([1-9]\\d*)\\}").replace(body) { m ->
             val k = m.groupValues[1].toInt()
             params.getOrNull(k - 1) ?: run { missing += k; m.value }
         }
@@ -889,7 +888,7 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
     val r = if (kept != null) {
         val (app, sg) = kept
         org.json.JSONObject().put("kind", "teach").put("name", sg.name).put("app", app).put("steps", sg.steps)
-            .put("params", Regex("\\{(\\d)\\}").findAll(sg.steps).maxOfOrNull { it.groupValues[1].toInt() } ?: 0)
+            .put("params", Regex("\\{([1-9]\\d*)\\}").findAll(sg.steps).maxOfOrNull { it.groupValues[1].toInt() } ?: 0)
     } else {
     val ask = if (old != null && (old.answer != null || old.live)) old else {
         BackgroundOperation.previewDisplayFor(session) ?: throw ActionError("NO_SCREEN", tr("示教在副屏上做，现在没有副屏：先 launch 要演示的应用", "The lesson is done on the background screen and there is none: launch the app to show first"))
@@ -929,7 +928,7 @@ internal fun VScreenOffloadHandler.teachCmd(sid: String?, args: OffloadArgs): Na
         .put("params", n).put("described", r.optJSONArray("described") ?: org.json.JSONArray()).put("use", use)
     // 1.3.0: the lesson's contact sheet (key steps as thumbnails), attached as a picture.
     val pic = VScreenMap.picture(r.optString("app"), seg)?.let { f -> runCatching { android.graphics.BitmapFactory.decodeFile(f.path) }.getOrNull() }
-        ?.let { ShotStore.save(context, it, "lesson") }
+        ?.let { bmp -> try { ShotStore.save(context, bmp, "lesson") } finally { bmp.recycle() } }
     pic?.let { data.put("picture", it) }
     // 1.4.0-beta11 (rainbow: the agent should try the recording once, then make it general by hand). What the user
     // showed is one run with this run's values; the agent turns it into a segment that holds next time.

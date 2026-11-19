@@ -17,6 +17,7 @@ import java.util.concurrent.Executors
  */
 object TaskLog {
     const val KEEP = 200
+    private const val COMPACT_AT = KEEP * 2
     private const val FRAME_GAP_MS = 2_500L
     private const val FRAMES = 4
     private const val QUIET_MS = 10 * 60_000L
@@ -46,9 +47,12 @@ object TaskLog {
     private val open = HashMap<String, Task>()
     private val done = ArrayList<Task>()
     @Volatile private var loaded = false
+    private var diskLines = 0
+    private var lastId = 0L
 
     @Volatile private var app: Context? = null
-    fun init(ctx: Context) = synchronized(this) { app = ctx.applicationContext; dir = File(ctx.filesDir, "tasks").apply { mkdirs() }; loaded = false; open.clear(); done.clear() }
+    fun init(ctx: Context) = synchronized(this) { app = ctx.applicationContext; dir = File(ctx.filesDir, "tasks").apply { mkdirs() }; loaded = false; diskLines = 0; lastId = 0L; open.clear(); done.clear() }
+    internal fun flushForTest() { worker.submit {}.get() }
     fun frameFile(name: String): File? = dir?.let { File(it, name) }?.takeIf { it.isFile && name.matches(Regex("^t[0-9_]+(s[0-9]+)?\\.jpg$")) }
 
     // ── 1.4.0-beta5: every step of a task, to open one by one on the task's page ──
@@ -94,7 +98,37 @@ object TaskLog {
         if (loaded) return
         loaded = true
         val f = dir?.let { File(it, "log.jsonl") } ?: return
-        runCatching { f.readLines().mapNotNull { l -> runCatching { Task.of(JSONObject(l)) }.getOrNull() } }.getOrNull()?.let { done.addAll(it.takeLast(KEEP)) }
+        if (!f.isFile) { diskLines = 0; return }
+        val lines = runCatching { f.readLines() }.getOrNull() ?: run { diskLines = 0; return }
+        diskLines = lines.size
+        val byId = LinkedHashMap<Long, Task>()
+        for (l in lines) {
+            if (l.isBlank()) continue
+            val t = runCatching { Task.of(JSONObject(l)) }.getOrNull() ?: continue
+            byId.remove(t.id)
+            byId[t.id] = t
+            if (t.id > lastId) lastId = t.id
+        }
+        val all = byId.values.toList()
+        if (all.size > KEEP) {
+            all.subList(0, all.size - KEEP).forEach { dropFiles(it) }
+            done.addAll(all.takeLast(KEEP))
+        } else {
+            done.addAll(all)
+        }
+    }
+
+    private fun compactLocked(d: File, f: File) {
+        val tmp = File(d, "log.jsonl.tmp")
+        runCatching {
+            val content = if (done.isEmpty()) "" else done.joinToString("\n") { it.json().toString() } + "\n"
+            tmp.writeText(content)
+            if (!tmp.renameTo(f)) {
+                tmp.copyTo(f, overwrite = true)
+                tmp.delete()
+            }
+            diskLines = done.size
+        }
     }
 
     /** A command of [session] finished with [code] (called for every audited command). */
@@ -108,7 +142,12 @@ object TaskLog {
         val ends = sub in setOf("done", "release", "stop")
         if (ends && synchronized(this) { open[session] } == null) return
         val t = synchronized(this) {
-            open.getOrPut(session) { Task(now, session, token, now) }.also { t ->
+            load()
+            open.getOrPut(session) {
+                val id = maxOf(now, lastId + 1)
+                lastId = id
+                Task(id, session, token, now)
+            }.also { t ->
                 t.commands++; t.lastCode = code; t.lastAt = now; if (exit != 0) t.failed++
                 BackgroundOperation.state.value.agentTitle?.let { t.title = it }
             }
@@ -121,10 +160,29 @@ object TaskLog {
         worker.execute { runCatching { capture(t) } }
     }
 
+    /**
+     * 1.4.2: the picture as the turn ends, taken now on the caller's thread (the screen is still there). Before, a task
+     * kept only the pictures taken after its commands, so the home page's resting picture was the screen as it was at
+     * the last command (or a task before it), not as it was left.
+     */
+    fun captureNow(session: String) {
+        val t = synchronized(this) { open[session] } ?: return
+        val d = BackgroundOperation.previewDisplayFor(t.session) ?: return
+        // Only the copy is taken here (callers may be on the main thread); the file is written on the log's worker,
+        // which writes the task's record after it (same single thread), so the record lists this picture.
+        val copy = d.latestFrame()?.takeIf { !it.isRecycled && it.width > 0 }
+            ?.let { runCatching { it.copy(it.config ?: android.graphics.Bitmap.Config.ARGB_8888, false) }.getOrNull() } ?: return
+        worker.execute { try { runCatching { writeFrame(t, copy) } } finally { copy.recycle() } }
+    }
+
     private fun capture(t: Task) {
         val d = BackgroundOperation.previewDisplayFor(t.session) ?: return
         VScreenShell.topPackage(d.displayId)?.let { p -> if (p !in VScreenShell.protectedPackages) t.pkg = p }
         val bmp = d.latestFrame()?.takeIf { !it.isRecycled && it.width > 0 } ?: return
+        writeFrame(t, bmp)
+    }
+
+    private fun writeFrame(t: Task, bmp: android.graphics.Bitmap) {
         val dir = dir ?: return
         val name = "t${t.id}_${System.currentTimeMillis() % 1_000_000}.jpg"
         Pictures.write(bmp, File(dir, name), Pictures.Use.TASK)
@@ -141,14 +199,21 @@ object TaskLog {
         synchronized(this) { load(); done += t }
         worker.execute {
             synchronized(this) {
+                val d = dir ?: return@execute
                 val drop = if (done.size > KEEP) done.subList(0, done.size - KEEP).toList() else emptyList()
                 drop.forEach { old -> dropFiles(old) }
                 // 1.4.0-beta6: step pictures are full size now; only the newest tasks keep theirs (their text stays).
                 if (done.size > STEP_PICS_TASKS) done.subList(0, done.size - STEP_PICS_TASKS).forEach { old ->
-                    dir?.listFiles { f -> f.name.startsWith("t${old.id}_s") && f.name.endsWith(".jpg") }?.forEach { it.delete() }
+                    d.listFiles { f -> f.name.startsWith("t${old.id}_s") && f.name.endsWith(".jpg") }?.forEach { it.delete() }
                 }
-                done.removeAll(drop.toSet())
-                dir?.let { File(it, "log.jsonl").writeText(done.joinToString("\n") { it.json().toString() } + "\n") }
+                if (drop.isNotEmpty()) done.removeAll(drop.toSet())
+                // 1.4.1-beta1: append-only per turn, compacting only when log.jsonl grows past COMPACT_AT lines.
+                val f = File(d, "log.jsonl")
+                if (diskLines + 1 >= COMPACT_AT) {
+                    compactLocked(d, f)
+                } else {
+                    runCatching { f.appendText(t.json().toString() + "\n"); diskLines++ }
+                }
             }
         }
     }

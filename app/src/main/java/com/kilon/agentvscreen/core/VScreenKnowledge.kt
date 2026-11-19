@@ -1,10 +1,6 @@
 package com.kilon.agentvscreen.core
 
 import android.content.Context
-import android.content.pm.PackageManager
-import com.kilon.agentvscreen.host.AppLogger
-import org.json.JSONArray
-import org.json.JSONObject
 
 /**
  * [vscreen] One path for app know-how, whichever memory tool the agent reaches for.
@@ -15,15 +11,12 @@ import org.json.JSONObject
  * app operating know-how are also filed as that app's note; memory_get also searches the notes.
  */
 object VScreenKnowledge {
-    private const val TAG = "VScreenKnowledge"
-
     private class Touch(val pkg: String, val atMs: Long)
     private val lastApps = HashMap<String, Touch>()
     private val labels = HashMap<String, String?>()
     private val journeys = HashMap<String, String>()
 
     private fun ctx(): Context? = BackgroundOperation.appContextOrNull()
-    private fun enabled(): Boolean = runCatching { BackgroundOperation.state.value.enabled }.getOrDefault(false)
 
     // ── the app a session works on ───────────────────────────────────
 
@@ -67,15 +60,9 @@ object VScreenKnowledge {
      * the package (settings, calculator), name contains, package contains. Launchable apps first.
      */
     fun findApps(query: String?): List<Pair<String, String>> {
-        val c = ctx() ?: return emptyList()
-        val pm = c.packageManager
-        val launcher = runCatching {
-            pm.queryIntentActivities(android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_LAUNCHER), 0)
-                .map { it.loadLabel(pm).toString().trim() to it.activityInfo.packageName }
-        }.getOrDefault(emptyList())
+        // 1.4.2: from the catalog read once (AppCatalog), not the package manager on every call.
+        val (launcher, appLabels) = AppCatalog.pairs()
         val q = query?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return launcher.distinctBy { it.second }
-        // Application labels too (a launcher entry may be named differently: Honor's clock "时钟" vs "时钟服务").
-        val appLabels = runCatching { pm.getInstalledApplications(0).mapNotNull { ai -> runCatching { pm.getApplicationLabel(ai).toString().trim() to ai.packageName }.getOrNull() } }.getOrDefault(emptyList())
         val launchable = launcher.map { it.second }.toSet()
         fun rank(p: Pair<String, String>): Int {
             val name = p.first.lowercase(); val pkg = p.second.lowercase()
@@ -101,59 +88,4 @@ object VScreenKnowledge {
         knownPackages().firstOrNull { p -> label(p)?.lowercase() == lq }?.let { return it }
         return findApps(q).firstOrNull()?.second
     }
-
-    private fun mentions(text: String, pkg: String): Boolean {
-        val t = text.lowercase()
-        if (t.contains(pkg.lowercase())) return true
-        val l = label(pkg)?.lowercase() ?: return false
-        return l.length >= 2 && t.contains(l)
-    }
-
-    // ── summaries ────────────────────────────────────────────────────
-
-    fun summary(pkg: String): JSONObject? {
-        val m = VScreenMap.load(pkg)
-        if (m.empty()) return null
-        val o = JSONObject().put("app", pkg).put("name", label(pkg) ?: JSONObject.NULL)
-        if (m.notes.isNotEmpty()) o.put("notes", m.notes.size)
-        if (m.segments.isNotEmpty()) o.put("segments", JSONArray(m.segments.map { it.name }))
-        if (m.profile.isNotEmpty()) o.put("profile", JSONObject(m.profile as Map<*, *>))
-        val last = (m.notes.map { it.at } + m.segments.map { it.at }).maxOrNull() ?: 0L
-        if (last > 0) o.put("updated", last)
-        return o
-    }
-
-    private fun summaryLine(o: JSONObject): String {
-        val parts = ArrayList<String>()
-        o.optInt("notes").takeIf { it > 0 }?.let { parts += "$it notes" }
-        o.optJSONArray("segments")?.takeIf { it.length() > 0 }?.let { a -> parts += "segments " + (0 until a.length()).joinToString(",") { a.getString(it) } }
-        o.optJSONObject("profile")?.let { p -> if (p.has("pause") && p.has("resume")) parts += "turn-based (pause/resume noted)" else if (p.optString("realtime") == "true") parts += "realtime" }
-        val name = o.optString("name").takeIf { it.isNotEmpty() && it != "null" }
-        return (if (name != null) "$name ${o.getString("app")}" else o.getString("app")) + if (parts.isEmpty()) "" else " (" + parts.joinToString("; ") + ")"
-    }
-
-    fun index(max: Int = 30): List<JSONObject> = knownPackages().mapNotNull { summary(it) }
-        .sortedByDescending { it.optLong("updated") }.take(max)
-
-    /** Notes / segments / app names matching all [keywords] (an app-name hit returns that app's notes). */
-    fun search(keywords: String, max: Int = 12): JSONArray {
-        val kws = keywords.lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
-        val out = JSONArray()
-        if (kws.isEmpty()) return out
-        for (pkg in knownPackages()) {
-            val name = (label(pkg) ?: "").lowercase()
-            fun isApp(k: String) = pkg.lowercase().contains(k) || (name.isNotEmpty() && (name.contains(k) || k.contains(name)))
-            val appHit = kws.any { isApp(it) }
-            val rest = kws.filterNot { isApp(it) }
-            fun hit(text: String): Boolean { val t = text.lowercase(); return if (appHit) rest.all { t.contains(it) } || rest.isEmpty() else kws.all { t.contains(it) } }
-            val m = VScreenMap.load(pkg)
-            for (n in m.notes) if (hit(n.text))
-                out.put(JSONObject().put("app", pkg).put("name", label(pkg) ?: JSONObject.NULL).put("note", n.id).put("text", n.text))
-            for (s in m.segments) if (hit(s.name + " " + s.steps))
-                out.put(JSONObject().put("app", pkg).put("segment", s.name).put("steps", s.steps))
-            if (out.length() >= max) break
-        }
-        return out
-    }
-
 }

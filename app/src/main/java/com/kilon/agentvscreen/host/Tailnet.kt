@@ -155,7 +155,7 @@ object Tailnet {
             .put("key_expiry", _status.value.keyExpiry.takeIf { it > 0 }?.let { it / 1000 } ?: JSONObject.NULL)
             .put("user_action", if (vpnTrouble(ctx)) vpnAdvice() else when (p) {
                 Phase.UNSTABLE -> tr("手机上的 Tailscale 节点和服务器或中继断开了（${_status.value.problem ?: "原因未知"}），正在自动重连；一直这样请用户看手机网络、代理或 VPN", "The phone's Tailscale node lost the server or relay (${_status.value.problem ?: "cause unknown"}) and is reconnecting; if it keeps happening, ask the user to check the phone's network, proxy or VPN")
-                Phase.NEEDS_LOGIN, Phase.EXPIRED -> tr("请用户在 Agent-VScreen › 接入 agent 里登录 Tailscale", "Ask the user to log in to Tailscale under Agent-VScreen › Connect")
+                Phase.NEEDS_LOGIN, Phase.EXPIRED -> tr("请用户在 Agent-VScreen › 接入 › 远程访问 里登录 Tailscale", "Ask the user to log in to Tailscale under Agent-VScreen › Connect › Remote access")
                 Phase.NEEDS_APPROVAL -> tr("请用户在 Tailscale / Headscale 控制台批准这台设备", "Ask the user to approve this device in the Tailscale / Headscale console")
                 else -> JSONObject.NULL
             })
@@ -272,14 +272,13 @@ object Tailnet {
      * with this key": the node's old state for that server is dropped first, or the backend would keep the old login
      * and ignore the key. Another server's login is left alone.
      */
-    fun configure(ctx: Context, control: String?, authKey: String?) {
+    @Synchronized fun configure(ctx: Context, control: String?, authKey: String?) {
         val old = proc
         stop("new settings")
         // Let the old node finish writing its state before it may be deleted.
         com.kilon.agentvscreen.host.quiet("Tailnet:134") { old?.waitFor(3, java.util.concurrent.TimeUnit.SECONDS) }
-        ApiConfig.tailnetControlUrl = control
+        ApiConfig.configureTailnet(control, authKey)
         if (!authKey.isNullOrBlank()) {
-            ApiConfig.tailnetAuthKey = authKey.trim()
             com.kilon.agentvscreen.host.quiet("Tailnet:138") { stateDir(ctx).deleteRecursively() }
         }
         sync(ctx)
@@ -332,14 +331,17 @@ object Tailnet {
         ApiConfig.tailnetAuthKey?.let { env["TSB_AUTHKEY"] = it }
         val p = synchronized(this) {
             if (g != gen || !wanted) return
-            pb.start().also { proc = it }
+            pb.start().also {
+                proc = it
+                stdin = OutputStreamWriter(it.outputStream)
+                if (waitingSince == 0L) waitingSince = android.os.SystemClock.elapsedRealtime()
+                _status.value = _status.value.copy(running = true, error = null)
+            }
         }
-        stdin = OutputStreamWriter(p.outputStream)
-        if (waitingSince == 0L) waitingSince = android.os.SystemClock.elapsedRealtime()
-        _status.value = _status.value.copy(running = true, error = null)
         AppLogger.info(TAG, "bridge started (pid-less child), host=${ApiConfig.tailnetHostname}")
         Thread({
-            p.errorStream.bufferedReader().forEachLine { l -> if (l.isNotBlank()) AppLogger.info(TAG, l.take(300)) }
+            // The stream is closed under this reader when the bridge is stopped or replaced: that is its normal end.
+            runCatching { p.errorStream.bufferedReader().forEachLine { l -> if (l.isNotBlank()) AppLogger.info(TAG, l.take(300)) } }
         }, "vscreen-tailnet-err").apply { isDaemon = true }.start()
         p.inputStream.bufferedReader().forEachLine { line ->
             val o = runCatching { JSONObject(line) }.getOrNull() ?: return@forEachLine
@@ -366,28 +368,39 @@ object Tailnet {
                 problem = o.optString("problem").takeIf { it.isNotBlank() }, downS = o.optInt("down_s"),
                 connecting = o.optBoolean("connecting"),
             )
-            if (st.linkUp) waitingSince = 0L else if (waitingSince == 0L) waitingSince = android.os.SystemClock.elapsedRealtime()
-            if (st.loggedIn && st.linkUp != _status.value.linkUp && _status.value.loggedIn)
-                AppLogger.info(TAG, (if (st.linkUp) "link up (relay ${st.relay})" else "link down: ${st.problem ?: "relay ${st.relay}"}") +
-                    AppFront.awayMs().let { if (it > 0) ", app in background ${it / 1000}s" else ", app in front" })
-            if (st.loggedIn) remember(ctx, st)
-            if (st.state != _status.value.state) AppLogger.info(TAG, "state ${st.state}${st.ip?.let { " $it" } ?: ""}${st.error?.let { " ($it)" } ?: ""}")
-            if (st.loggedIn && ApiConfig.tailnetAuthKey != null) ApiConfig.tailnetAuthKey = null
-            _status.value = st
+            synchronized(this) {
+                if (g != gen) return@forEachLine
+                if (st.linkUp) waitingSince = 0L else if (waitingSince == 0L) waitingSince = android.os.SystemClock.elapsedRealtime()
+                if (st.loggedIn && st.linkUp != _status.value.linkUp && _status.value.loggedIn)
+                    AppLogger.info(TAG, (if (st.linkUp) "link up (relay ${st.relay})" else "link down: ${st.problem ?: "relay ${st.relay}"}") +
+                        AppFront.awayMs().let { if (it > 0) ", app in background ${it / 1000}s" else ", app in front" })
+                if (st.loggedIn) remember(ctx, st)
+                if (st.state != _status.value.state) AppLogger.info(TAG, "state ${st.state}${st.ip?.let { " $it" } ?: ""}${st.error?.let { " ($it)" } ?: ""}")
+                if (st.loggedIn && ApiConfig.tailnetAuthKey != null) ApiConfig.tailnetAuthKey = null
+                _status.value = st
+            }
         }
         val code = runCatching { p.waitFor() }.getOrDefault(-1)
         AppLogger.info(TAG, "bridge exited with code $code" + (if (g != gen) " (replaced)" else if (!wanted) " (stopped)" else ""))
-        if (g != gen) return
-        synchronized(this) { if (proc === p) { proc = null; stdin = null } }
-        _status.value = _status.value.copy(running = false, state = if (wanted) "Restarting" else "Stopped",
-            error = if (code != 0 && wanted) tr("内置 Tailscale 退出（$code）", "Built-in Tailscale exited ($code)") else null)
+        synchronized(this) {
+            if (g != gen || proc !== p) return
+            proc = null
+            stdin = null
+            _status.value = _status.value.copy(running = false, state = if (wanted) "Restarting" else "Stopped",
+                error = if (code != 0 && wanted) tr("内置 Tailscale 退出（$code）", "Built-in Tailscale exited ($code)") else null)
+        }
     }
 
-    private fun screenOn(ctx: Context) = runCatching { ctx.getSystemService(android.os.PowerManager::class.java)?.isInteractive }.getOrNull() ?: true
-
     /** The phone's resolvers: Android has no /etc/resolv.conf for the Go resolver. */
+    /**
+     * 1.4.1-beta1: the resolvers of every network, the active one first. With a proxy VPN the active network is the
+     * VPN and its DNS may be unreachable for this app (bypassed in the proxy); Wi-Fi's or mobile data's still are.
+     * The bridge asks all of them at once (tsbridge/dns.go), so a dead one costs nothing.
+     */
     private fun dnsServers(ctx: Context): List<String> = runCatching {
         val cm = ctx.getSystemService(ConnectivityManager::class.java)
-        cm.getLinkProperties(cm.activeNetwork)?.dnsServers?.mapNotNull { it.hostAddress } ?: emptyList()
+        @Suppress("DEPRECATION") val nets = listOfNotNull(cm.activeNetwork) + cm.allNetworks.filter { it != cm.activeNetwork }
+        nets.flatMap { n -> runCatching { cm.getLinkProperties(n)?.dnsServers.orEmpty().mapNotNull { it.hostAddress } }.getOrDefault(emptyList()) }
+            .distinct().take(8)
     }.getOrDefault(emptyList())
 }

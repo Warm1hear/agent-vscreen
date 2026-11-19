@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # build.sh / build.gradle.kts put outputs under $AVS_BUILD_DIR (older trees: fixed /srv/avs-build, linked below).
+  # build.sh / build.gradle.kts put outputs under $AVS_BUILD_DIR (ignored by .gitignore).
   AVS_BUILD_DIR: ${{ github.workspace }}/.avs-build
 
 jobs:
@@ -50,8 +50,6 @@ jobs:
       - name: Build dir
         run: |
           mkdir -p "$AVS_BUILD_DIR/tmp" "$AVS_BUILD_DIR/logs"
-          # Trees before 1.4.1 hardcode /srv/avs-build in build.gradle.kts: point it at the workspace.
-          sudo ln -sfn "$AVS_BUILD_DIR" /srv/avs-build
 
       - name: Built-in Tailscale node (tsbridge)
         run: ./tsbridge/build.sh
@@ -73,15 +71,16 @@ jobs:
 
       - name: Generated files are up to date
         run: |
-          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-            git --no-pager diff --stat
+          # Untracked too: a generated file deleted from git and rewritten by its test must also fail here.
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain
             echo "::error::Generated files are stale. Run ./build.sh regen and commit the result."
             exit 1
           fi
 
       # Only on a tag push. Secrets are not given to pull requests from forks, and this runs after the tests.
       - name: Release signing key
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         env:
           KS_B64: ${{ secrets.AVS_KEYSTORE_BASE64 }}
           KS_PASS: ${{ secrets.AVS_KEYSTORE_PASSWORD }}
@@ -156,12 +155,17 @@ jobs:
 
   release:
     name: GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Tag pushes only: a manual run on a tag ref must not sign or publish.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [android, operit, secrets]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
+    env:
+      # SHA-256 of the Agent-VScreen release certificate (CN=Agent-VScreen), read from the published v1.4.0 APK.
+      # An APK signed by any other key cannot update existing installs, so the release stops.
+      RELEASE_CERT_SHA256: 56b14824549e698017eba907cbc3347ee3a4ba30907efbd6068ea51ff4495756
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v5
@@ -176,8 +180,11 @@ jobs:
           BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
           CERT=$("$ANDROID_HOME/build-tools/$BT/apksigner" verify --print-certs "out/agent-vscreen-${VER}.apk")
           echo "$CERT" | grep -E 'Signer #1 certificate (DN|SHA-256)'
-          if echo "$CERT" | grep -q 'CN=Android Debug'; then echo "::error::APK is debug-signed"; exit 1; fi
-          (cd out && sha256sum *) | tee out/SHA256SUMS.txt
+          GOT=$(echo "$CERT" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          if [ "$GOT" != "$RELEASE_CERT_SHA256" ]; then
+            echo "::error::APK signer $GOT is not the release certificate $RELEASE_CERT_SHA256"; exit 1
+          fi
+          (cd out && sha256sum -- *.apk *.toolpkg > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}

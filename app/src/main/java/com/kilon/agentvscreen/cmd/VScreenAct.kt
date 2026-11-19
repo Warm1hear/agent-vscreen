@@ -879,7 +879,7 @@ internal fun connectionLost(d: VScreenDisplay): String? {
     val st = BackgroundOperation.state.value
     if (!d.released && st.connection == BackgroundOperation.Connection.READY) return null
     return tr("后台连接断了（${st.connectionError ?: st.connection.name}），副屏和上面的应用已经没了，不是你的操作造成的。", "The background connection broke (${st.connectionError ?: st.connection.name}); the screen and the app on it are gone, and your actions did not cause it. ") +
-        tr("告诉用户；Shizuku 恢复运行后重新 launch", "Tell the user; once Shizuku runs again, launch again")
+        tr("告诉用户；Shizuku / Root 恢复运行后重新 launch", "Tell the user; once Shizuku / root runs again, launch again")
 }
 
 /** What one action did ([text]), and [miss] when its own effect could not be confirmed (it ends the stretch; [code] says which kind). */
@@ -1158,7 +1158,8 @@ object KeepHosts { internal fun VScreenOffloadHandler.host(cond: String): VScree
 private fun VScreenOffloadHandler.startKeep(sid: String, d0: VScreenDisplay, spec: String, how: String, forMs0: Long, notes: Notes) {
     val forMs = bounded("for", forMs0, 10_000L, 12 * 3_600_000L)
     val app = runCatching { VScreenShell.topPackage(d0.displayId) }.getOrNull()
-    val spec2 = VScreenRules.Spec(VScreenRules.nextName(), sid, spec, app, 1_000L, forMs, wake = how == "wake", notify = how == "notify")
+    val me = Call.current()?.tokenId ?: com.kilon.agentvscreen.api.Agents.ofSession(sid)
+    val spec2 = VScreenRules.Spec(VScreenRules.nextName(me), sid, spec, app, 1_000L, forMs, wake = how == "wake", notify = how == "notify", agentId = me)
     val l = try { VScreenRules.start(spec2, keepHost(spec)) } catch (e: IllegalStateException) { notes.add("KEEP_LIMIT", e.message ?: "KEEP_LIMIT"); return }
     val warn = if (how == "notify") VScreenHandoff.notifyBlocked(context)?.let { tr("；但通知发不出去（$it）：请用户打开 Agent-VScreen 的通知，或改用 --keep wake", "; but notifications can't be sent ($it): ask the user to allow Agent-VScreen notifications, or use --keep wake") } else null
     notes += tr("本轮之后继续盯「${l.spec.name}」：$spec，最长 ${forMs / 60_000} 分钟，看到就${if (how == "wake") "发一条事件（vscreen events --wait 取）" else "通知用户"}，然后结束",
