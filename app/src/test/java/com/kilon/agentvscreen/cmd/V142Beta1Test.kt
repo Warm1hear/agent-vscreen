@@ -105,4 +105,57 @@ class V142Beta1Test {
         assertEquals("0 steps", I18n.with("en") { com.kilon.agentvscreen.steps(0) })
         assertEquals("1 步", I18n.with("zh") { com.kilon.agentvscreen.steps(1) })
     }
+
+    /**
+     * A fake late reaction: the clock [now] (ms since the action started) moves [stepMs] per picture; the action itself
+     * took [actMs], and the look is timed from when it finished, as the step's first wait is. [frames] say "same as before".
+     */
+    private class Late(var now: Long, val stepMs: Long, val frames: List<Boolean?>, val stopAt: Int = -1, val settleOut: WaitOut? = null, val settleMs: Long = 0, val actMs: Long = 0) {
+        var i = -1; var settled = 0
+        fun run() = lookLate(Probe.LATE_MS, { now - actMs }, { i++; now += stepMs; frames.getOrElse(i) { true } }, { if (i == stopAt) "text:Battery" else null },
+            { settled++; now += settleMs; settleOut!! })
+    }
+
+    @Test fun lateChangeThatMeetsTheStopConditionStops() {
+        val l = Late(1_000, 500, listOf(true, false), stopAt = 1)
+        val out = l.run()
+        assertEquals("text:Battery", out.stopped)
+        assertEquals(0, l.settled)
+        assertEquals("stop condition text:Battery at 2.0s", I18n.with("en") { out.waitText() })
+        val during = Late(1_000, 500, listOf(false), settleOut = WaitOut(null, "text:Battery", 400), settleMs = 400).run()
+        assertEquals("text:Battery", during.stopped)
+        assertEquals(1_500L, during.changedMs)
+        assertEquals("stop condition text:Battery at 1.9s", I18n.with("en") { during.waitText() })
+    }
+
+    @Test fun lateChangeIsTimedWhenFirstSeenAndStillChangingIsSaid() {
+        // First different picture 2 s after the action, then it animates past the 3 s settle wait.
+        val l = Late(1_000, 500, listOf(true, false), settleOut = WaitOut(null, null, 3_000), settleMs = 3_000)
+        val out = l.run()
+        assertNull(out.stopped)
+        assertEquals(false, out.same)
+        assertEquals(2_000L, out.changedMs)
+        assertNull(out.settle?.met)
+        assertEquals("the screen changed late, 2.0s after the action, and was still changing when time was up at 5.0s", I18n.with("en") { out.waitText() })
+        val calm = Late(1_000, 500, listOf(false), settleOut = WaitOut("stable", null, 800), settleMs = 800).run()
+        assertEquals("the screen changed late, 1.5s after the action, and settled at 2.3s", I18n.with("en") { calm.waitText() })
+    }
+
+    @Test fun lateChangeAfterASlowActionCountsBothTimesFromItsEnd() {
+        // The action takes 2.0 s, the first different picture comes 2.0 s after it, and the screen is calm 0.6 s later.
+        val calm = Late(3_500, 500, listOf(false), settleOut = WaitOut("stable", null, 600), settleMs = 600, actMs = 2_000).run()
+        assertEquals(2_000L, calm.changedMs); assertEquals(2_600L, calm.endMs)
+        assertEquals("the screen changed late, 2.0s after the action, and settled at 2.6s", I18n.with("en") { calm.waitText() })
+        val busy = Late(3_500, 500, listOf(false), settleOut = WaitOut(null, null, 3_000), settleMs = 3_000, actMs = 2_000).run()
+        assertEquals("the screen changed late, 2.0s after the action, and was still changing when time was up at 5.0s", I18n.with("en") { busy.waitText() })
+    }
+
+    @Test fun noLateChangeLooksOnlyForTheWindow() {
+        val l = Late(1_000, 100, emptyList())
+        val out = l.run()
+        assertEquals(true, out.same)
+        assertNull(out.changedMs); assertNull(out.stopped); assertNull(out.waitText())
+        assertEquals(15, l.i + 1)
+        assertEquals(null, Late(1_000, 100, listOf(null)).run().same)
+    }
 }
