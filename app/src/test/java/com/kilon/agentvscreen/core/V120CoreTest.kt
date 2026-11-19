@@ -114,14 +114,22 @@ class V120CoreTest {
         assertTrue(Vendor.of("oppo").adbLimitedFix().contains("权限监控"))
         assertTrue(Vendor.of("xiaomi").adbLimitedFix().contains("安全设置"))
         assertTrue(Vendor.of("nobody").adbLimitedFix().isNotEmpty())
+        assertEquals(Vendor.of("nobody").adbLimitedFix(), Vendor.of("vivo").adbLimitedFix())
     }
 
-    @Test fun adbLimitIsAQuickDenialFromAnAdbServer() {
-        val shell = com.kilon.agentvscreen.host.ShizukuBackend.SHELL_UID
-        assertTrue(com.kilon.agentvscreen.host.ShizukuBackend.looksAdbLimited(granted = false, msSinceAsk = 600, serverUid = shell))
-        assertFalse(com.kilon.agentvscreen.host.ShizukuBackend.looksAdbLimited(granted = true, msSinceAsk = 600, serverUid = shell))
-        assertFalse(com.kilon.agentvscreen.host.ShizukuBackend.looksAdbLimited(granted = false, msSinceAsk = 600, serverUid = 0))
-        assertFalse(com.kilon.agentvscreen.host.ShizukuBackend.looksAdbLimited(granted = false, msSinceAsk = 6_000, serverUid = shell))
-        assertFalse(com.kilon.agentvscreen.host.ShizukuBackend.looksAdbLimited(granted = false, msSinceAsk = -1, serverUid = shell))
+    @Test fun aDenialBelongsToItsRequestAndARetryForgetsIt() {
+        val a = com.kilon.agentvscreen.host.ShizukuBackend.Attempts()
+        assertFalse(a.lastDenied)
+        a.start(); a.answered(granted = false)
+        assertTrue(a.lastDenied)
+        val retry = a.start()
+        assertFalse(a.lastDenied)
+        assertEquals(retry, a.current)
+        a.answered(granted = false)
+        assertTrue(a.lastDenied)
+        a.start(); a.answered(granted = true)
+        assertFalse(a.lastDenied)
+        a.start(); a.answered(granted = false); a.clear()
+        assertFalse(a.lastDenied)
     }
 }
