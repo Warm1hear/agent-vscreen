@@ -112,6 +112,7 @@ class V120CoreTest {
         assertTrue(Vendor.of("nobody").hints().isEmpty())
         assertTrue(Vendor.of("nobody").downscaleHint().isNotEmpty())
         assertTrue(Vendor.of("oppo").adbLimitedFix().contains("权限监控"))
+        assertTrue(Vendor.of("oppo").adbLimitedFix().contains("Disable permission monitoring"))
         assertTrue(Vendor.of("xiaomi").adbLimitedFix().contains("安全设置"))
         assertTrue(Vendor.of("nobody").adbLimitedFix().isNotEmpty())
         assertEquals(Vendor.of("nobody").adbLimitedFix(), Vendor.of("vivo").adbLimitedFix())
