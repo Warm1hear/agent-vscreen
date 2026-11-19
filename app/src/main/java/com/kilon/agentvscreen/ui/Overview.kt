@@ -351,7 +351,7 @@ private fun FixCard(problems: List<Readiness.Item>, setupLeft: Boolean) {
         first != null -> when (first.code) {
             "no_accessibility" -> tr("无障碍服务被关掉了", "Accessibility was turned off")
             "accessibility_cannot_see_display" -> tr("无障碍看不到副屏", "Accessibility cannot see the screen")
-            "no_privilege" -> tr("Shizuku 尚未就绪", "Shizuku is not ready")
+            "no_privilege" -> tr("${com.kilon.agentvscreen.host.Privileged.name()} 尚未就绪", "${com.kilon.agentvscreen.host.Privileged.name()} is not ready")
             "service_off" -> tr("服务关着", "The service is off")
             "frozen_in_background" -> tr("系统冻结了后台", "The system froze the app")
             else -> tr("有一项需要处理", "Something needs you")
@@ -406,7 +406,7 @@ private fun FirstUse(setupLeft: Boolean) {
             val connected = agents.values.any { it.lastCallAt > 0 }
             val saved = agents.values.any { it.remembered }
             val steps = listOf(
-                tr("授权", "Permissions") to tr("Shizuku 和无障碍：让它能在后台开一块副屏", "Shizuku and accessibility: so it can open a background screen"),
+                tr("授权", "Permissions") to tr("Shizuku（或 Root）和无障碍：让它能在后台开一块副屏", "Shizuku (or root) and accessibility: so it can open a background screen"),
                 tr("接入一个 agent", "Connect an agent") to tr("起个名字，复制给它的话，发给它", "Name it, copy its message, send it"),
                 tr("它第一次连上", "Its first call") to tr("agent 照着那段话装好后会自己连上", "The agent sets itself up from the message and calls in"),
                 tr("它记下了说明", "It saved the note") to tr("以后的新对话里它也知道自己能用手机", "New conversations will know they can use the phone"),

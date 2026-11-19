@@ -297,8 +297,8 @@ object BackgroundOperation {
     /** Re-read Shizuku, accessibility and main-screen metrics. Cheap; call from UI. */
     fun refreshStatus() {
         val context = appContext ?: return
-        ShizukuManager.refresh()
-        val snap = ShizukuManager.snapshot.value
+        com.kilon.agentvscreen.host.Privileged.refresh()
+        val snap = com.kilon.agentvscreen.host.Privileged.snapshot.value
         val priv = when (snap.state) {
             ShizukuManager.State.READY -> Privilege.READY
             ShizukuManager.State.NEED_PERMISSION -> Privilege.NOT_AUTHORIZED
@@ -319,7 +319,7 @@ object BackgroundOperation {
             if (next.connection == Connection.READY && priv != Privilege.READY) {
                 next = next.copy(
                     connection = Connection.ERROR,
-                    connectionError = tr("特权连接已断开（Shizuku ${priv.label()}）", "Privileged connection lost (Shizuku ${priv.label()})"),
+                    connectionError = tr("特权连接已断开（${com.kilon.agentvscreen.host.Privileged.name()} ${priv.label()}）", "Privileged connection lost (${com.kilon.agentvscreen.host.Privileged.name()} ${priv.label()})"),
                     needsExplicitReconnect = true,
                 )
             }
@@ -340,9 +340,7 @@ object BackgroundOperation {
         refreshStatus()
         val s = _state.value
         val error: String? = when (s.privilege) {
-            Privilege.NOT_INSTALLED -> tr("未安装 Shizuku：请用户安装并启动 Shizuku（或 Sui），再打开 Agent-VScreen 授权", "Shizuku is not installed: ask the user to install and start Shizuku (or Sui), then grant it in Agent-VScreen")
-            Privilege.NOT_RUNNING -> com.kilon.agentvscreen.host.ShizukuManager.missingBinderHint()
-            Privilege.NOT_AUTHORIZED -> tr("Agent-VScreen 尚未获得 Shizuku 授权", "Agent-VScreen has no Shizuku permission yet")
+            Privilege.NOT_INSTALLED, Privilege.NOT_RUNNING, Privilege.NOT_AUTHORIZED -> com.kilon.agentvscreen.host.Privileged.notReadyHint()
             Privilege.READY -> {
                 val r = VScreenShell.run(arrayOf("id"), 5_000L)
                 if (r.exitCode != 0) tr("特权通道无响应：${r.combined.take(160)}", "The privileged channel does not answer: ${r.combined.take(160)}")
@@ -355,6 +353,16 @@ object BackgroundOperation {
         }
         AppLogger.info(TAG, "connect -> ${_state.value.connection} ${error ?: ""}")
         return _state.value
+    }
+
+    /**
+     * 1.4.2-beta3: the user switched the way in (Shizuku <-> root). The screen belongs to the old service, so it is
+     * released; the next command connects through the new one by itself (this is not a stop).
+     */
+    fun privilegeChanged() {
+        releaseScreen(tr("换了权限来源", "Permission source changed"))
+        _state.update { it.copy(connection = Connection.DISCONNECTED, connectionError = null, needsExplicitReconnect = false, operating = false) }
+        refreshStatus()
     }
 
     /** 停止并释放: stop operating, destroy the screen; reuse needs an explicit connect. */

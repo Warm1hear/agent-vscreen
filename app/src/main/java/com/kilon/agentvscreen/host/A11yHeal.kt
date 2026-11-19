@@ -41,7 +41,7 @@ object A11yHeal {
     /** Turn the service back on if the user wants it and nothing says no. Cheap when there is nothing to do. */
     fun maybeHeal(ctx: Context, why: String) {
         if (VScreenAccessibilityService.getInstance() != null) return
-        if (!wanted(ctx) || blocked(ctx) || userOff(ctx) || !ShizukuManager.isReady()) return
+        if (!wanted(ctx) || blocked(ctx) || userOff(ctx) || !Privileged.isReady()) return
         val now = SystemClock.elapsedRealtime()
         if (lastTry != 0L && now - lastTry < MIN_GAP_MS) return
         lastTry = now

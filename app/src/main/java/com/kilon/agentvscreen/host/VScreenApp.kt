@@ -24,7 +24,7 @@ class VScreenApp : Application() {
         com.kilon.agentvscreen.core.TaskLog.init(this)
         com.kilon.agentvscreen.api.EventHub.init(this)
         com.kilon.agentvscreen.api.AgentLedger.init(this)
-        ShizukuManager.init(this)
+        Privileged.init(this)
         BackgroundOperation.init(this)
         // 1.4.2: the phone's app list, read once in the background (pickers, sound page, launch by name).
         com.kilon.agentvscreen.core.AppCatalog.init(this)

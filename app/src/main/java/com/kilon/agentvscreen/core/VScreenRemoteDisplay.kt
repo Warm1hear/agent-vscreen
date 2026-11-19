@@ -9,6 +9,8 @@ import android.os.Parcel
 import android.view.Surface
 import com.kilon.agentvscreen.BuildConfig
 import com.kilon.agentvscreen.host.ShizukuManager
+import com.kilon.agentvscreen.host.Privileged
+import com.kilon.agentvscreen.host.RootBackend
 import com.kilon.agentvscreen.host.AppLogger
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -20,6 +22,9 @@ import rikka.shizuku.Shizuku
  * [vscreen] App-side client of [VScreenDisplayService]: binds the Shizuku
  * UserService once and asks it to create / release shell-owned virtual
  * displays that render into the app's own Surface.
+ *
+ * 1.4.2-beta3: the same service also runs in a root-started process ([RootMain]); which one answers depends only on
+ * [Privileged.via]. Every call below is the same for both ways in.
  */
 internal object VScreenRemoteDisplay {
     private const val TAG = "VScreenRemoteDisplay"
@@ -73,7 +78,9 @@ internal object VScreenRemoteDisplay {
         val trusted: Boolean get() = VScreenDisplayService.isTrusted(flags)
     }
 
-    @Volatile private var binder: IBinder? = null
+    @Volatile private var shizukuBinder: IBinder? = null
+    /** The live service of the chosen way in (Shizuku's UserService or the root process). */
+    private val binder: IBinder? get() = if (Privileged.via == Privileged.Via.ROOT) RootBackend.binder else shizukuBinder
     private val lock = Any()
 
     private val args by lazy {
@@ -86,19 +93,20 @@ internal object VScreenRemoteDisplay {
 
     private val conn = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            binder = service?.takeIf { it.pingBinder() }
+            shizukuBinder = service?.takeIf { it.pingBinder() }
             latch?.countDown()
         }
-        override fun onServiceDisconnected(name: ComponentName?) { binder = null }
+        override fun onServiceDisconnected(name: ComponentName?) { shizukuBinder = null }
     }
     @Volatile private var latch: CountDownLatch? = null
 
     /** A live service binder, binding (and waiting) if needed. Never on the main thread. */
     private fun service(): Result<IBinder> {
-        binder?.takeIf { it.isBinderAlive }?.let { return Result.success(it) }
+        if (Privileged.via == Privileged.Via.ROOT) return RootBackend.awaitBinder()
+        shizukuBinder?.takeIf { it.isBinderAlive }?.let { return Result.success(it) }
         if (!ShizukuManager.isReady()) return Result.failure(IllegalStateException(tr("Shizuku 未就绪", "Shizuku not ready")))
         synchronized(lock) {
-            binder?.takeIf { it.isBinderAlive }?.let { return Result.success(it) }
+            shizukuBinder?.takeIf { it.isBinderAlive }?.let { return Result.success(it) }
             val l = CountDownLatch(1).also { latch = it }
             try {
                 Shizuku.bindUserService(args, conn)
@@ -108,7 +116,7 @@ internal object VScreenRemoteDisplay {
             if (!l.await(BIND_TIMEOUT_S, TimeUnit.SECONDS)) {
                 return Result.failure(IllegalStateException(tr("等待 Shizuku 启动副屏服务超时", "Timed out waiting for Shizuku to start the screen service")))
             }
-            return binder?.let { Result.success(it) }
+            return shizukuBinder?.let { Result.success(it) }
                 ?: Result.failure(IllegalStateException(tr("副屏服务连接失败", "Connecting to the screen service failed")))
         }
     }
@@ -158,6 +166,43 @@ internal object VScreenRemoteDisplay {
                 read(reply)
             } finally { data.recycle(); reply.recycle() }
         }
+    }
+
+    /**
+     * 1.4.2-beta3: a command run by the service's user (the root way in has no Shizuku to spawn it). The output streams
+     * back through pipes, read here while the call runs, so a long `dumpsys` is not cut by the binder size limit.
+     */
+    fun exec(argv: Array<String>, env: Array<String>?, cwd: String?, timeoutMs: Long): ShizukuManager.ProcessResult {
+        val b = service().getOrElse { return ShizukuManager.ProcessResult(126, "", it.message ?: "service unavailable") }
+        val outPipe = android.os.ParcelFileDescriptor.createPipe()
+        val errPipe = android.os.ParcelFileDescriptor.createPipe()
+        fun reader(fd: android.os.ParcelFileDescriptor, into: StringBuilder, name: String) = Thread {
+            runCatching { android.os.ParcelFileDescriptor.AutoCloseInputStream(fd).bufferedReader().use { r -> synchronized(into) { into.append(r.readText()) } } }
+        }.apply { isDaemon = true; this.name = name; start() }
+        val out = StringBuilder(); val err = StringBuilder()
+        val t1 = reader(outPipe[0], out, "vscreen-exec-out")
+        val t2 = reader(errPipe[0], err, "vscreen-exec-err")
+        val code = try {
+            timed("exec ${argv.firstOrNull()}", timeoutMs + 2_000L) {
+                val data = Parcel.obtain(); val reply = Parcel.obtain()
+                try {
+                    data.writeInterfaceToken(VScreenDisplayService.DESCRIPTOR)
+                    data.writeStringArray(argv); data.writeStringArray(env); data.writeString(cwd); data.writeLong(timeoutMs)
+                    outPipe[1].writeToParcel(data, 0); errPipe[1].writeToParcel(data, 0)
+                    if (!b.transact(VScreenDisplayService.EXEC, data, reply, 0)) error(tr("副屏服务太旧，不支持运行命令", "The screen service is too old to run commands"))
+                    if (reply.readInt() != 0) error(reply.readString() ?: "unknown error")
+                    reply.readInt()
+                } finally { data.recycle(); reply.recycle() }
+            }
+        } catch (t: Throwable) {
+            synchronized(err) { err.append(t.message ?: t.javaClass.simpleName) }
+            1
+        } finally {
+            // Our copies of the write ends: closed, so the readers see the end once the service closes its own.
+            runCatching { outPipe[1].close() }; runCatching { errPipe[1].close() }
+        }
+        t1.join(3_000); t2.join(3_000)
+        return ShizukuManager.ProcessResult(code, synchronized(out) { out.toString() }.trimEnd('\n'), synchronized(err) { err.toString() }.trimEnd('\n'))
     }
 
     /** Key event with the display id set (reaches a display with its own focus). */

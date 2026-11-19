@@ -78,8 +78,8 @@ class MainActivity : ComponentActivity(), AppHost {
         if (Prefs.serviceOn(this)) HostService.start(this)
         com.kilon.agentvscreen.host.Updates.checkDaily(this)
         Overlay.refresh()
-        // Shizuku's answer can change while we are away: read it again.
-        ShizukuManager.refresh()
+        // Shizuku's (or root's) answer can change while we are away: read it again.
+        com.kilon.agentvscreen.host.Privileged.refresh()
     }
 
     override fun say(text: String) { lifecycleScope.launch { snack.showSnackbar(text) } }

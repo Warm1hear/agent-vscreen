@@ -1,7 +1,8 @@
 """End-to-end check on an emulator: an agent drives the background screen through the real HTTP API.
 
-Usage (inside android-emulator-runner): python3 tools/android-smoke/agent_e2e.py test-apks/app-debug.apk
-Needs test-apks/shizuku.apk. Each check prints PASS/FAIL; the script exits non-zero if any check failed.
+Usage (inside android-emulator-runner): python3 tools/android-smoke/agent_e2e.py test-apks/app-debug.apk [--root|--root-uid0]
+Needs test-apks/shizuku.apk (Shizuku way in) or test-apks/avsu (root way in: the CI stand-in root manager built from
+tools/android-smoke/avsu.c; --root-uid0 makes it refuse `su <uid>`, so the service runs as uid 0). Each check prints PASS/FAIL; the script exits non-zero if any check failed.
 What it guards: the service comes up with Shizuku, `launch` builds a screen and opens an app there, the user's main
 screen is not touched, `look` and `act` work on it, `release` closes it, and the app process never crashes or loses a
 background thread on the way (status background_thread_deaths).
@@ -17,7 +18,12 @@ from pathlib import Path
 
 APP = "com.kilon.agentvscreen"
 MANAGER = "moe.shizuku.privileged.api"
-APK = Path(sys.argv[1] if len(sys.argv) > 1 else "test-apks/app-debug.apk")
+ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
+ROOT = "--root" in sys.argv or "--root-uid0" in sys.argv
+ROOT_UID0 = "--root-uid0" in sys.argv
+APK = Path(ARGS[0] if ARGS else "test-apks/app-debug.apk")
+AVSU = APK.parent / "avsu"
+SU = "/data/local/tmp/avsu-bin/su"
 SHIZUKU = APK.parent / "shizuku.apk"
 FAILED = []
 
@@ -82,7 +88,62 @@ def press_text(package, labels, tries=20):
     return False
 
 
+def priv_state():
+    found = re.findall(r"via=(\w+) state=(\w+)", shell("logcat", "-d", "-s", "Privileged:I"))
+    return found[-1] if found else None
+
+
+def wait_priv(expected, secs=60):
+    for _ in range(secs):
+        if priv_state() == expected:
+            return True
+        time.sleep(1)
+    return False
+
+
+def root_pid():
+    try:
+        return shell("pidof", "agent-vscreen:root")
+    except subprocess.CalledProcessError:
+        return ""
+
+
+def setup_root():
+    """The root way in, no Shizuku on the phone: a root manager stand-in, then the user taps "use root" in setup."""
+    print("SDK", shell("getprop", "ro.build.version.sdk"), "ABIs", shell("getprop", "ro.product.cpu.abilist"), flush=True)
+    run("adb", "root")
+    run("adb", "wait-for-device")
+    time.sleep(2)
+    shell("setenforce", "0")
+    shell("mkdir", "-p", "/data/local/tmp/avsu-bin")
+    run("adb", "push", str(AVSU), SU)
+    shell("chmod", "755", "/data/local/tmp/avsu-bin", SU)
+    env = "AVSU_NO_UID=1 " if ROOT_UID0 else ""
+    shell("sh", "-c", "'%s%s --daemon </dev/null >/dev/null 2>&1'" % (env, SU))
+    shell("setprop", "debug.avs.su", SU)
+    print("stand-in su:", shell(SU, "-c", "id"), flush=True)
+    shell("logcat", "-c")
+    try:
+        run("adb", "install", "-r", "-g", str(APK), timeout=240)
+    except subprocess.CalledProcessError as e:
+        raise SystemExit("FAIL install: " + (e.output or "").strip())
+    shell("settings", "put", "secure", "enabled_accessibility_services", APP + "/.host.VScreenAccessibilityService")
+    shell("settings", "put", "secure", "accessibility_enabled", "1")
+    shell("am", "start", "-W", "-n", APP + "/.ui.MainActivity", "--es", "page", "SETUP")
+    check("app starts on Shizuku without Shizuku installed", wait_priv(("shizuku", "NOT_INSTALLED"), 45), str(priv_state()))
+    press_text(APP, ["Rooted? Use root instead", "手机已 root？改用 Root"])
+    check("root granted and service connected", wait_priv(("root", "READY"), 60), str(priv_state()))
+    print(shell("logcat", "-d", "-s", "RootBackend:*", "Privileged:*")[-2500:], flush=True)
+    rp = root_pid()
+    who = shell("ps", "-o", "USER", "-p", rp).splitlines()[-1].strip() if rp else ""
+    want = "root" if ROOT_UID0 else "shell"
+    check("root service runs as " + want, who == want, "pid=%s user=%s" % (rp, who))
+    shell("input", "keyevent", "KEYCODE_HOME")
+
+
 def setup():
+    if ROOT:
+        return setup_root()
     print("SDK", shell("getprop", "ro.build.version.sdk"), "ABIs", shell("getprop", "ro.product.cpu.abilist"), flush=True)
     run("adb", "install", "-r", str(SHIZUKU))
     shell("monkey", "-p", MANAGER, "1")
@@ -165,6 +226,36 @@ def main_display_top():
     return m.group(1) if m else None
 
 
+def root_extras():
+    """The root service outlives the app (screens are adopted, no second su prompt loop) and stops when the user goes back to Shizuku."""
+    global TOKEN
+    rp = root_pid()
+    shell("am", "force-stop", APP)
+    time.sleep(2)
+    check("root service survives the app being killed", rp != "" and root_pid() == rp, "%s -> %s" % (rp, root_pid()))
+    shell("logcat", "-c")
+    shell("am", "start", "-W", "-n", APP + "/.ui.MainActivity")
+    check("new app process adopts the running root service", wait_priv(("root", "READY"), 45), str(priv_state()))
+    check("adopted, not restarted", root_pid() == rp, "%s -> %s" % (rp, root_pid()))
+    reused = shell("logcat", "-d", "-s", "RootBackend:*")
+    check("launcher said reused", "AVS reused" in reused, reused[-600:])
+    shell("input", "keyevent", "KEYCODE_HOME")
+    TOKEN = seed()
+    r = api("launch com.android.settings", timeout=180)
+    check("launch works after the app restarted", r.get("ok") is True, str(r.get("code")))
+    r = api("release")
+    check("release after restart", r.get("ok") is True, str(r.get("code")))
+    shell("am", "broadcast", "-a", "com.kilon.agentvscreen.CI_SEED", "-p", APP, "--es", "via", "shizuku")
+    gone = False
+    for _ in range(20):
+        if not root_pid():
+            gone = True
+            break
+        time.sleep(1)
+    check("switching back to Shizuku stops the root service", gone, root_pid())
+    check("state follows the switch", wait_priv(("shizuku", "NOT_INSTALLED"), 20), str(priv_state()))
+
+
 def main():
     global TOKEN
     setup()
@@ -218,6 +309,8 @@ def main():
     check("app process survived the run", p0 != "" and pid() == p0, "pid %s -> %s" % (p0, pid()))
     crashes = shell("logcat", "-d", "-b", "crash")
     check("no crash in logcat", APP not in crashes, crashes[-600:])
+    if ROOT:
+        root_extras()
 
     print("SUMMARY", "all passed" if not FAILED else "failed: " + ", ".join(FAILED), flush=True)
     sys.exit(1 if FAILED else 0)

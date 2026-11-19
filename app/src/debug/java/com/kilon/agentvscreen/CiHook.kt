@@ -18,6 +18,11 @@ class CiHook : BroadcastReceiver() {
         val pending = goAsync()
         Thread({
             try {
+                // 1.4.2-beta3: `--es via shizuku|root` switches the way in, as the setup / settings choice does.
+                intent.getStringExtra("via")?.let { v ->
+                    com.kilon.agentvscreen.host.Privileged.Via.entries.firstOrNull { it.key == v }?.let { com.kilon.agentvscreen.host.Privileged.choose(app, it) }
+                    return@Thread
+                }
                 com.kilon.agentvscreen.host.Prefs.setServiceOn(app, true)
                 HostService.start(app)
                 // The main token's text (the token list keeps only its hash). Written at once, then again with the port.

@@ -151,6 +151,13 @@ fun SettingsTab(bottom: Dp) {
                 Value(if (app.items.isEmpty()) "…" else if (app.allOk) tr("已就绪", "Ready") else tr("还差 ${app.left} 项", "${app.left} left"),
                     if (app.items.isNotEmpty() && !app.allOk) Palette.stopped else MiuixTheme.colorScheme.onSurfaceVariantActions)
             }, onClick = { nav.go(Route.Setup) })
+            // 1.4.2-beta3: where the shell-level permission comes from (what each means: the "?" on the setup step).
+            val pv by com.kilon.agentvscreen.host.Privileged.snapshot.collectAsState()
+            OverlayDropdownPreference(items = listOf("Shizuku", "Root"), selectedIndex = pv.via.ordinal,
+                title = tr("权限来源", "Permission source"),
+                summary = if (pv.state == com.kilon.agentvscreen.host.ShizukuManager.State.READY) pv.label else com.kilon.agentvscreen.host.Privileged.notReadyHint().take(60),
+                onSelectedIndexChange = { i -> val v = com.kilon.agentvscreen.host.Privileged.Via.entries[i]
+                    if (v != pv.via) scope.launch(Dispatchers.IO) { com.kilon.agentvscreen.host.Privileged.choose(ctx, v) } })
             SwitchPreference(checked = s.accurateOcr, onCheckedChange = { BackgroundOperation.setAccurateOcr(it) },
                 title = tr("精确文字识别", "Accurate text recognition"), summary = tr("PP-OCRv6，在本机运行", "PP-OCRv6, on this phone"))
             SwitchPreference(checked = s.recording, onCheckedChange = { BackgroundOperation.setRecording(it) },
@@ -371,7 +378,9 @@ internal object H {
         "An agent whose timed task uses the phone can book the time with vscreen schedule. 3 minutes before, the service is started and checked here, and you are notified if it is not ready.\n\nWhile the service is paused, the next booking turns it on; while it is off, a booking only notifies you.\n\nOpen one to change its time, repeat and length like an alarm; switching it off keeps it but it does not fire.")
     val audit get() = tr("每条命令都记在这里：谁（哪个令牌、哪台设备）、什么时候、做了什么、结果。输入的文字只记字数。", "Every command is recorded here: who (which token, which device), when, what, and the result. Typed text is recorded as a length only.")
     val events get() = tr("盯守看到条件时的事件默认只放进队列（agent 用 vscreen events 取）。填了包名才会另外广播给那一个应用，别的应用收不到。", "When a watch sees its condition the event is only queued by default (agents collect it with vscreen events). With a package here it is also broadcast to that one app; no other app receives it.")
-    val setup get() = tr("只用 Shizuku 这一条可共享的特权通道：不占用 adb，不改无线调试，不重启 adbd。每一项都只把本应用“加进去”，不动别的应用的设置。你的 agent 自己的 adb / Shizuku 照常用。", "Uses only Shizuku, a privilege channel that can be shared: adb is not taken, wireless debugging is not changed, adbd is not restarted. Each item only adds this app and leaves other apps' settings alone. Your agent's own adb / Shizuku keep working.")
+    val privilege get() = tr("Agent-VScreen 需要 shell 级权限来开副屏、点按和启动应用，有两种来源，二选一：\n\n• Shizuku（默认）：不需要 root。Shizuku 每次手机重启后要在它的 App 里重新启动。\n• Root：手机已用 Magisk、KernelSU、APatch 等 root 时可用，不需要装 Shizuku。第一次会弹 root 授权框，之后开机打开 App 就自动启动。副屏服务尽量以 shell 身份运行，和 Shizuku 的 ADB 模式完全一样。\n\n切换时当前副屏会关闭，下一条命令通过新来源自动重连。",
+        "Agent-VScreen needs shell-level permission to open the background screen, tap and start apps. It comes from one of two sources:\n\n• Shizuku (default): no root needed. Shizuku must be started again in its app after each phone restart.\n• Root: for phones rooted with Magisk, KernelSU, APatch and the like; Shizuku is not needed. The root manager asks once; after that it starts by itself when the app opens. The screen service runs as the shell user where it can, exactly as under Shizuku's ADB mode.\n\nSwitching closes the current screen; the next command reconnects through the new source by itself.")
+    val setup get() = tr("只用 Shizuku（或 Root）这一条特权通道：不占用 adb，不改无线调试，不重启 adbd。每一项都只把本应用“加进去”，不动别的应用的设置。你的 agent 自己的 adb / Shizuku 照常用。", "Uses only Shizuku (or root) as its privilege channel: adb is not taken, wireless debugging is not changed, adbd is not restarted. Each item only adds this app and leaves other apps' settings alone. Your agent's own adb / Shizuku keep working.")
     val diag get() = tr("出问题时把诊断信息发给开发者：版本、配置状态和最近日志（不含令牌、不含你输入的字）。", "When something goes wrong, send this to the developer: version, setup state and recent log (no token, nothing you typed).")
 }
 

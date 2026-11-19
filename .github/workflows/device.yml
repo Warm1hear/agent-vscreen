@@ -5,9 +5,13 @@ name: Device tests (emulator)
 #    Android 11 (no own display group: screen sleeps with the phone) and Android 14 (own display group).
 #  - shizuku: granting Shizuku on a fresh install and after the 1.3 -> 1.4 -> candidate upgrade path survives a
 #    relaunch (tools/android-smoke/shizuku.py).
+#  - root-e2e (1.4.2-beta3): the same agent run through the root way in with no Shizuku installed, using a stand-in
+#    root manager (tools/android-smoke/avsu.c, a Magisk-like su daemon). "shell": the service runs as uid 2000 via
+#    `su 2000`; "uid0": the root manager cannot switch uids, so it runs as root. Then: the service outlives the app,
+#    the next app process adopts it, and switching back to Shizuku stops it.
 on:
   push:
-    branches: [main, v1.4]
+    branches: [main, v1.4, 'beta/**']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -33,6 +37,12 @@ jobs:
           cache-dependency-path: tsbridge/go.sum
       - uses: gradle/actions/setup-gradle@v5
       - run: ./tsbridge/build.sh
+      - name: Unit tests
+        run: ./gradlew --no-daemon :app:testDebugUnitTest
+      - name: Stand-in root manager for the emulator (x86_64)
+        run: |
+          "$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" --target=x86_64-linux-android30 -O2 -Wall \
+            -o "$AVS_BUILD_DIR/avsu" tools/android-smoke/avsu.c
       # Debug: carries the CI hook (src/debug) that hands the test its token; release APKs never do.
       - run: ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease
       - uses: actions/upload-artifact@v5
@@ -41,6 +51,7 @@ jobs:
           path: |
             ${{ env.AVS_BUILD_DIR }}/app/outputs/apk/debug/app-debug.apk
             ${{ env.AVS_BUILD_DIR }}/app/outputs/apk/release/app-release.apk
+            ${{ env.AVS_BUILD_DIR }}/avsu
           retention-days: 3
   agent-e2e:
     needs: build
@@ -83,6 +94,45 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: e2e-${{ matrix.api }}-logs
+          path: |
+            e2e.log
+            logcat.txt
+          retention-days: 7
+  root-e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [root, root-uid0]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: candidate
+          path: test-apks
+      - run: |
+          find test-apks -type f -exec mv {} test-apks/ \; 2>/dev/null || true
+          ls -la test-apks
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          disable-animations: true
+          script: python3 tools/android-smoke/agent_e2e.py test-apks/app-debug.apk --${{ matrix.mode }} 2>&1 | tee e2e.log; grep -q '^SUMMARY all passed' e2e.log || { adb logcat -d > logcat.txt; exit 1; }
+      - if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: root-${{ matrix.mode }}-logs
           path: |
             e2e.log
             logcat.txt
