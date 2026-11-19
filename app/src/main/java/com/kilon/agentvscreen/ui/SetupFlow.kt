@@ -59,10 +59,6 @@ fun SetupFlowPage() {
     val sh by ShizukuManager.snapshot.collectAsState()
     val pv by com.kilon.agentvscreen.host.Privileged.snapshot.collectAsState()
     val root = pv.via == com.kilon.agentvscreen.host.Privileged.Via.ROOT
-    fun choose(v: com.kilon.agentvscreen.host.Privileged.Via) = scope.launch {
-        withContext(Dispatchers.IO) { com.kilon.agentvscreen.host.Privileged.choose(ctx, v) }
-        kotlinx.coroutines.delay(600); refresh()
-    }
     val skipped = remember { mutableStateListOf<String>() }
     var busy by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(emptyList<String>()) }
@@ -70,6 +66,10 @@ fun SetupFlowPage() {
     val todo = items.filter { !it.ok && it.key !in skipped }
     val step = todo.firstOrNull()
     fun refresh() = scope.launch { app.items = withContext(Dispatchers.IO) { runCatching { Setup.check(ctx) }.getOrDefault(app.items) } }
+    fun choose(v: com.kilon.agentvscreen.host.Privileged.Via) = scope.launch {
+        withContext(Dispatchers.IO) { com.kilon.agentvscreen.host.Privileged.choose(ctx, v) }
+        kotlinx.coroutines.delay(600); refresh()
+    }
     fun open(i: Intent) { runCatching { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.onFailure { host.say(tr("这台手机打不开这个设置页", "This phone cannot open that settings page")) } }
 
     MiuixPage(tr("首次配置", "Setup"), subtitle = if (root) tr("用 Root，不需要 Shizuku", "Root, no Shizuku needed") else tr("只用 Shizuku，不占 adb", "Shizuku only, adb untouched")) {
