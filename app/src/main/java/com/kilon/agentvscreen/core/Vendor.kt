@@ -52,9 +52,9 @@ internal interface Vendor {
     private object Oppo : Vendor {
         override fun osName(prop: (String) -> String) = prop("ro.build.version.oplusrom").ifEmpty { prop("ro.build.version.opporom") }
         override fun downscaleHint() = tr("OPPO/一加：设置 › 显示与亮度 › 屏幕分辨率 选最高档（关闭“智能切换”）", "OPPO/OnePlus: Settings › Display and brightness › Screen resolution: choose the highest (turn off \"Smart switch\")")
-        override fun adbLimitedFix() = tr("OPPO/一加/realme（ColorOS）：在“开发者选项”里打开“禁止权限监控”（旧版是关闭“权限监控”）。中文系统里这个开关可能被隐藏：把系统语言临时切成英文，在设置里搜索“Disable permission monitoring”并打开，再切回中文", "OPPO/OnePlus/realme (ColorOS): in Developer options turn on \"Disable permission monitoring\" (older versions: turn off \"Permission monitoring\"). On a Chinese system it may be hidden: switch the system language to English, search Settings for \"Disable permission monitoring\", turn it on, then switch back")
+        override fun adbLimitedFix() = tr("OPPO/一加/realme（ColorOS）：中文系统里搜不到这个开关。先把系统语言切成英文，在设置里搜索“Disable permission monitoring”并打开，再把语言切回中文", "OPPO/OnePlus/realme (ColorOS): the switch cannot be found in Chinese. Switch the system language to English, search Settings for \"Disable permission monitoring\", turn it on, then switch the language back")
         override fun hints() = listOf(
-            tr("Shizuku 授权时报“adb 权限受限”的话：开发者选项里打开“禁止权限监控”；中文系统里找不到时，临时把系统语言切成英文，在设置里搜“Disable permission monitoring”", "If Shizuku says \"adb permission limited\" when granting: turn on \"Disable permission monitoring\" in Developer options; if a Chinese system hides it, switch the system language to English and search Settings for it"),
+            tr("Shizuku 授权时报“adb 权限受限”的话：把系统语言切成英文，在设置里搜“Disable permission monitoring”打开，再切回中文（中文系统里搜不到）", "If Shizuku says \"adb permission limited\" when granting: switch the system language to English, search Settings for \"Disable permission monitoring\", turn it on, then switch back (it cannot be found in Chinese)"),
             tr("设置 › 电池 › 应用耗电管理 允许 Agent-VScreen 和 Shizuku 后台运行", "Settings › Battery › App battery management: allow Agent-VScreen and Shizuku to run in the background"),
         )
     }

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T04:18:00Z",
-  "updated_at": "2026-11-19T09:44:40Z",
+  "updated_at": "2026-11-19T09:47:42Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -596,9 +596,9 @@
     },
     "app/src/main/java/com/kilon/agentvscreen/core/Vendor.kt": {
       "role": "index",
-      "sha256": "1e9399cf7744ea65079d3f0b8af9bc14a6eb9c33aa26f06e00c3cf88c5b29aa0",
-      "size": 9293,
-      "normalized_sha256": "1e9399cf7744ea65079d3f0b8af9bc14a6eb9c33aa26f06e00c3cf88c5b29aa0"
+      "sha256": "640d64a6ac7929f97f49af929872235132398bfd42656f76e3789fcd1a8ba8e8",
+      "size": 9054,
+      "normalized_sha256": "640d64a6ac7929f97f49af929872235132398bfd42656f76e3789fcd1a8ba8e8"
     },
     "app/src/main/java/com/kilon/agentvscreen/host/A11yHeal.kt": {
       "role": "index",
@@ -1208,9 +1208,9 @@
     },
     "app/src/test/java/com/kilon/agentvscreen/core/V120CoreTest.kt": {
       "role": "index",
-      "sha256": "75046774e16615119d2c8d28e2225142d8d41c7509ed17fbed319f4ef2499bb4",
+      "sha256": "3e1c6c9e745bb09641f000c85a6ff02710eb379cdcc0272fa26aa1869e430875",
       "size": 8955,
-      "normalized_sha256": "75046774e16615119d2c8d28e2225142d8d41c7509ed17fbed319f4ef2499bb4"
+      "normalized_sha256": "3e1c6c9e745bb09641f000c85a6ff02710eb379cdcc0272fa26aa1869e430875"
     },
     "app/src/test/java/com/kilon/agentvscreen/host/RootWayTest.kt": {
       "role": "index",
