@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T04:18:00Z",
-  "updated_at": "2026-11-19T08:18:25Z",
+  "updated_at": "2026-11-19T08:30:35Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -53,9 +53,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "ad0fbbf6c1513c75e1281a17443ca0dcc23f0174656761844c1614d8694e48b1",
-      "size": 85383,
-      "normalized_sha256": "ad0fbbf6c1513c75e1281a17443ca0dcc23f0174656761844c1614d8694e48b1"
+      "sha256": "f17d0eecefb9a3edf45abc2f5638a1d11aef6a9540e32c80a4897e87277dc783",
+      "size": 85668,
+      "normalized_sha256": "f17d0eecefb9a3edf45abc2f5638a1d11aef6a9540e32c80a4897e87277dc783"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -596,9 +596,9 @@
     },
     "app/src/main/java/com/kilon/agentvscreen/core/Vendor.kt": {
       "role": "index",
-      "sha256": "d22549a816ba517af4294a9d26000a82ec378bc7edb4ecedaed8ef4a79e8554e",
-      "size": 9030,
-      "normalized_sha256": "d22549a816ba517af4294a9d26000a82ec378bc7edb4ecedaed8ef4a79e8554e"
+      "sha256": "3705ccb0100473c1532a429641e437ae9b3b612ed1cdbce08de710d6c43c93e6",
+      "size": 9088,
+      "normalized_sha256": "3705ccb0100473c1532a429641e437ae9b3b612ed1cdbce08de710d6c43c93e6"
     },
     "app/src/main/java/com/kilon/agentvscreen/host/A11yHeal.kt": {
       "role": "index",
@@ -698,21 +698,21 @@
     },
     "app/src/main/java/com/kilon/agentvscreen/host/Setup.kt": {
       "role": "index",
-      "sha256": "2a0cde94928113c060b8fe610daa6b015706553a3e4c3e76263bc72e757e05e1",
-      "size": 6762,
-      "normalized_sha256": "2a0cde94928113c060b8fe610daa6b015706553a3e4c3e76263bc72e757e05e1"
+      "sha256": "1ffba2fe3da2097db36508f05b6b39862771ad8474a6cbb4d6326715fdf9abd0",
+      "size": 6754,
+      "normalized_sha256": "1ffba2fe3da2097db36508f05b6b39862771ad8474a6cbb4d6326715fdf9abd0"
     },
     "app/src/main/java/com/kilon/agentvscreen/host/ShizukuBackend.kt": {
       "role": "index",
-      "sha256": "637f93f81f5e23994009fc1c2b0c05d635ec95b76eb6722a84d340d8aa964650",
-      "size": 17639,
-      "normalized_sha256": "637f93f81f5e23994009fc1c2b0c05d635ec95b76eb6722a84d340d8aa964650"
+      "sha256": "55c1f834a47c7706898c5a5c814a2f20fb1c8270a6944dd717565ee57f5b3c6a",
+      "size": 17062,
+      "normalized_sha256": "55c1f834a47c7706898c5a5c814a2f20fb1c8270a6944dd717565ee57f5b3c6a"
     },
     "app/src/main/java/com/kilon/agentvscreen/host/ShizukuManager.kt": {
       "role": "index",
-      "sha256": "aa91ddb562d2cedfd52615314ca81dfb25503ba61eeb496ce0595a84150bb958",
-      "size": 8128,
-      "normalized_sha256": "aa91ddb562d2cedfd52615314ca81dfb25503ba61eeb496ce0595a84150bb958"
+      "sha256": "8bea6f9672eda0c08721b896a2cf99d2e5d85d088a1e66a53f33764ed8b9446e",
+      "size": 8347,
+      "normalized_sha256": "8bea6f9672eda0c08721b896a2cf99d2e5d85d088a1e66a53f33764ed8b9446e"
     },
     "app/src/main/java/com/kilon/agentvscreen/host/Tailnet.kt": {
       "role": "index",
@@ -818,9 +818,9 @@
     },
     "app/src/main/java/com/kilon/agentvscreen/ui/MainActivity.kt": {
       "role": "index",
-      "sha256": "9dcb0425ab33615ebb4a3d81ad513bfd1f083767e404be59d86e7e47b14ba2bc",
-      "size": 6851,
-      "normalized_sha256": "9dcb0425ab33615ebb4a3d81ad513bfd1f083767e404be59d86e7e47b14ba2bc"
+      "sha256": "449be21617769b0f3554610e590dbdeb7fdcc619fc7ba58e86faa9ad9cb6030d",
+      "size": 6963,
+      "normalized_sha256": "449be21617769b0f3554610e590dbdeb7fdcc619fc7ba58e86faa9ad9cb6030d"
     },
     "app/src/main/java/com/kilon/agentvscreen/ui/MainDisplay.kt": {
       "role": "index",
@@ -1208,9 +1208,9 @@
     },
     "app/src/test/java/com/kilon/agentvscreen/core/V120CoreTest.kt": {
       "role": "index",
-      "sha256": "cea5ebad247ffef16383bb4cba8ff29e54a84de44e2c66d3c0efa85d11be4aa2",
-      "size": 8120,
-      "normalized_sha256": "cea5ebad247ffef16383bb4cba8ff29e54a84de44e2c66d3c0efa85d11be4aa2"
+      "sha256": "38f16c504a08b6e5ed8b34e4bd89c5319ba3ad808b7891c98e542b8341b76788",
+      "size": 8010,
+      "normalized_sha256": "38f16c504a08b6e5ed8b34e4bd89c5319ba3ad808b7891c98e542b8341b76788"
     },
     "app/src/test/java/com/kilon/agentvscreen/host/RootWayTest.kt": {
       "role": "index",

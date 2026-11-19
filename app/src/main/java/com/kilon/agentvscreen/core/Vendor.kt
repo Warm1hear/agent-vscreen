@@ -27,7 +27,6 @@ internal interface Vendor {
 
     private object Vivo : Vendor {
         override fun osName(prop: (String) -> String) = prop("ro.vivo.os.build.display.id").ifEmpty { "OriginOS/FuntouchOS " + prop("ro.vivo.os.version") }
-        override fun adbLimitedFix() = tr("vivo/iQOO：“开发者选项”里打开“禁止权限监控”", "vivo/iQOO: in Developer options turn on \"Disable permission monitoring\"")
         override fun downscaleHint() = tr("vivo/iQOO：设置 › 显示与亮度 › 屏幕分辨率 选最高档（关闭“智能切换”）；游戏还要在 游戏魔盒/电竞模式 里对该游戏关闭“超分辨率/插帧/画质增强”", "vivo/iQOO: Settings › Display and brightness › Screen resolution: choose the highest (turn off \"Smart switch\"); for games also turn off \"super resolution / frame interpolation / picture enhancement\" for that game in Game Cube / e-sports mode")
         override fun hints() = listOf(
             tr("开发者选项里打开“禁止权限监控”：否则 Shizuku 下的输入注入、wm/settings 命令可能被系统拦截（点击无效或命令失败）", "Turn on \"Disable permission monitoring\" in Developer options: otherwise input injection and wm/settings commands under Shizuku may be blocked (taps do nothing or commands fail)"),
@@ -53,9 +52,9 @@ internal interface Vendor {
     private object Oppo : Vendor {
         override fun osName(prop: (String) -> String) = prop("ro.build.version.oplusrom").ifEmpty { prop("ro.build.version.opporom") }
         override fun downscaleHint() = tr("OPPO/一加：设置 › 显示与亮度 › 屏幕分辨率 选最高档（关闭“智能切换”）", "OPPO/OnePlus: Settings › Display and brightness › Screen resolution: choose the highest (turn off \"Smart switch\")")
-        override fun adbLimitedFix() = tr("OPPO/一加/realme（ColorOS）：“开发者选项”里打开“禁止权限监控”（旧版叫“权限监控”，要关闭）", "OPPO/OnePlus/realme (ColorOS): in Developer options turn on \"Disable permission monitoring\" (older versions call it \"Permission monitoring\": turn it off)")
+        override fun adbLimitedFix() = tr("OPPO/一加/realme（ColorOS）：在“开发者选项”里找“禁止权限监控”并打开，或旧版的“权限监控”并关闭；有的版本隐藏了或改了名，找不到就看 Shizuku 文档（https://shizuku.rikka.app/zh-hans/guide/setup/）", "OPPO/OnePlus/realme (ColorOS): in Developer options look for \"Disable permission monitoring\" and turn it on, or the older \"Permission monitoring\" and turn it off; some versions hide or rename it, then see Shizuku's guide (https://shizuku.rikka.app/guide/setup/)")
         override fun hints() = listOf(
-            tr("开发者选项里打开“禁止权限监控”（旧版 ColorOS 是关闭“权限监控”）：否则 Shizuku 授权时报“adb 权限受限”，授权不了", "Turn on \"Disable permission monitoring\" in Developer options (older ColorOS: turn off \"Permission monitoring\"): otherwise Shizuku says \"adb permission limited\" and cannot grant"),
+            tr("Shizuku 授权时报“adb 权限受限”的话：开发者选项里找“禁止权限监控”打开或“权限监控”关闭（有的版本没有或改了名）", "If Shizuku says \"adb permission limited\" when granting: in Developer options turn on \"Disable permission monitoring\" or turn off \"Permission monitoring\" (some versions lack or rename it)"),
             tr("设置 › 电池 › 应用耗电管理 允许 Agent-VScreen 和 Shizuku 后台运行", "Settings › Battery › App battery management: allow Agent-VScreen and Shizuku to run in the background"),
         )
     }
