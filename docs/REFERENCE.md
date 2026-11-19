@@ -154,7 +154,7 @@ in：把用户主屏上的应用移到副屏接着做（返回四段；手机上
 
 ### `schedule ["时间"] | off <名字|all> [--name <名字>] [--for <时长>]`
 
-预约你会来用手机的时间（定时任务用）：每个窗口开始前 3 分钟拉起服务、检查 Shizuku 和连接，没准备好就通知用户，结果作为事件发给本会话。不带参数列出预约和现在是否就绪。
+预约你会来用手机的时间（定时任务用）：每个窗口开始前 3 分钟拉起服务、检查所选的权限来源（Shizuku 或 Root）和连接，没准备好就通知用户，结果作为事件发给本会话。不带参数列出预约和现在是否就绪。
 时间写法："07:00"、"07:00,19:30"、"weekdays 08:30"、"mon,wed,fri 21:00"、"every 2h from 08:00 to 22:00"（间隔至少 30 分钟，最多 8 条）。
 
 - `--name <名字>` 预约的名字（同名会替换；默认 w1、w2…）
@@ -490,7 +490,7 @@ scope: `operate`
 
 ### `schedule ["when"] | off <name|all> [--name <name>] [--for <duration>]`
 
-book the times you will use the phone (for timed tasks): 3 minutes before each window the service is started and Shizuku and the connection are checked; the user is notified if it is not ready, and the result is sent to this session as an event. With no argument: the schedules and whether it is ready now.
+book the times you will use the phone (for timed tasks): 3 minutes before each window the service is started, and the selected permission source (Shizuku or root) and the connection are checked; the user is notified if it is not ready, and the result is sent to this session as an event. With no argument: the schedules and whether it is ready now.
 Times: "07:00", "07:00,19:30", "weekdays 08:30", "mon,wed,fri 21:00", "every 2h from 08:00 to 22:00" (at least 30 minutes apart, at most 8 entries).
 
 - `--name <name>` the schedule's name (the same name replaces it; default w1, w2…)

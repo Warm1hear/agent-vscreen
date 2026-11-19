@@ -3,7 +3,7 @@
 # Agent-VScreen
 
 <p align="center">
-  <a href="https://github.com/kilolonion/agent-vscreen/releases/latest"><img src="https://img.shields.io/github/v/release/kilolonion/agent-vscreen" alt="release"></a>
+  <a href="https://github.com/kilolonion/agent-vscreen/releases/latest"><img src="https://img.shields.io/github/v/release/kilolonion/agent-vscreen" alt="latest stable release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/kilolonion/agent-vscreen" alt="license"></a>
   <img src="https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white" alt="Android 11+">
   <img src="https://img.shields.io/badge/root-not%20required-blue" alt="no root">
@@ -27,10 +27,10 @@ Any agent on the phone can use it: agents with a terminal use the `vscreen` CLI,
 <p align="center"><img src="docs/demo.gif" width="440" alt="An agent solving sudoku in Chrome and playing Roco Kingdom on the background screen, mirrored live in the floating window"></p>
 <p align="center"><sub>Left: an agent solves sudoku in Chrome on the background screen (8x speed). Right: an agent plays Roco Kingdom in landscape, walking with the joystick, dragging the camera and handling battle pop-ups (2.6x speed). In both, the user's own screen stays on the chat app.</sub></p>
 
-- Version: 1.4.1 (versionCode 51) · [Download APK](https://github.com/kilolonion/agent-vscreen/releases/latest)
+- Version on `main`: 1.4.2-beta3 (versionCode 54) · [Beta APK](https://github.com/kilolonion/agent-vscreen/releases/tag/v1.4.2-beta3) · [Latest stable APK](https://github.com/kilolonion/agent-vscreen/releases/latest)
 - Package: `com.kilon.agentvscreen`
 - Android 11+ (Android 14+ recommended), arm64
-- Privileges: [Shizuku](https://shizuku.rikka.app/) only, no root
+- Privileges: [Shizuku](https://shizuku.rikka.app/) by default (no root needed), or direct root on an already-rooted phone
 
 ## What it does
 
@@ -39,7 +39,7 @@ Any agent on the phone can use it: agents with a terminal use the `vscreen` CLI,
 - **Waits and watches**: after an action it can wait for words to appear or go, or for the screen to settle; after the turn it can keep watching and notify you or wake the agent when a condition shows up.
 - **Works with you**: the agent can ask you to point at something on the screen (`ask`) or to show it once and keep that as a lesson (`teach`); steps that need a password or a code move to your own screen.
 - **Floating window**: its border says who has the screen (rainbow: the AI is acting, blue: standing by, green: you took over, red: stopped). Drag to move, pinch to resize, fling to an edge to fold it into a tab; hold the picture for 0.5 s to take over; open full screen to type with your own keyboard.
-- **Leaves your tools alone**: Shizuku only; it never takes adb or touches wireless debugging, so the agent's own adb or Shizuku keeps working.
+- **Leaves your tools alone**: the app does not take over adb or change wireless debugging, so the agent's own adb or Shizuku keeps working.
 
 ## What an agent can do with it
 
@@ -70,10 +70,26 @@ This list and the note agents receive come from one ability table (`Abilities.kt
 ## Install
 
 1. Install the APK and open Agent-VScreen.
-2. Make sure Shizuku is running, then tap **Grant Shizuku**.
+2. In **Setup**, choose one permission source:
+   - **Shizuku (default)**: start Shizuku, then tap **Grant Shizuku**. Start Shizuku again after each phone restart.
+   - **Root**: if the phone is already rooted, tap **Rooted? Use root instead** and approve the root manager's prompt. No Shizuku installation is needed. You can switch later under **Settings › Permission source**; switching closes the current background screen.
 3. Tap **One-tap setup** for the overlay, notifications, read-only accessibility, battery optimization and background running. On Honor, Huawei, Xiaomi, OPPO, vivo and similar phones, also open background management and allow auto-start and background activity, or the system may freeze the app in the background.
 
 The app speaks Chinese and English (System / 中文 / English in Settings), and so does everything it tells the agent.
+
+### Verify a downloaded APK
+
+Before installing, run [`apksigner`](https://developer.android.com/tools/apksigner) from Android SDK Build Tools. Replace `downloaded.apk` with the path to your APK:
+
+```sh
+apksigner verify --print-certs downloaded.apk
+```
+
+Verification must succeed, and the signer's certificate SHA-256 digest must match the official release certificate (`CN=Agent-VScreen`):
+
+`56:B1:48:24:54:9E:69:80:17:EB:A9:07:CB:C3:34:7E:E3:A4:BA:30:90:7E:FB:D6:06:8E:A5:1F:F4:49:57:56`
+
+`apksigner` prints the digest in lowercase without colons. Compare the digest, not just the certificate name or the APK file's checksum. Don't install if verification fails or the digest differs.
 
 ## Connect an agent
 
@@ -99,7 +115,7 @@ Choose **Another device** and connect Tailscale under **Remote access** first; t
 - **Tailscale app**: if the Tailscale app is already on the phone, or the phone needs an exit node to get online. The built-in node only lets other devices in; it does not carry the phone's own traffic.
 - SSH port forwarding also works.
 
-The token equals control of the phone. Requests from other devices are signed, so the token itself never crosses the network, and the app never offers a public link. Don't paste a token into public configs or screenshots.
+The token equals control of the phone. Built-in Tailscale accepts the token over its encrypted connection; other remote connections require signed requests by default. The app never offers a public link. Don't paste a token into public configs or screenshots.
 
 ## Docs
 
@@ -108,23 +124,12 @@ The token equals control of the phone. Requests from other devices are signed, s
 - [docs/TASKS.md](docs/TASKS.md): the fixed task set to run on a real phone before a release.
 - [docs/CHANGELOG.md](docs/CHANGELOG.md): earlier releases.
 
-## What's new in 1.4.1
+## What's new in 1.4.2-beta3
 
-- **Schedules and watches per agent**: same names no longer overwrite each other; forgetting an agent clears its schedules and watches.
-- **Steadier self-hosted Headscale**: the control server resolves even with a proxy such as FlClash on; public DNS is used only when every phone DNS is unreachable.
-- **Shizuku**: diagnostics include Shizuku's version, permission and user state; the hint leads with the usual cause (Shizuku must be started again after a restart).
-- Fixed Remote › Advanced not opening; schedules, watches and task ownership are more reliable; app data stays out of system backups.
-
-## What's new in 1.4.0
-
-- **A new app**: four tabs (Now, Connect, Records, Settings), each page with one main thing; explanations moved to second-level pages. Purple glass throughout.
-- **Every agent on its own**: each connected agent gets its own token, records and saved steps; lessons are shared. One inbox on the home page collects what agents need from you, and notifications open the right page.
-- **Teaching, rebuilt**: one lesson flow from the request to the saved segment, a record button that answers the agent's request, and a review pane beside the live screen. A repeated `teach` returns the saved lesson instead of asking again. Agents tidy the page back to its starting state before they ask.
-- **Keyboard**: `key ctrl+a` / `shift+tab` / `alt+f4` combos; `type` at once or `type "…" slow` letter by letter. In full screen the keyboard button opens your own input method.
-- **App sound**: Settings › App sound lists every silenced app and gives sound back; the `sound` command does the same for agents. Muting now sets both of Android's sound records, for phones that only check one of them.
-- **`fix` repairs more**: silenced apps, a stopped foreground service, the built-in Tailscale; "fixed" is checked afterwards, not assumed.
-- **Port taken**: when another app (or a clone-space copy) holds the port, the service takes the next free one and says who holds it; local agents find it by themselves and Tailscale forwards to it.
-- **Smaller, faster reading**: PP-OCRv6 tiny detector + small recognizer (11.5 MB); `collect` skips search bars and keeps going to the real end; `repeat … until` judges the last look on what the screen shows now.
+- **Optional direct root**: already-rooted phones can run without Shizuku. Shizuku remains the default and does not require root.
+- **Open apps yourself**: launch an app on the background screen from Home. Agents get `BUSY` while you hold it; Home shows the picture you left.
+- **Update channel**: choose **Releases** or **Betas (and releases)** in Settings. Release notes render as Markdown.
+- **Fewer hangs**: background failures no longer take down the whole process; screen calls and OCR have timeouts, and the app list is cached.
 
 ## Build from source
 
