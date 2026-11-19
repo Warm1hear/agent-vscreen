@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -66,6 +67,7 @@ fun SetupFlowPage() {
     val todo = items.filter { !it.ok && it.key !in skipped }
     val step = todo.firstOrNull()
     fun refresh() = scope.launch { app.items = withContext(Dispatchers.IO) { runCatching { Setup.check(ctx) }.getOrDefault(app.items) } }
+    LaunchedEffect(sh) { refresh() }
     fun choose(v: com.kilon.agentvscreen.host.Privileged.Via) = scope.launch {
         withContext(Dispatchers.IO) { com.kilon.agentvscreen.host.Privileged.choose(ctx, v) }
         kotlinx.coroutines.delay(600); refresh()
