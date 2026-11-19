@@ -4,7 +4,7 @@
 .gitattributes[FV2T]: F:强制所有文本以LF检出，二进制自动识别不改 | R:- | A:- | S:AOCI按原始字节做基线，CRLF检出会让整棵树被判为stale
 .gitignore[FV3T]: F:忽略构建产物、签名文件、本地配置、tsbridge生成的so与AOCI宿主MCP配置 | R:code:tsbridge/build.sh | A:- | S:签名文件keystore.properties与*.jks绝不能提交
 AGENTS.md[SG5T]: F:给编码agent的仓库规则：AOCI认知索引的读取、维护与收尾流程 | R:- | A:- | S:aoci区块由aoci init写入，改动应在区块外；受管理文件改完后需aoci_maintain并更新条目
-API.md[SN7L]: F:对外接口指南：Shizuku与Root配置、CLI/MCP/HTTP接入、远程连接、命令与步骤、会话与回合、盯守、安全和升级 | R:code:docs/REFERENCE.md,code:app/src/main/java/com/kilon/agentvscreen/api/ApiServer.kt,code:app/src/main/java/com/kilon/agentvscreen/host/Privileged.kt | A:- | S:命令参数和结果代码的完整列表由源码生成在REFERENCE.md，此处只介绍用法
+API.md[SN7L]: F:说明安装和授权、CLI/MCP/HTTP 接入、命令步骤、会话回合、盯守、权限及升级；解释动作后的等待和返回结果 | R:code:docs/REFERENCE.md,code:app/src/main/java/com/kilon/agentvscreen/cmd/VScreenAct.kt | A:- | S:NO_CHANGE 是提示，不会终止段；未指定 until 的常规动作才检查迟来的变化，快模式、输入和编辑键除外
 LICENSE[SZ1T]: F:MIT许可证文本 | R:- | A:- | S:-
 README.md[SZ6S]: F:英文项目入口：用途、界面图与演示动图、能力、权限与接入、APK签名验证、当前测试版变更和构建 | R:code:README.zh-CN.md,code:API.md,code:app/build.gradle.kts,code:app/src/test/java/com/kilon/agentvscreen/api/AbilitiesTest.kt | A:- | S:能力清单由测试从Abilities表生成；main版本和正式版下载链接可以不同，签名验证比对证书指纹而非APK文件摘要
 README.zh-CN.md[SZ6S]: F:中文项目入口：用途、界面图与演示动图、能力、权限与接入、APK签名验证、当前测试版变更和构建 | R:code:README.md,code:API.md,code:app/build.gradle.kts,code:app/src/test/java/com/kilon/agentvscreen/api/AbilitiesTest.kt | A:- | S:能力清单由测试从Abilities表生成；版本、下载渠道、演示图说明与证书指纹需与英文版同步
@@ -29,7 +29,7 @@ vscreen.sh[EN8M]: F:命令行客户端：读配置、签名请求、令牌证明
 dict.txt[FA5L]: F:PP-OCR识别模型的字符字典，每行一个字符，下标对应模型输出类别 | R:code:app/src/main/java/com/kilon/agentvscreen/core/VScreenPaddleOcr.kt | A:- | S:必须与rec模型同版本，行序即类别下标，增删或重排会让识别全错
 
 ===/<repository>/app/src/main/java/com/kilon/agentvscreen/===
-I18n.kt[CL7T]: F:统一 App 界面与命令回复的中英语言选择、成对文案和步数单复数；允许请求临时指定回复语言 | R:- | A:I18n.choice,I18n.with,I18n.carry,I18n.en,tr,steps | S:语言覆盖在线程内生效，不改变 App 设置；派发到另一线程时用 carry 保留调用方语言。AUTO 仅在系统语言为中文时选中文
+I18n.kt[CL7T]: F:全应用唯一语言选择（AUTO/中/英）与tr()成对文本、英文步数单复数steps()，支持按线程强制回复语言 | R:- | A:I18n.choice,I18n.with,I18n.carry,I18n.en,tr,steps | S:文本以tr("中","en")就地成对写，不用res字符串；跨线程工作要用carry带上调用方语言，否则回复变回App语言
 
 ===/<repository>/app/src/main/java/com/kilon/agentvscreen/api/===
 Abilities.kt[AE8S]: F:agent能力唯一表：每项能力的使用情境、命令、做法与新闻，生成记忆说明、guide、更新提示、README与Operit建议 | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/CommandSpec.kt,code:app/src/main/java/com/kilon/agentvscreen/api/AgentGuide.kt,code:app/src/main/java/com/kilon/agentvscreen/api/AgentNews.kt | A:Abilities.all,of,changedSince,undisclosed,forVia | S:每条命令必须恰属一个能力，否则AbilitiesTest失败；when文案用用户的话不用内部术语；改披露需更新changed版本号才会推送给旧agent
@@ -49,11 +49,11 @@ Turns.kt[AW7T]: F:没有聊天信号时界定会话的一轮：首条命令开�
 ===/<repository>/app/src/main/java/com/kilon/agentvscreen/cmd/===
 CmdTypes.kt[CB8S]: F:命令层公共类型：请求/结果(退出码+结果代码+结构化data+文本)、线程内调用者Call、注记Notes、步骤输出StepOut、截图存储ShotStore | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/Codes.kt,code:app/src/main/java/com/kilon/agentvscreen/core/Pictures.kt | A:NativeOffloadRequest,NativeOffloadResult,Call,Notes,StepOut,ShotStore | S:退出码0完成/1失败或停在某步/2用法错；/v1下软失败仍返回0；深层代码从ThreadLocal Call读调用者而非传参；图片在文本中以vscreen-shot://名字引用，最多保留300张
 Codes.kt[CB8S]: F:全部结果代码表：含义与下一步类别(look/fix_command/ask_user/retry_later/none)，生成help codes与文档 | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/CmdTypes.kt | A:Codes.all,of,next,help,markdown | S:任何未登记的代码都算bug(CodesTest/CodesUsedTest会失败)；未知代码的next默认look；连接类代码要同时说Shizuku与Root
-CommandSpec.kt[CB9L]: F:声明命令语法、选项类型、令牌范围、队列和异步支持，供解析、双语帮助、MCP schema及参考文档共用 | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/OffloadArgs.kt,code:app/src/main/java/com/kilon/agentvscreen/cmd/VScreenOffloadHandler.kt,code:app/src/main/java/com/kilon/agentvscreen/api/Abilities.kt,code:docs/REFERENCE.md | A:CommandSpec.commands,of,Scope,inputSchema,fullHelp,markdown | S:新命令必须纳入Abilities，否则测试失败；只观察的act按LOOK范围算；更改声明或命令描述后应重生成REFERENCE.md
+CommandSpec.kt[CB9L]: F:集中声明命令语法、选项、权限、排队与异步能力，为解析、双语帮助、MCP 工具和命令参考提供同一份定义 | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/OffloadArgs.kt,code:app/src/main/java/com/kilon/agentvscreen/cmd/VScreenAct.kt,code:app/src/main/java/com/kilon/agentvscreen/api/Abilities.kt,code:docs/REFERENCE.md | A:CommandSpec.commands,of,Scope,inputSchema,fullHelp,markdown | S:act 的权限取决于实际步骤，纯观察只需 LOOK；双语帮助描述延迟变化的等待，但执行时序由 VScreenAct 决定；更改命令表后需重新生成参考文档
 OffloadArgs.kt[CB5T]: F:命令行长选项解析：开关、--k v/--k=v、可选值选项、位置参数，严格模式拒绝非数字 | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/OffloadOutput.kt | A:OffloadArgs.positional,hasFlag,get,getInt,getLong,BadOption | S:-
 OffloadOutput.kt[CB3T]: F:统一的--compact/--quiet输出整形：JSON压成一行或只取data/error | R:- | A:OffloadOutput.formatBody,OUTPUT_FLAGS | S:-
 Tasks.kt[AW6T]: F:长命令转后台任务：--async立即返回任务号，task查询/等待/取消，结果保留30分钟 | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/VScreenOffloadHandler.kt,code:app/src/main/java/com/kilon/agentvscreen/cmd/CmdTypes.kt | A:Tasks.start,command,running,WAIT_MAX_MS | S:任务只对同令牌可见；最多4个同时运行；单次--wait最多挂120秒，防客户端HTTP超时
-VScreenAct.kt[DB9L]: F:执行 act 和已保存的段：解析目标、逐步操作、等待 until 或迟来的界面响应、生成步骤事实，执行应用规则与付费确认 | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/VScreenSteps.kt,code:app/src/main/java/com/kilon/agentvscreen/cmd/VScreenReport.kt,code:app/src/main/java/com/kilon/agentvscreen/core/VScreenPerception.kt,code:app/src/main/java/com/kilon/agentvscreen/core/BackgroundOperation.kt,code:app/src/main/java/com/kilon/agentvscreen/core/Guard.kt | A:act,runSegment,Probe,waitOn,SegmentOpts,keepHost | S:until 的探针在动作前建，条件只用动作后的证据，输入框刚写入的字不算新出现的文字。已完成动作的采样帧若未变，再等至多 1.5 秒；检测到迟来变化则等待稳定并注明，不能立即报 NO_CHANGE。单步失败终止本段；付费或不可撤销的动作须用户在手机上确认
+VScreenAct.kt[DB9L]: F:act命令与段执行核心：逐步执行动作、目标解析(#N/文字/坐标)、动作后until事实等待(Probe)、停止条件、付费确认、应用规则、--keep盯守 | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/VScreenSteps.kt,code:app/src/main/java/com/kilon/agentvscreen/cmd/VScreenReport.kt,code:app/src/main/java/com/kilon/agentvscreen/core/VScreenPerception.kt,code:app/src/main/java/com/kilon/agentvscreen/core/BackgroundOperation.kt,code:app/src/main/java/com/kilon/agentvscreen/core/Guard.kt | A:act,runSegment,Probe,waitOn,lookLate,keepHost | S:until的Probe必须在动作前创建且只判动作之后：先等画面或无障碍树变化，变化平静(或1.5秒)后才判文字；text:只算动作后新出现在别处的字(换页则全算)，刚输入的框内文字不算，OCR读数须晚于变化；单步失败不抛出而是结束本段；动作后画面没变时再看LATE_MS找迟到变化，期间照样查停止条件与中断，变化按首个不同帧记、与结束时刻同从动作完成起算，稳定与否按其后的稳定等待报；付费/不可撤销按钮必须由用户在手机上确认，不能靠agent自加参数
 VScreenArgs.kt[CB4T]: F:命令共用参数形态：矩形、时长解析，越界值钳制并在结果中说明 | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/VScreenOptions.kt | A:parseRect,parseDuration,bounded,boundedMs,capMs,durWords | S:坏值直接拒绝而非悄悄替换；低于下限视为错误(collect --pages -1曾跑1页)
 VScreenAsk.kt[DU6S]: F:ask命令：在手机上请用户在副屏画面上点出位置、框选或选择，返回坐标与该处元素 | R:code:app/src/main/java/com/kilon/agentvscreen/host/UserAsk.kt,code:app/src/main/java/com/kilon/agentvscreen/core/BackgroundOperation.kt | A:askCmd,elementAt,elementsIn,feedbackOf,ASK_DEFAULT_WAIT_MS,ASK_MAX_WAIT_MS | S:默认只等50秒(短于agent工具超时)，返回ASK_PENDING后重发同一问题取回答案；--async任务里等到问题失效；用户先滑动再标时坐标对应当前画面
 VScreenDiag.kt[OO4T]: F:diag命令与复制诊断：版本、设备、权限来源诊断、近期命令代码与耗时、吞掉的异常、日志尾 | R:code:app/src/main/java/com/kilon/agentvscreen/host/Privileged.kt,code:app/src/main/java/com/kilon/agentvscreen/host/AppLogger.kt | A:diagCmd,diagText,Diag.text | S:不得包含截图、输入文字或令牌
@@ -231,7 +231,7 @@ V141Beta1Test.kt[TI4M]: F:测试1.4.1按agent隔离定时与keep、旧数据迁�
 VScreenRegexLintTest.kt[TQ5T]: F:扫描源码Regex字面量，大括号必须转义或为量词 | R:- | A:- | S:安卓ICU拒绝裸大括号而JVM接受，顶层Regex失败会让整个类崩溃
 VScreenV050Test.kt[TB2T]: F:测试按压时长、垃圾标签、collect分条合并与断网检测 | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/VScreenLook.kt | A:- | S:-
 VScreenV49Test.kt[TB4S]: F:测试act步骤语言：分号切分、目标、手势、按键等待、条件、选项来自命令表、应用笔记本 | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/VScreenAct.kt,code:app/src/main/java/com/kilon/agentvscreen/cmd/VScreenSteps.kt | A:- | S:-
-V142Beta1Test.kt[TR4S]: F:回归验证版本与更新渠道、后台线程异常、坐标边界、旧帧提示、Markdown、用户专属会话名，以及中英文步数与英文单复数 | R:code:app/src/main/java/com/kilon/agentvscreen/core/ThreadGuard.kt,code:app/src/main/java/com/kilon/agentvscreen/I18n.kt | A:- | S:-
+V142Beta1Test.kt[TR4S]: F:测试1.4.2-beta1：后台线程异常不致命、clampIn不抛、旧画面提示、更新通道、Markdown解析、@you会话不可冒用、英文步数单复数、迟到变化遇停止条件即停、按首个不同帧计时且慢动作后两时刻同基准 | R:code:app/src/main/java/com/kilon/agentvscreen/core/ThreadGuard.kt,code:app/src/main/java/com/kilon/agentvscreen/ui/Markdown.kt | A:- | S:-
 
 ===/<repository>/app/src/test/java/com/kilon/agentvscreen/core/===
 PicturesTest.kt[TP5T]: F:扫描源码，所有JPEG编码只能在Pictures.kt，参数在Pictures.Use | R:code:app/src/main/java/com/kilon/agentvscreen/core/Pictures.kt | A:- | S:发版门之一
@@ -244,9 +244,9 @@ ShotTest.kt[TU3S]: F:设AVS_SHOTS时用Robolectric把首页、浮窗、请求卡
 robolectric.properties[TL2T]: F:Robolectric默认zh-rCN限定符，测试默认中文文字 | R:- | A:- | S:-
 
 ===/<repository>/docs/===
-CHANGELOG.md[SV3T]: F:英文历史发布说明；当前测试版说明指向英文README | R:code:README.md | A:- | S:-
-CHANGELOG.zh-CN.md[SV3S]: F:中文历史发布说明；当前测试版说明指向中文README | R:code:README.zh-CN.md | A:- | S:-
-REFERENCE.md[SG6L]: F:由CommandSpec及Codes生成的中英命令、参数与结果码参考 | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/CommandSpec.kt,code:app/src/main/java/com/kilon/agentvscreen/cmd/Codes.kt | A:- | S:不要手改；改表后跑build.sh regen或通过V120Test重生成
+CHANGELOG.md[SV3T]: F:英文更新记录：区分 main 上未发布的延迟画面检测、步数单复数修复和已发布版本，当前测试版说明见英文 README | R:code:README.md,code:docs/CHANGELOG.zh-CN.md | A:- | S:-
+CHANGELOG.zh-CN.md[SV3S]: F:中文更新记录：先列 main 上尚未发布的迟来变化检测和英文步数修正，再列发布历史；当前测试版说明见中文 README | R:code:README.zh-CN.md,code:docs/CHANGELOG.md | A:- | S:-
+REFERENCE.md[SG6L]: F:中英命令与结果码参考：列出语法、选项、步骤条件及 act 在报 NO_CHANGE 前对延迟画面的等待规则 | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/CommandSpec.kt,code:app/src/main/java/com/kilon/agentvscreen/cmd/Codes.kt,code:app/src/test/java/com/kilon/agentvscreen/cmd/V120Test.kt | A:- | S:文档由命令表和结果码表生成；普通测试校验内容，不回写，使用 build.sh regen 重新生成
 SPIKE-FRONT-DOOR.md[SR3T]: F:未实施的验证方案：把HTTP入口搬进Shizuku用户服务以避开后台冻结 | R:code:app/src/main/java/com/kilon/agentvscreen/api/ApiServer.kt | A:- | S:-
 TASKS.md[SQ5S]: F:发版前真机固定任务集与给测试agent的提示词，按类别不针对具体应用 | R:- | A:- | S:每轮换用不同应用，跑全部任务而非只测增量
 
