@@ -32,6 +32,7 @@ Agent-VScreen 在一块看不见的虚拟屏上打开和操作别的应用，你
 
 <p align="center"><img src="docs/tour.gif" width="760" alt="依次浏览 App 的现在、接入、记录和设置四个页面"></p>
 <p align="center"><sub>agent 工作时的 App 界面一览。<a href="docs/promo/tour.mp4?raw=true">下载 MP4</a></sub></p>
+<p align="center"><sub>三段 MP4 都带配乐，另有一段 34 秒的<a href="docs/promo/mix.mp4?raw=true">混剪版</a>。配乐：“Wallpaper”，Kevin MacLeod（incompetech.com），<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>。</sub></p>
 
 - `main` 分支版本：1.4.2-beta3（versionCode 54） · [测试版 APK](https://github.com/kilolonion/agent-vscreen/releases/tag/v1.4.2-beta3) · [最新正式版 APK](https://github.com/kilolonion/agent-vscreen/releases/latest)
 - 包名：`com.kilon.agentvscreen`
@@ -74,6 +75,9 @@ Agent-VScreen 在一块看不见的虚拟屏上打开和操作别的应用，你
 - **不绑模型**：手机这边不调用任何模型，换哪个 agent、哪个模型都能用。
 
 ## 安装
+
+<p align="center"><a href="docs/promo/tutorial.zh.mp4?raw=true"><img src="docs/tutorial.zh.png" width="760" alt="新手教学视频：授权、接入 agent、交给它第一件事、随时接管、回看记录"></a></p>
+<p align="center"><sub>新手教学视频（中文界面和配音，约 2 分钟）：从授权到让 agent 做第一件事。<a href="docs/promo/tutorial.zh.mp4?raw=true">下载 MP4</a></sub></p>
 
 1. 安装 APK，打开 Agent-VScreen。
 2. 在 **首次配置** 里选一种权限来源：

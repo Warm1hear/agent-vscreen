@@ -32,6 +32,7 @@ Any agent on the phone can use it: agents with a terminal use the `vscreen` CLI,
 
 <p align="center"><img src="docs/tour.gif" width="760" alt="A tour of the Now, Connect, Records and Settings tabs of the app"></p>
 <p align="center"><sub>A tour of the app while an agent is at work. <a href="docs/promo/tour.mp4?raw=true">Download MP4</a></sub></p>
+<p align="center"><sub>The three MP4s have music, and there is a 34-second <a href="docs/promo/mix.mp4?raw=true">combined cut</a>. Music: "Wallpaper" by Kevin MacLeod (incompetech.com), <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.</sub></p>
 
 - Version on `main`: 1.4.2-beta3 (versionCode 54) · [Beta APK](https://github.com/kilolonion/agent-vscreen/releases/tag/v1.4.2-beta3) · [Latest stable APK](https://github.com/kilolonion/agent-vscreen/releases/latest)
 - Package: `com.kilon.agentvscreen`
@@ -74,6 +75,9 @@ This list and the note agents receive come from one ability table (`Abilities.kt
 - **Any model**: nothing runs a model on the phone, so any agent and any model can use it.
 
 ## Install
+
+<p align="center"><a href="docs/promo/tutorial.en.mp4?raw=true"><img src="docs/tutorial.en.png" width="760" alt="Getting-started video: grant access, connect your agent, give it a first job, take over, review what it did"></a></p>
+<p align="center"><sub>Getting-started video (English UI and voiceover, under 2 minutes): from granting access to the agent's first job. <a href="docs/promo/tutorial.en.mp4?raw=true">Download MP4</a></sub></p>
 
 1. Install the APK and open Agent-VScreen.
 2. In **Setup**, choose one permission source:
