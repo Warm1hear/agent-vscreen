@@ -57,7 +57,8 @@ def press_text(package, labels):
 
 
 def launch():
-    shell("am", "start", "-W", "-n", APP + "/.ui.MainActivity", "--es", "page", "SETUP")
+    # Wait for Shizuku state/UI below, not ActivityManager's launch completion.
+    shell("am", "start", "-n", APP + "/.ui.MainActivity", "--es", "page", "SETUP")
 
 
 def install(filename):
