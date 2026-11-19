@@ -4,7 +4,7 @@
 .gitattributes[FV2T]: F:强制所有文本以LF检出，二进制自动识别不改 | R:- | A:- | S:AOCI按原始字节做基线，CRLF检出会让整棵树被判为stale
 .gitignore[FV3T]: F:忽略构建产物、签名文件、本地配置、tsbridge生成的so与AOCI宿主MCP配置 | R:code:tsbridge/build.sh | A:- | S:签名文件keystore.properties与*.jks绝不能提交
 AGENTS.md[SG5T]: F:给编码agent的仓库规则：AOCI认知索引的读取、维护与收尾流程 | R:- | A:- | S:aoci区块由aoci init写入，改动应在区块外；受管理文件改完后需aoci_maintain并更新条目
-API.md[SN7L]: F:说明安装和授权、CLI/MCP/HTTP 接入、命令步骤、会话回合、盯守、权限及升级；解释动作后的等待和返回结果 | R:code:docs/REFERENCE.md,code:app/src/main/java/com/kilon/agentvscreen/cmd/VScreenAct.kt | A:- | S:NO_CHANGE 是提示，不会终止段；未指定 until 的常规动作才检查迟来的变化，快模式、输入和编辑键除外
+API.md[SN7L]: F:对外接口指南：Shizuku与Root配置、CLI/MCP/HTTP接入、远程连接、命令与步骤、等待与晚变化检查、会话与回合、盯守、安全和升级 | R:code:docs/REFERENCE.md,code:app/src/main/java/com/kilon/agentvscreen/api/ApiServer.kt,code:app/src/main/java/com/kilon/agentvscreen/host/Privileged.kt,code:app/src/main/java/com/kilon/agentvscreen/cmd/VScreenAct.kt | A:- | S:命令参数和结果代码的完整列表由源码生成在REFERENCE.md，此处只介绍用法；等待与NO_CHANGE说明须随VScreenAct行为更新
 LICENSE[SZ1T]: F:MIT许可证文本 | R:- | A:- | S:-
 README.md[SZ6S]: F:英文项目入口：用途、界面图与演示动图、能力、权限与接入、APK签名验证、当前测试版变更和构建 | R:code:README.zh-CN.md,code:API.md,code:app/build.gradle.kts,code:app/src/test/java/com/kilon/agentvscreen/api/AbilitiesTest.kt | A:- | S:能力清单由测试从Abilities表生成；main版本和正式版下载链接可以不同，签名验证比对证书指纹而非APK文件摘要
 README.zh-CN.md[SZ6S]: F:中文项目入口：用途、界面图与演示动图、能力、权限与接入、APK签名验证、当前测试版变更和构建 | R:code:README.md,code:API.md,code:app/build.gradle.kts,code:app/src/test/java/com/kilon/agentvscreen/api/AbilitiesTest.kt | A:- | S:能力清单由测试从Abilities表生成；版本、下载渠道、演示图说明与证书指纹需与英文版同步
@@ -244,8 +244,8 @@ ShotTest.kt[TU3S]: F:设AVS_SHOTS时用Robolectric把首页、浮窗、请求卡
 robolectric.properties[TL2T]: F:Robolectric默认zh-rCN限定符，测试默认中文文字 | R:- | A:- | S:-
 
 ===/<repository>/docs/===
-CHANGELOG.md[SV3T]: F:英文更新记录：区分 main 上未发布的延迟画面检测、步数单复数修复和已发布版本，当前测试版说明见英文 README | R:code:README.md,code:docs/CHANGELOG.zh-CN.md | A:- | S:-
-CHANGELOG.zh-CN.md[SV3S]: F:中文更新记录：先列 main 上尚未发布的迟来变化检测和英文步数修正，再列发布历史；当前测试版说明见中文 README | R:code:README.zh-CN.md,code:docs/CHANGELOG.md | A:- | S:-
+CHANGELOG.md[SV3T]: F:英文历史发布说明，main上未发布的改动列在最前；当前测试版说明指向英文README | R:code:README.md,code:docs/CHANGELOG.zh-CN.md | A:- | S:-
+CHANGELOG.zh-CN.md[SV3S]: F:中文历史发布说明，main上未发布的改动列在最前；当前测试版说明指向中文README | R:code:README.zh-CN.md,code:docs/CHANGELOG.md | A:- | S:-
 REFERENCE.md[SG6L]: F:中英命令与结果码参考：列出语法、选项、步骤条件及 act 在报 NO_CHANGE 前对延迟画面的等待规则 | R:code:app/src/main/java/com/kilon/agentvscreen/cmd/CommandSpec.kt,code:app/src/main/java/com/kilon/agentvscreen/cmd/Codes.kt,code:app/src/test/java/com/kilon/agentvscreen/cmd/V120Test.kt | A:- | S:文档由命令表和结果码表生成；普通测试校验内容，不回写，使用 build.sh regen 重新生成
 SPIKE-FRONT-DOOR.md[SR3T]: F:未实施的验证方案：把HTTP入口搬进Shizuku用户服务以避开后台冻结 | R:code:app/src/main/java/com/kilon/agentvscreen/api/ApiServer.kt | A:- | S:-
 TASKS.md[SQ5S]: F:发版前真机固定任务集与给测试agent的提示词，按类别不针对具体应用 | R:- | A:- | S:每轮换用不同应用，跑全部任务而非只测增量
