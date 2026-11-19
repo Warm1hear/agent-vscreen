@@ -1,6 +1,11 @@
 # Earlier releases
 
-For [1.4.2-beta3 (versionCode 54)](../README.md#whats-new-in-142-beta3), see the current beta notes.
+For [1.4.2-beta3 (versionCode 54)](../README.md#whats-new-in-142-beta3), see the current beta notes. Changes on `main` since then come first.
+
+## On `main` since 1.4.2-beta3 (not released yet)
+
+- **No false "the screen did not change"**: when the picture after an action still matches the one before, `act` looks up to 1.5 s longer for a slow app to react. A late change is waited out and said: "the screen changed late, X s after the action". A tap that really missed is still said, about 1.5 s later.
+- Step counts read "1 step", not "1 steps": Records, lessons, automations, `use` replies and "1 setup step left".
 
 ## What's new in 1.4.1
 
