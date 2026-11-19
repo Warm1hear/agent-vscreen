@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T04:18:00Z",
-  "updated_at": "2026-11-19T11:09:49Z",
+  "updated_at": "2026-11-19T11:23:32Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -53,9 +53,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "72975b2e1c3bb7b0abd0f1784ea79bdc4f47e825ffde4219687f24c606b2387a",
-      "size": 86600,
-      "normalized_sha256": "72975b2e1c3bb7b0abd0f1784ea79bdc4f47e825ffde4219687f24c606b2387a"
+      "sha256": "258332b8d694378e6ac6805c9bcd83d7899f8706ddbdf798961bd4a6767f986f",
+      "size": 87554,
+      "normalized_sha256": "258332b8d694378e6ac6805c9bcd83d7899f8706ddbdf798961bd4a6767f986f"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -71,9 +71,9 @@
     },
     "app/build.gradle.kts": {
       "role": "index",
-      "sha256": "2872dccd688b2afb20ae7663ac476f8c5cf02377734ddf9fdb5d8600bd43433e",
+      "sha256": "6d6eaadb59fedbb6a7906d4aabfd933061fb161dc7c237d695e18eca86e73189",
       "size": 4155,
-      "normalized_sha256": "2872dccd688b2afb20ae7663ac476f8c5cf02377734ddf9fdb5d8600bd43433e"
+      "normalized_sha256": "6d6eaadb59fedbb6a7906d4aabfd933061fb161dc7c237d695e18eca86e73189"
     },
     "app/proguard-rules.pro": {
       "role": "index",
@@ -152,9 +152,9 @@
     },
     "app/src/main/java/com/kilon/agentvscreen/api/AgentNews.kt": {
       "role": "index",
-      "sha256": "a86bb5a9c102eddc121d716539e387be9dc4281500e0cec46e81b4e0f054b7b3",
-      "size": 5341,
-      "normalized_sha256": "a86bb5a9c102eddc121d716539e387be9dc4281500e0cec46e81b4e0f054b7b3"
+      "sha256": "93b04dc5a52df7b36eee7f1669fd29f1ca22c29bf89124290a19820c8748125a",
+      "size": 5370,
+      "normalized_sha256": "93b04dc5a52df7b36eee7f1669fd29f1ca22c29bf89124290a19820c8748125a"
     },
     "app/src/main/java/com/kilon/agentvscreen/api/Agents.kt": {
       "role": "index",
@@ -1178,9 +1178,9 @@
     },
     "app/src/test/java/com/kilon/agentvscreen/cmd/V142Beta1Test.kt": {
       "role": "index",
-      "sha256": "0bae394ceba626289a7d9e0a62e6b5f3766eb0b1de9aa83abc49906b99db0c27",
-      "size": 9043,
-      "normalized_sha256": "0bae394ceba626289a7d9e0a62e6b5f3766eb0b1de9aa83abc49906b99db0c27"
+      "sha256": "94734cebc5d33ba57102b8786990f409447c212876ea696af9f350f7541f2455",
+      "size": 9213,
+      "normalized_sha256": "94734cebc5d33ba57102b8786990f409447c212876ea696af9f350f7541f2455"
     },
     "app/src/test/java/com/kilon/agentvscreen/cmd/VScreenRegexLintTest.kt": {
       "role": "index",
