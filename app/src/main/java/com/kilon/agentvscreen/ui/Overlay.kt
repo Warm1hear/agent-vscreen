@@ -851,7 +851,7 @@ internal fun OverlayContent(fixed: BackgroundOperation.State? = null, picture: (
                 // 1.4.0-beta15 (rainbow): no grip icon; the state dot already marks the pill, and the grip took room from the title.
                 Box(Modifier.size((7 * k).dp).clip(CircleShape).background(if (mode == Mode.ACTING) Brush.sweepGradient(Palette.rainbow) else Brush.linearGradient(listOf(Palette.of(mode), Palette.of(mode)))))
                 Spacer(Modifier.width((5 * k).dp))
-                Text(title, color = Color.White, fontSize = (11 * k).sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                Text(title, color = Color.White, fontSize = (11 * k).sp, maxLines = 1, fontWeight = FontWeight.Medium, modifier = Modifier.scrollIfLong())
             }
 
             // Full screen and close, top right. Same places in every state.

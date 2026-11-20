@@ -4,6 +4,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Icon
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -104,6 +105,9 @@ fun Modifier.glassSheet(shape: Shape = RoundedCornerShape(28.dp)): Modifier {
  * card or button bar drawn over the live picture takes the touch and the picture under it never sees it (never sent to
  * the background screen, never recorded in a lesson). Its own buttons still get their taps: nothing is consumed here.
  */
+/** A one-line title too long for its room scrolls through in a loop instead of ending in "…"; one that fits stays still. */
+fun Modifier.scrollIfLong(): Modifier = this.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 1500, repeatDelayMillis = 2000, velocity = 28.dp)
+
 fun Modifier.eatTouches(): Modifier = this.pointerInput(Unit) {
     awaitEachGesture {
         awaitFirstDown(requireUnconsumed = false)

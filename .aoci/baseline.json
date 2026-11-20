@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T04:18:00Z",
-  "updated_at": "2026-11-19T11:23:32Z",
+  "updated_at": "2026-11-20T01:34:39Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -53,9 +53,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "258332b8d694378e6ac6805c9bcd83d7899f8706ddbdf798961bd4a6767f986f",
-      "size": 87554,
-      "normalized_sha256": "258332b8d694378e6ac6805c9bcd83d7899f8706ddbdf798961bd4a6767f986f"
+      "sha256": "4f5a0d251e92be82404714c9085ab0995aff70ffb60d925701128fd48ce7fadf",
+      "size": 87615,
+      "normalized_sha256": "4f5a0d251e92be82404714c9085ab0995aff70ffb60d925701128fd48ce7fadf"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -794,15 +794,15 @@
     },
     "app/src/main/java/com/kilon/agentvscreen/ui/FullscreenActivity.kt": {
       "role": "index",
-      "sha256": "45a08aa6f601baacb764f0c072493e97e6291e8ce62aec8951552947bcde4bce",
-      "size": 38571,
-      "normalized_sha256": "45a08aa6f601baacb764f0c072493e97e6291e8ce62aec8951552947bcde4bce"
+      "sha256": "32db139a9729160a68e75673e508a145be58835615698cbfaf1b37bc0a4edbf4",
+      "size": 38575,
+      "normalized_sha256": "32db139a9729160a68e75673e508a145be58835615698cbfaf1b37bc0a4edbf4"
     },
     "app/src/main/java/com/kilon/agentvscreen/ui/Kit.kt": {
       "role": "index",
-      "sha256": "94c250395dc63b440b9701415b363c800d30eec1923faf193689e43ad57a8f5f",
-      "size": 10439,
-      "normalized_sha256": "94c250395dc63b440b9701415b363c800d30eec1923faf193689e43ad57a8f5f"
+      "sha256": "5f258b858421e2a114c9882d8d14f3d5fccfd14e18528473698d02dcb8687923",
+      "size": 10772,
+      "normalized_sha256": "5f258b858421e2a114c9882d8d14f3d5fccfd14e18528473698d02dcb8687923"
     },
     "app/src/main/java/com/kilon/agentvscreen/ui/LiveFrame.kt": {
       "role": "index",
@@ -842,9 +842,9 @@
     },
     "app/src/main/java/com/kilon/agentvscreen/ui/Overlay.kt": {
       "role": "index",
-      "sha256": "74cd568016d19c0bf00e70013683f44f52cd7bd9709d9d5cc56ebca21ea240c4",
-      "size": 62905,
-      "normalized_sha256": "74cd568016d19c0bf00e70013683f44f52cd7bd9709d9d5cc56ebca21ea240c4"
+      "sha256": "6c88f825fb30b50651ae86b3de017d936878a567a11d27596cdd90ce9af4d3a5",
+      "size": 62907,
+      "normalized_sha256": "6c88f825fb30b50651ae86b3de017d936878a567a11d27596cdd90ce9af4d3a5"
     },
     "app/src/main/java/com/kilon/agentvscreen/ui/Overview.kt": {
       "role": "index",
