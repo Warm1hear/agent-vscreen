@@ -48,6 +48,7 @@ object VScreenRecorder {
         var lastVersion = -1L
         var lastAt = 0L
         var markSeq = 0
+        var closed = false // under the track lock
         @Volatile var on = true
         val startedAt = System.currentTimeMillis()
     }
@@ -57,6 +58,8 @@ object VScreenRecorder {
     private fun root(): File? = BackgroundOperation.appContextOrNull()?.cacheDir?.let { File(it, "vscreen-rec") }
 
     private fun track(d: VScreenDisplay): Track? = synchronized(tracks) {
+        // A late perception frame must not recreate a track for a released screen.
+        if (d.released) return null
         tracks[d.displayId]?.takeIf { it.frameW == d.width && it.frameH == d.height }?.let { return it }
         tracks.remove(d.displayId)?.let { drop(it) }
         val dir = File(root() ?: return null, "${d.displayId}-${d.generation}-${System.currentTimeMillis()}").apply { mkdirs() }
@@ -80,9 +83,10 @@ object VScreenRecorder {
             val k = MAX_SIDE.toDouble() / maxOf(frame.width, frame.height)
             val small = if (k >= 1.0) frame else Bitmap.createScaledBitmap(frame, maxOf(1, (frame.width * k).roundToInt()), maxOf(1, (frame.height * k).roundToInt()), true)
             val f = File(t.dir, "$now.jpg")
-            Pictures.write(small, f, Pictures.Use.RECORDING, fit = false)
-            if (small !== frame) small.recycle()
+            try { Pictures.write(small, f, Pictures.Use.RECORDING, fit = false) }
+            finally { if (small !== frame) small.recycle() }
             synchronized(t) {
+                if (t.closed) { f.delete(); return }
                 t.frames.addLast(Frame(now, f, f.length())); t.bytes += f.length()
                 prune(t, now)
             }
@@ -179,7 +183,10 @@ object VScreenRecorder {
     /** The screen is gone: delete its track. */
     fun stop(displayId: Int) { synchronized(tracks) { tracks.remove(displayId) }?.let { drop(it) } }
 
-    private fun drop(t: Track) { runCatching { t.dir.deleteRecursively() } }
+    private fun drop(t: Track) {
+        synchronized(t) { t.closed = true }
+        runCatching { t.dir.deleteRecursively() }
+    }
 
     /** At startup: tracks of a previous process are stale. */
     fun clearAll() { runCatching { root()?.deleteRecursively() } }

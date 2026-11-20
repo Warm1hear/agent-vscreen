@@ -241,9 +241,17 @@ object Overlay {
 
     private fun prefs() = ctx!!.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    private fun metricsWm(): WindowManager? = hostWm ?: ctx?.getSystemService(WindowManager::class.java)
-    internal fun screenW() = runCatching { metricsWm()!!.maximumWindowMetrics.bounds.width() }.getOrNull() ?: ctx?.resources?.displayMetrics?.widthPixels ?: 1080
-    internal fun screenH() = runCatching { metricsWm()!!.maximumWindowMetrics.bounds.height() }.getOrNull() ?: ctx?.resources?.displayMetrics?.heightPixels ?: 2400
+    // Main-thread geometry cache. MOVE and animations must not query WindowManager for each sample.
+    private var cachedBounds: Pair<Int, Int>? = null
+    internal fun invalidateBounds() { cachedBounds = null }
+    private fun screenBounds(wm: WindowManager? = hostWm): Pair<Int, Int> = cachedBounds ?: run {
+        val bounds = runCatching { (wm ?: ctx?.getSystemService(WindowManager::class.java))?.maximumWindowMetrics?.bounds }.getOrNull()
+        val metrics = ctx?.resources?.displayMetrics
+        (if (bounds != null && bounds.width() > 0 && bounds.height() > 0) bounds.width() to bounds.height()
+            else (metrics?.widthPixels ?: 1080) to (metrics?.heightPixels ?: 2400)).also { cachedBounds = it }
+    }
+    internal fun screenW() = screenBounds().first
+    internal fun screenH() = screenBounds().second
     internal fun dp(v: Float) = v * (ctx?.resources?.displayMetrics?.density ?: 3f)
 
     /** Aspect (w / h) of the background screen. */
@@ -282,6 +290,8 @@ object Overlay {
                     .createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, null)
                     .getSystemService(WindowManager::class.java)
             }.getOrElse { c.getSystemService(WindowManager::class.java) }
+        invalidateBounds()
+        screenBounds(wm)
         val o = OverlayOwner().also { owner = it }
         val p = prefs()
         shownLandscape = aspect() > 1f
@@ -327,6 +337,8 @@ object Overlay {
     private fun hide() {
         stopAnim()
         val v = root ?: return
+        v.removeCallbacks(applyPlace)
+        invalidateBounds()
         runCatching { hostWm?.removeView(v) }.onFailure { AppLogger.warning("Overlay", "removeView: ${it.message}") }
         placeQueued = false
         root = null; hostWm = null; owner?.destroy(); owner = null
@@ -372,7 +384,9 @@ object Overlay {
 
     internal fun place(x: Int, y: Int) {
         val v = root ?: return; val l = lp ?: return
-        l.x = x; l.y = y.clampIn(if (docked.value) 0 else -(winH() * 0.6f).toInt(), screenH() - dp(48f).toInt())
+        val boundedY = y.clampIn(if (docked.value) 0 else -(winH() * 0.6f).toInt(), screenH() - dp(48f).toInt())
+        if (l.x == x && l.y == boundedY) return
+        l.x = x; l.y = boundedY
         if (!placeQueued) { placeQueued = true; v.postOnAnimation(applyPlace) }
     }
 
@@ -635,8 +649,15 @@ private class GestureFrame(ctx: Context) : FrameLayout(ctx) {
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration?) {
         super.onConfigurationChanged(newConfig)
+        Overlay.invalidateBounds()
         // The main screen turned: keep the window (or its tab) on screen.
         post { if (Overlay.docked.value) Overlay.dock(Overlay.dockRight.value) else Overlay.settle() }
+    }
+
+    override fun onDetachedFromWindow() {
+        main.removeCallbacks(lift)
+        velocity?.recycle(); velocity = null
+        super.onDetachedFromWindow()
     }
 
     /** The window takes the touch: the content gets a cancel (a live finger on the screen is cancelled, not tapped). */

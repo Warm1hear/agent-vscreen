@@ -62,20 +62,30 @@ fun VScreenLiveFrame(sessionId: String, modifier: Modifier = Modifier) {
     // user controls the screen, 20 while watching), instead of the agent's full-size frames at 8 a second.
     val fast = st.takeoverSessionId == sessionId
     val viewer = remember { Any() }
-    DisposableEffect(display, fast, viewSize) {
-        val long = maxOf(viewSize.width, viewSize.height)
+    DisposableEffect(display, viewer) { onDispose { display.clearPreview(viewer) } }
+    val long = maxOf(viewSize.width, viewSize.height)
+    LaunchedEffect(display, fast, long) {
         if (long > 0) display.setPreview(viewer, if (fast) 33L else 50L, long)
-        onDispose { display.clearPreview(viewer) }
+        else display.clearPreview(viewer)
     }
     // Recompose on each new frame while this composable is on screen.
-    val version = display.frameVersion.collectAsState().value
     val shown = display.previewVersion.collectAsState().value
-    val frame = remember(display, version, shown) { display.previewFrame() ?: display.latestFrame() }
-    // A frame that is one flat colour (app gone, page not drawn yet) reads as a broken white box. Checked when the
-    // agent's frame changes (8 a second at most), not for every picture shown.
-    val blank by produceState(false, display, version) {
-        val sample = display.latestFrame()
-        value = sample != null && withContext(Dispatchers.Default) { isBlank(sample) }
+    val preview = remember(display, shown) { display.previewFrame() }
+    val frame = preview ?: run {
+        val version = display.frameVersion.collectAsState().value
+        remember(display, version) { display.latestFrame() }
+    }
+    // Blank is a label, not a render decision. Limit scans of the full-size bitmap independently of the viewer.
+    val blank by produceState(false, display) {
+        var checked = -1L
+        display.frameVersion.collect {
+            val sample = display.latestWithVersion()
+            if (sample != null && sample.second != checked) {
+                checked = sample.second
+                value = withContext(Dispatchers.Default) { isBlank(sample.first) }
+                delay(350)
+            }
+        }
     }
     // v40: a blank frame with no app on the screen is the normal idle state, not a capture problem.
     val noApp = produceState(false, blank, display) {
