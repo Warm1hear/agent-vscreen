@@ -156,7 +156,7 @@ fun OverviewTab(bottom: Dp) {
         Home.FIRST -> tr("还没有 agent 用过", "No agent has used it yet")
     }
 
-    MiuixPage(title, back = false, bottom = bottom, lead = { StatusPill(eyebrow, mode, home) }, actions = {
+    MiuixPage(title, back = false, bottom = bottom, lead = { StatusPill(eyebrow, mode, home) }, marqueeTitle = home == Home.ACTING, actions = {
         IconButton(onClick = { shield = true }, modifier = Modifier.padding(end = 12.dp)) { Icon(Icons.Filled.PowerSettingsNew, tr("服务", "Service")) }
     }) {
         NeedsGroup()
