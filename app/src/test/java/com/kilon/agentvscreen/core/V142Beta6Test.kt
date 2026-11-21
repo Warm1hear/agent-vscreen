@@ -60,6 +60,26 @@ class V142Beta6Test {
         assertEquals(setOf("com.miui.home"), VScreenHandoff.homePackagesFrom("com.miui.home/.launcher.Launcher\n"))
     }
 
+    @Test fun theServiceNeverPutsInputOnTheMainScreen() {
+        val app = "com.kilon.agentvscreen"
+        assertFalse(VScreenDisplayService.injectableDisplay(0, created = true, owner = app, appPkg = app))
+        assertTrue(VScreenDisplayService.injectableDisplay(5, created = true, owner = null, appPkg = app))
+        assertTrue(VScreenDisplayService.injectableDisplay(6, created = false, owner = app, appPkg = app))
+        assertFalse(VScreenDisplayService.injectableDisplay(7, created = false, owner = "com.other.cast", appPkg = app))
+        assertFalse(VScreenDisplayService.injectableDisplay(8, created = false, owner = null, appPkg = app))
+        // Through the binder: a key sent to display 0 is refused, whatever the caller asks.
+        val svc = VScreenDisplayService()
+        val data = android.os.Parcel.obtain(); val reply = android.os.Parcel.obtain()
+        try {
+            data.writeInterfaceToken(VScreenDisplayService.DESCRIPTOR)
+            data.writeInt(0); data.writeInt(android.view.KeyEvent.KEYCODE_BACK); data.writeInt(0); data.writeLong(InputFence.USER)
+            assertTrue(svc.transact(VScreenDisplayService.INJECT_KEY, data, reply, 0))
+            reply.setDataPosition(0)
+            assertEquals(0, reply.readInt())
+            assertEquals(0, reply.readInt()) // not injected
+        } finally { data.recycle(); reply.recycle() }
+    }
+
     @Test fun theServiceAnswersTheFenceCall() {
         // The emulator run found the service refusing FENCE: onTransact served codes only up to CREATE_PARKING.
         val svc = VScreenDisplayService()
