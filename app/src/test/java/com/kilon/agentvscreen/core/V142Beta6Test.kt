@@ -38,6 +38,33 @@ class V142Beta6Test {
 
     // ── the screen service's fence ──────────────────────────────────────
 
+    @Test fun theServiceAnswersTheFenceCall() {
+        // The emulator run found the service refusing FENCE: onTransact served codes only up to CREATE_PARKING.
+        val svc = VScreenDisplayService()
+        val data = android.os.Parcel.obtain(); val reply = android.os.Parcel.obtain()
+        try {
+            data.writeInterfaceToken(VScreenDisplayService.DESCRIPTOR)
+            data.writeInt(7); data.writeLong(3L); data.writeInt(0)
+            assertTrue(svc.transact(VScreenDisplayService.FENCE, data, reply, 0))
+            reply.setDataPosition(0)
+            assertEquals(0, reply.readInt())
+            assertEquals(0, reply.readInt()) // no agent finger was down
+        } finally { data.recycle(); reply.recycle() }
+    }
+
+    @Test fun everyServiceCallCodeIsServed() {
+        val skip = setOf("PROTOCOL", "DESTROY_CODE", "LAST_CALL")
+        val codes = VScreenDisplayService::class.java.declaredFields
+            .filter { java.lang.reflect.Modifier.isStatic(it.modifiers) && java.lang.reflect.Modifier.isPublic(it.modifiers) }
+            .filter { it.type == Int::class.javaPrimitiveType && it.name !in skip && it.name.matches(Regex("[A-Z][A-Z_]*")) } // not the compiler's stability field
+            .associate { it.name to it.getInt(null) }
+            .filterValues { it in android.os.IBinder.FIRST_CALL_TRANSACTION..android.os.IBinder.FIRST_CALL_TRANSACTION + 999 }
+        assertTrue("FENCE" in codes && "CREATE" in codes)
+        assertEquals("codes are distinct: $codes", codes.size, codes.values.toSet().size)
+        for ((name, code) in codes)
+            assertTrue("$name is outside CREATE..LAST_CALL", code in VScreenDisplayService.CREATE..VScreenDisplayService.LAST_CALL)
+    }
+
     @Test fun anUnfencedDisplayAdmitsEverything() {
         val f = InputFence()
         assertTrue(f.admits(4, 1L)); assertTrue(f.admits(4, InputFence.USER))
@@ -170,6 +197,38 @@ class V142Beta6Test {
         assertNull(s.copy(ownerSessionId = null).agentTitle)
         // Set before the agent had the screen: shown once it does.
         assertEquals("t", BackgroundOperation.State(titleText = "t", titleSession = "c").copy(ownerSessionId = "c").agentTitle)
+    }
+
+    // ── the floating window's sizes (both orientations) ─────────────────
+
+    @Test fun theCornerZoneIsTheTopRightInBothOrientations() {
+        val ws = com.kilon.agentvscreen.ui.WindowSizes
+        // Upright phone 1080 × 2400 and the same phone turned, 2400 × 1080; a 330 px zone.
+        for ((sw, _) in listOf(1080f to 2400f, 2400f to 1080f)) {
+            assertTrue(ws.inMiniCorner(sw - 10f, 20f, sw, 330f))
+            assertTrue(ws.inMiniCorner(sw - 320f, 320f, sw, 330f))
+            assertFalse("top left", ws.inMiniCorner(20f, 20f, sw, 330f))
+            assertFalse("right edge, lower down", ws.inMiniCorner(sw - 10f, 600f, sw, 330f))
+        }
+    }
+
+    @Test fun theSmallWindowIsSmallAndTheLargeOneLargeInBothOrientations() {
+        val ws = com.kilon.agentvscreen.ui.WindowSizes
+        val portraitApp = 1264f / 2800f; val landscapeApp = 2800f / 1264f
+        for ((sw, sh) in listOf(1080f to 2400f, 2400f to 1080f)) for (a in listOf(portraitApp, landscapeApp)) {
+            val small = ws.miniWidth(a, sw, sh, 216f)
+            val big = ws.bigWidth(a, sw, sh)
+            assertTrue("small fits ($sw×$sh, a=$a): $small", small <= sw * 0.5f && small / a <= sh * 0.4f + 1f)
+            assertTrue("large fits ($sw×$sh, a=$a): $big", big <= sw && big / a <= sh * 0.7f + 1f)
+            assertTrue("large is larger ($sw×$sh, a=$a)", big > small * 1.5f)
+        }
+    }
+
+    @Test fun pullingTheBarMovesTheBottomEdge() {
+        val ws = com.kilon.agentvscreen.ui.WindowSizes
+        val a = 0.5f
+        assertEquals(500f, ws.resized(400f, a, 200f), 0.01f)   // 800 px tall → 1000 px tall
+        assertEquals(300f, ws.resized(400f, a, -200f), 0.01f)
     }
 
     // ── bounded memory ───────────────────────────────────────────────────

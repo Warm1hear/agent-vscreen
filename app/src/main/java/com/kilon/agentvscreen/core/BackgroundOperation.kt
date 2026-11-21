@@ -323,8 +323,18 @@ object BackgroundOperation {
         if (!d.parked) return null
         val r = d.unpark()
         _state.update { it.copy(powerSaving = false) }
+        wakeNote = d.displayId to r
         return r
     }
+
+    /**
+     * 1.4.2-beta6 (test: after `done` the screen paused to save power; the game lost focus and showed its own pause
+     * menu, and the next four taps landed on that menu with nothing said): the note made when a paused screen wakes
+     * reached only the app's own window. Now the next reply on that screen carries it, whichever path woke it (the
+     * turn starting, or the command itself).
+     */
+    @Volatile private var wakeNote: Pair<Int, String>? = null
+    fun takeWakeNote(displayId: Int): String? = wakeNote?.takeIf { it.first == displayId }?.let { wakeNote = null; it.second }
 
     /** The settings switch: turning it off wakes a paused screen at once. */
     fun setIdlePowerSave(on: Boolean) {

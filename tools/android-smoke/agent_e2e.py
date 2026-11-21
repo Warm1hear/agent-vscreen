@@ -288,6 +288,11 @@ def control(what):
     return out
 
 
+def why(r):
+    """The code and the start of the message, so a failed step says what the app answered."""
+    return "%s %s" % (r.get("code"), (r.get("error") or r.get("text") or "")[:240].replace("\n", " | "))
+
+
 def activity(r):
     return (r.get("screen") or {}).get("activity")
 
@@ -301,15 +306,15 @@ def session_and_control(target, x=None, y=None):
     r = api("launch com.android.settings --keep")
     check("launch --keep keeps the page", r.get("ok") is True and (inner is None or activity(r) == inner),
           "%s %s -> %s" % (r.get("code"), inner, activity(r)))
-    api('act "key back"')
 
     # park / unpark: a parked app is not operable (APP_PARKED) until it is brought back.
+    # (No back key first: on the Settings home page it closes the app, and there is nothing left to park.)
     r = api("handoff park com.android.settings")
-    check("park", r.get("ok") is True, str(r.get("code")))
+    check("park", r.get("ok") is True, why(r))
     r = api("act")
-    check("look at a parked app says APP_PARKED", r.get("code") == "APP_PARKED", str(r.get("code")))
+    check("look at a parked app says APP_PARKED", r.get("code") == "APP_PARKED", why(r))
     r = api("handoff unpark com.android.settings")
-    check("unpark", r.get("ok") is True, str(r.get("code")))
+    check("unpark", r.get("ok") is True, why(r))
 
     # Stop refuses the agent until the user allows it again; Stop also clears parking.
     api("handoff park com.android.settings")
@@ -353,7 +358,7 @@ def session_and_control(target, x=None, y=None):
     control("stop")
     th.join(60)
     r = res.get("r") or {}
-    check("a stopped long press comes back early", r.get("code") in ("USER_STOPPED", "CONTROL_CHANGED") and res.get("s", 99) < 30,
+    check("a stopped long press comes back early", r.get("code") in ("USER_STOPPED", "CONTROL_CHANGED") and res.get("s", 99) < 5.5,
           "%s after %.1fs" % (r.get("code"), res.get("s", -1)))
     control("resume")
     r = api("act")
