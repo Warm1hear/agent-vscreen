@@ -258,9 +258,12 @@ private fun VScreenOffloadHandler.handoffIn(sid: String, pkgArg: String?): Nativ
     run { val app = VScreenKnowledge.label(pick.pkg) ?: pick.pkg
         com.kilon.agentvscreen.host.Consent.require(context, "handoff:${pick.pkg}", tr("把你正在用的 $app 接到后台副屏", "move $app, which you are using, to the background screen"), tr("它会从主屏消失，停在当前页面，由 Agent 在后台继续操作", "it leaves the main screen, stays on its current page, and the agent carries on in the background"), kind = "system") }
     val want = VScreenShell.appOrientation(context, pick.pkg, null) ?: VScreenMap.profile(pick.pkg)["orientation"]?.let { it == "landscape" }
+    // 1.4.2-beta6: building / rebuilding the screen and removing a task come before the action itself: not while the
+    // user holds the screen or has stopped the AI.
+    com.kilon.agentvscreen.core.Control.admitInput(checkPlan = false)
     var d0 = BackgroundOperation.acquire(sid, create = true, landscape = want)
     if (!BackgroundOperation.hasParkedApps(sid) && want != null && BackgroundOperation.nativeLandscape(d0) != want) d0 = BackgroundOperation.rebuild(sid, want)
-    VScreenShell.taskIdOn(d0.displayId, pick.pkg)?.takeIf { it != pick.taskId }?.let { VScreenRemoteDisplay.removeTask(it, d0.displayId) }
+    VScreenShell.taskIdOn(d0.displayId, pick.pkg)?.takeIf { it != pick.taskId }?.let { com.kilon.agentvscreen.core.Control.admitInput(checkPlan = false); VScreenRemoteDisplay.removeTask(it, d0.displayId) }
     val done = ArrayList<String>()
     BackgroundOperation.agentAction(sid, null, isRead = false, describe = tr("接力：把主屏的 ${pick.pkg} 移到副屏", "Relay: move ${pick.pkg} from the main screen to the background screen"), allowParked = true) { d ->
         val m = VScreenHandoff.move(pick.taskId, pick.pkg, d.displayId)

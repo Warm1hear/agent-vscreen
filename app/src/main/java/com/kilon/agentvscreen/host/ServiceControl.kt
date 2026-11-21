@@ -70,7 +70,9 @@ object ServiceControl {
     /** Agents may not use the phone until the user says so. */
     fun block(ctx: Context, why: String) {
         Prefs.setServiceOn(ctx, false); Prefs.setBlocked(ctx, true)
-        BackgroundOperation.stopAndRelease(tr("用户关闭了 Agent-VScreen", "The user turned Agent-VScreen off"))
+        // 1.4.2-beta6: off at once, not when the service gets round to onDestroy: until then a command still running
+        // reconnected by itself (acquire connects whenever the service is on) and built a new screen to go on with.
+        BackgroundOperation.setEnabled(false, tr("用户关闭了 Agent-VScreen", "The user turned Agent-VScreen off"))
         if (!HostService.isAlive) HostService.dropServer()
         // 1.4.0-beta4: off is off: watches (their own notification) end too.
         runCatching { com.kilon.agentvscreen.core.VScreenRules.stopAll(tr("用户关闭了服务", "the user turned the service off")) }

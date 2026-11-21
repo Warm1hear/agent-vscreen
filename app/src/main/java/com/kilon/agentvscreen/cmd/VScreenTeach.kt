@@ -259,7 +259,6 @@ internal object Teach {
         if (_lesson.value !is Lesson.None) return false // one lesson at a time: finish the one under way first
         val st = BackgroundOperation.state.value
         val session = st.ownerSessionId ?: return false
-        if (st.userStopped) BackgroundOperation.userResume()
         if (!BackgroundOperation.beginTakeover(session) && BackgroundOperation.state.value.takeoverSessionId != session) return false
         // 1.4.0-beta4: not recording yet: the user first gets to where the lesson starts.
         _lesson.value = Lesson.Ready(a.id)
@@ -500,7 +499,6 @@ internal object Teach {
         val r = result ?: return false
         val s = BackgroundOperation.state.value
         if (s.ownerSessionId != r.session || s.displayId == null) return false
-        if (s.userStopped) BackgroundOperation.userResume()
         BackgroundOperation.beginTakeover(r.session)
         return start(r.session, r.purpose, r.askId, r.name)
     }

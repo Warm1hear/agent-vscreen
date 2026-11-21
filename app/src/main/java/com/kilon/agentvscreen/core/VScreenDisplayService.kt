@@ -53,9 +53,11 @@ import android.view.Surface
  *   PARK         in: displayId (surface -> null: display off, v21)  out: status
  *   TOUCH        in: displayId                                     out: status
  *   ROTATION     in: displayId                         out: status, rotation, logicalW, logicalH
- *   POINTER      in: displayId, op(0 down,1 move,2 up,3 up-all), pointerId, x, y
+ *   POINTER      in: displayId, op(0 down,1 move,2 up,3 cancel own side), pointerId, x, y, epoch
  *                out: status, injected(0/1), activePointers
  *                (fingers stay down between calls: joystick, hold-and-look, two-finger play)
+ *   FENCE        in: displayId, epoch, agentAllowed                out: status, agent fingers cancelled
+ *                (1.4.2-beta6: every INJECT_* / POINTER ends with its epoch; see InputFence)
  *   APS          in: op, pkg, ...   Honor/Huawei per-app resolution (aps_service, IHwApsManager)
  *                op 0 GET     out: status, available, [resolution, dynamicRatio, hasEntry, entryBytes] | reason
  *                op 1 SET     in: ratio                      out: status, returnCode, readBack
@@ -87,6 +89,7 @@ class VScreenDisplayService : Binder {
         }
         meta.remove(id)
         touched.remove(id)
+        fence.forget(id)
         displays.remove(id)?.release()
     }
     @Volatile private var reaperStarted = false
@@ -312,22 +315,33 @@ class VScreenDisplayService : Binder {
                 }
                 INJECT_KEY -> {
                     val id = data.readInt(); val key = data.readInt(); val longPress = data.readInt() != 0
-                    out.writeInt(0); out.writeInt(if (injectKey(id, key, longPress)) 1 else 0)
+                    val epoch = epochOf(data)
+                    out.writeInt(0); out.writeInt(if (injectKey(id, key, longPress, epoch)) 1 else 0)
                 }
                 INJECT_COMBO -> {
                     val id = data.readInt(); val key = data.readInt(); val n = data.readInt()
                     val mods = IntArray(n) { data.readInt() }
-                    out.writeInt(0); out.writeInt(if (injectCombo(id, key, mods)) 1 else 0)
+                    val epoch = epochOf(data)
+                    out.writeInt(0); out.writeInt(if (injectCombo(id, key, mods, epoch)) 1 else 0)
                 }
                 INJECT_TEXT -> {
                     val id = data.readInt(); val text = data.readString().orEmpty()
-                    out.writeInt(0); out.writeInt(if (injectText(id, text)) 1 else 0)
+                    val epoch = epochOf(data)
+                    out.writeInt(0); out.writeInt(if (injectText(id, text, epoch)) 1 else 0)
                 }
                 INJECT_DRAG -> {
                     val id = data.readInt()
                     val x1 = data.readInt(); val y1 = data.readInt(); val x2 = data.readInt(); val y2 = data.readInt()
                     val dur = data.readInt(); val hold = data.readInt()
-                    out.writeInt(0); out.writeInt(if (injectDrag(id, x1, y1, x2, y2, dur, hold)) 1 else 0)
+                    val epoch = epochOf(data)
+                    out.writeInt(0); out.writeInt(if (injectDrag(id, x1, y1, x2, y2, dur, hold, epoch)) 1 else 0)
+                }
+                FENCE -> {
+                    // 1.4.2-beta6 (protocol 15): a change of control. Returns once the agent's input in flight has ended.
+                    val id = data.readInt(); val epoch = data.readLong(); val allowed = data.readInt() != 0
+                    fence.set(id, epoch, allowed)
+                    val cancelled = synchronized(fence.lock(id)) { synchronized(fingers) { cancelFingers(id, epoch.coerceAtLeast(0L)) } }
+                    out.writeInt(0); out.writeInt(cancelled)
                 }
                 LIST -> {
                     val snap = synchronized(displays) {
@@ -373,8 +387,9 @@ class VScreenDisplayService : Binder {
                 POINTER -> {
                     val id = data.readInt(); val op = data.readInt(); val pid = data.readInt()
                     val x = data.readFloat(); val y = data.readFloat()
+                    val epoch = epochOf(data)
                     synchronized(displays) { if (displays.containsKey(id)) touched[id] = SystemClock.elapsedRealtime() }
-                    val okp = pointer(id, op, pid, x, y)
+                    val okp = pointer(id, op, pid, x, y, epoch)
                     out.writeInt(0); out.writeInt(if (okp) 1 else 0); out.writeInt(synchronized(fingers) { fingers[id]?.list?.size ?: 0 })
                 }
                 REMOVE_TASK -> {
@@ -569,6 +584,20 @@ class VScreenDisplayService : Binder {
         InputEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
     }
 
+    /** 1.4.2-beta6: who may put input on each display (see [InputFence]). */
+    private val fence = InputFence()
+
+    /** The control epoch an injection call carries (protocol 15); a caller without one is from before the fence. */
+    private fun epochOf(data: Parcel): Long = if (data.dataAvail() >= 8) data.readLong() else InputFence.UNSET
+
+    /** The key events of [ups] go up as cancelled: the app drops them instead of acting on a key press. */
+    private fun cancelKeys(displayId: Int, downs: Collection<KeyEvent>) {
+        for (d in downs) runCatching {
+            inject(KeyEvent(d.downTime, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, d.keyCode, 0, d.metaState,
+                KeyCharacterMap.VIRTUAL_KEYBOARD, d.scanCode, d.flags or KeyEvent.FLAG_CANCELED, InputDevice.SOURCE_KEYBOARD), displayId)
+        }
+    }
+
     private fun inject(event: InputEvent, displayId: Int, mode: Int = 0): Boolean {
         setDisplayId.invoke(event, displayId)
         // 0 = INJECT_INPUT_EVENT_MODE_ASYNC: never block on a busy app.
@@ -576,20 +605,23 @@ class VScreenDisplayService : Binder {
         return injector.second.invoke(injector.first, event, mode) as Boolean
     }
 
-    private fun injectKey(displayId: Int, code: Int, longPress: Boolean): Boolean {
+    private fun injectKey(displayId: Int, code: Int, longPress: Boolean, epoch: Long): Boolean = synchronized(fence.lock(displayId)) {
+        if (!fence.admits(displayId, epoch)) return@synchronized false
         val now = SystemClock.uptimeMillis()
         val down = KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
             0, InputDevice.SOURCE_KEYBOARD)
         var ok = inject(down, displayId)
         if (longPress) {
             Thread.sleep(600)
+            // Fenced out while held: the key goes up cancelled, never as a long press.
+            if (!fence.admits(displayId, epoch)) { cancelKeys(displayId, listOf(down)); return@synchronized false }
             val t = SystemClock.uptimeMillis()
             ok = inject(KeyEvent(now, t, KeyEvent.ACTION_DOWN, code, 1, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
                 KeyEvent.FLAG_LONG_PRESS, InputDevice.SOURCE_KEYBOARD), displayId) && ok
         }
         val up = KeyEvent(now, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, code, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
             0, InputDevice.SOURCE_KEYBOARD)
-        return inject(up, displayId) && ok
+        inject(up, displayId) && ok
     }
 
     /**
@@ -598,7 +630,8 @@ class VScreenDisplayService : Binder {
      * then the modifiers come up in reverse. Apps that read the meta state of the key and apps that track the
      * modifier keys themselves both see Ctrl+A.
      */
-    private fun injectCombo(displayId: Int, code: Int, mods: IntArray): Boolean {
+    private fun injectCombo(displayId: Int, code: Int, mods: IntArray, epoch: Long): Boolean = synchronized(fence.lock(displayId)) {
+        if (!fence.admits(displayId, epoch)) return@synchronized false
         fun metaOf(m: Int) = when (m) {
             KeyEvent.KEYCODE_CTRL_LEFT -> KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
             KeyEvent.KEYCODE_SHIFT_LEFT -> KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON
@@ -613,31 +646,35 @@ class VScreenDisplayService : Binder {
         ok = inject(ev(KeyEvent.ACTION_DOWN, code, meta), displayId) && ok
         ok = inject(ev(KeyEvent.ACTION_UP, code, meta), displayId) && ok
         for (m in mods.reversed()) { meta = meta and metaOf(m).inv(); ok = inject(ev(KeyEvent.ACTION_UP, m, meta), displayId, if (m == mods.first()) 1 else 0) && ok }
-        return ok
+        ok
     }
 
     /**
      * 1.2: characters as key events on [displayId], the way the system's own `input text` makes them (the virtual
      * keyboard's character map), but sent from here with the display id set. False when a character has no key.
      */
-    private fun injectText(displayId: Int, text: String): Boolean {
-        if (text.isEmpty()) return true
-        val events = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(text.toCharArray()) ?: return false
+    private fun injectText(displayId: Int, text: String, epoch: Long): Boolean = synchronized(fence.lock(displayId)) {
+        if (text.isEmpty()) return@synchronized true
+        val events = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(text.toCharArray()) ?: return@synchronized false
         var ok = true
+        val down = LinkedHashMap<Int, KeyEvent>()
         for ((i, e) in events.withIndex()) {
+            // 1.4.2-beta6: asked before every key: once fenced out, the keys still down go up cancelled and the rest is dropped.
+            if (!fence.admits(displayId, epoch)) { cancelKeys(displayId, down.values); return@synchronized false }
             val ev = KeyEvent(e.downTime, SystemClock.uptimeMillis(), e.action, e.keyCode, e.repeatCount, e.metaState,
                 KeyCharacterMap.VIRTUAL_KEYBOARD, e.scanCode, e.flags, InputDevice.SOURCE_KEYBOARD)
             // The last event waits until it is queued, so the caller's read-back sees the whole text.
             ok = inject(ev, displayId, if (i == events.lastIndex) 1 else 0) && ok
+            if (e.action == KeyEvent.ACTION_DOWN) down[e.keyCode] = ev else down.remove(e.keyCode)
         }
-        return ok
+        ok
     }
 
-    private fun motion(downTime: Long, action: Int, x: Float, y: Float): MotionEvent {
+    private fun motion(downTime: Long, action: Int, x: Float, y: Float, flags: Int = 0): MotionEvent {
         val props = arrayOf(MotionEvent.PointerProperties().apply { id = 0; toolType = MotionEvent.TOOL_TYPE_FINGER })
         val coords = arrayOf(MotionEvent.PointerCoords().apply { this.x = x; this.y = y; pressure = 1f; size = 1f })
         return MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, 1, props, coords, 0, 0, 1f, 1f,
-            0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0)
+            0, 0, InputDevice.SOURCE_TOUCHSCREEN, flags)
     }
 
     /**
@@ -647,9 +684,13 @@ class VScreenDisplayService : Binder {
      * flinging on. Same start and end = tap (or long press with a long hold).
      * 1.2: [holdMs] < 0 = a swipe: even speed, no hold, the finger lifts while moving (lists fling).
      */
-    private fun injectDrag(displayId: Int, x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int, holdMs: Int): Boolean {
+    private fun injectDrag(displayId: Int, x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int, holdMs: Int, epoch: Long): Boolean = synchronized(fence.lock(displayId)) {
+        if (!fence.admits(displayId, epoch)) return@synchronized false
         val downTime = SystemClock.uptimeMillis()
         var ok = true
+        // 1.4.2-beta6: fenced out mid-gesture (takeover, Stop): no more events, and the finger is cancelled, not lifted.
+        var fenced = false
+        fun live(): Boolean { if (!fenced && !fence.admits(displayId, epoch)) fenced = true; return !fenced }
         fun send(action: Int, x: Float, y: Float) {
             val e = motion(downTime, action, x, y)
             ok = inject(e, displayId) && ok
@@ -662,6 +703,7 @@ class VScreenDisplayService : Binder {
             val steps = (durationMs / 12).coerceIn(4, 400)
             for (i in 1..steps) {
                 Thread.sleep((durationMs / steps).toLong().coerceAtLeast(1))
+                if (!live()) break
                 // Ease in-out so the start does not look like a flick.
                 val t = i.toFloat() / steps
                 val e = if (holdMs < 0) t else if (t < 0.5f) 2 * t * t else 1 - (-2 * t + 2) * (-2 * t + 2) / 2
@@ -670,22 +712,29 @@ class VScreenDisplayService : Binder {
             }
         }
         var held = 0
-        while (held < holdMs) {
+        while (held < holdMs && live()) {
             val step = minOf(16, holdMs - held)
             Thread.sleep(step.toLong()); held += step
+            if (!live()) break
             if (x1 != x2 || y1 != y2) send(MotionEvent.ACTION_MOVE, x2.toFloat(), y2.toFloat())
         }
-        lastX = x2.toFloat(); lastY = y2.toFloat()
+        if (!fenced) { lastX = x2.toFloat(); lastY = y2.toFloat() }
+        } catch (t: Throwable) {
+            fenced = true
+            throw t
         } finally {
-            // The finger must ALWAYS lift: a lost UP leaves the app mid-gesture
-            // (a half-pulled drawer, a list stuck in overscroll) until the next touch.
-            val up = motion(downTime, MotionEvent.ACTION_UP, lastX, lastY)
-            val sent = runCatching { inject(up, displayId, 1) }.getOrDefault(false) ||
-                runCatching { inject(up, displayId, 0) }.getOrDefault(false)
-            up.recycle()
-            ok = sent && ok
+            // The finger must ALWAYS end: a lost end leaves the app mid-gesture (a half-pulled drawer, a list stuck in
+            // overscroll) until the next touch. A gesture that did not finish ends with CANCEL: an UP would be a tap
+            // (or a long press, a drop) the agent is no longer allowed to make.
+            if (!fenced) live()
+            val end = motion(downTime, if (fenced) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP, lastX, lastY,
+                if (fenced) MOTION_FLAG_CANCELED else 0)
+            val sent = runCatching { inject(end, displayId, 1) }.getOrDefault(false) ||
+                runCatching { inject(end, displayId, 0) }.getOrDefault(false)
+            end.recycle()
+            ok = sent && ok && !fenced
         }
-        return ok
+        ok
     }
 
     // ── held fingers (multi-touch across calls) ──────────────────────────────
@@ -696,76 +745,99 @@ class VScreenDisplayService : Binder {
     private val fingers = HashMap<Int, Gesture>()
     @Volatile private var fingerWatch = false
 
-    private fun multi(g: Gesture, action: Int): MotionEvent {
+    private fun multi(g: Gesture, action: Int, flags: Int = 0): MotionEvent {
         val n = g.list.size
         val props = Array(n) { i -> MotionEvent.PointerProperties().apply { id = g.list[i].id; toolType = MotionEvent.TOOL_TYPE_FINGER } }
         val coords = Array(n) { i -> MotionEvent.PointerCoords().apply { x = g.list[i].x; y = g.list[i].y; pressure = 1f; size = 1f } }
         return MotionEvent.obtain(g.downTime, SystemClock.uptimeMillis(), action, n, props, coords, 0, 0, 1f, 1f,
-            0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0)
+            0, 0, InputDevice.SOURCE_TOUCHSCREEN, flags)
     }
 
-    /** One finger change on [displayId]; every event carries all fingers that are down. */
-    private fun pointer(displayId: Int, op: Int, pid: Int, x: Float, y: Float): Boolean = synchronized(fingers) {
-        fun send(g: Gesture, action: Int, mode: Int = 0): Boolean {
-            val e = multi(g, action); g.lastMs = SystemClock.uptimeMillis()
-            return try { inject(e, displayId, mode) } finally { e.recycle() }
-        }
-        when (op) {
-            0 -> {
-                val g = fingers[displayId]
-                if (g == null) {
-                    val ng = Gesture(SystemClock.uptimeMillis()).also { it.list += Finger(pid, x, y) }
-                    fingers[displayId] = ng
-                    startFingerWatch()
-                    send(ng, MotionEvent.ACTION_DOWN)
-                } else {
-                    g.list.firstOrNull { it.id == pid }?.let { it.x = x; it.y = y; return@synchronized send(g, MotionEvent.ACTION_MOVE) }
-                    g.list += Finger(pid, x, y)
-                    val idx = g.list.size - 1
-                    send(g, MotionEvent.ACTION_POINTER_DOWN or (idx shl MotionEvent.ACTION_POINTER_INDEX_SHIFT))
+    /**
+     * One finger change on [displayId]; every event carries all fingers that are down. 1.4.2-beta6: down / move / up
+     * need [epoch] to be admitted by the fence; op 3 cancels the caller's own side ([InputFence.cancels]).
+     */
+    private fun pointer(displayId: Int, op: Int, pid: Int, x: Float, y: Float, epoch: Long): Boolean = synchronized(fence.lock(displayId)) {
+        if (op in 0..2 && !fence.admits(displayId, epoch)) return@synchronized false
+        synchronized(fingers) {
+            fun send(g: Gesture, action: Int, mode: Int = 0): Boolean {
+                val e = multi(g, action); g.lastMs = SystemClock.uptimeMillis()
+                return try { inject(e, displayId, mode) } finally { e.recycle() }
+            }
+            when (op) {
+                0 -> {
+                    val g = fingers[displayId]
+                    if (g == null) {
+                        val ng = Gesture(SystemClock.uptimeMillis()).also { it.list += Finger(pid, x, y) }
+                        fingers[displayId] = ng
+                        startFingerWatch()
+                        send(ng, MotionEvent.ACTION_DOWN)
+                    } else {
+                        g.list.firstOrNull { it.id == pid }?.let { it.x = x; it.y = y; return@synchronized send(g, MotionEvent.ACTION_MOVE) }
+                        g.list += Finger(pid, x, y)
+                        val idx = g.list.size - 1
+                        send(g, MotionEvent.ACTION_POINTER_DOWN or (idx shl MotionEvent.ACTION_POINTER_INDEX_SHIFT))
+                    }
                 }
-            }
-            1 -> {
-                val g = fingers[displayId] ?: return@synchronized false
-                val f = g.list.firstOrNull { it.id == pid } ?: return@synchronized false
-                f.x = x; f.y = y
-                send(g, MotionEvent.ACTION_MOVE)
-            }
-            2 -> {
-                val g = fingers[displayId] ?: return@synchronized false
-                val idx = g.list.indexOfFirst { it.id == pid }
-                if (idx < 0) return@synchronized false
-                if (x >= 0 && y >= 0) { g.list[idx].x = x; g.list[idx].y = y }
-                val r = if (g.list.size == 1) {
-                    send(g, MotionEvent.ACTION_UP, 1).also { fingers.remove(displayId) }
-                } else {
-                    send(g, MotionEvent.ACTION_POINTER_UP or (idx shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)).also { g.list.removeAt(idx) }
+                1 -> {
+                    val g = fingers[displayId] ?: return@synchronized false
+                    val f = g.list.firstOrNull { it.id == pid } ?: return@synchronized false
+                    f.x = x; f.y = y
+                    send(g, MotionEvent.ACTION_MOVE)
                 }
-                r
+                2 -> {
+                    val g = fingers[displayId] ?: return@synchronized false
+                    val idx = g.list.indexOfFirst { it.id == pid }
+                    if (idx < 0) return@synchronized false
+                    if (x >= 0 && y >= 0) { g.list[idx].x = x; g.list[idx].y = y }
+                    val r = if (g.list.size == 1) {
+                        send(g, MotionEvent.ACTION_UP, 1).also { fingers.remove(displayId) }
+                    } else {
+                        send(g, MotionEvent.ACTION_POINTER_UP or (idx shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)).also { g.list.removeAt(idx) }
+                    }
+                    r
+                }
+                else -> { cancelFingers(displayId, epoch); true }
             }
-            else -> liftAll(displayId)
         }
     }
 
-    /** Lift every finger on [displayId] (op 3, or the safety timeout). Caller holds [fingers]. */
-    private fun liftAll(displayId: Int): Boolean {
-        val g = fingers[displayId] ?: return true
-        var ok = true
-        while (g.list.size > 1) {
-            val idx = g.list.size - 1
-            val e = multi(g, MotionEvent.ACTION_POINTER_UP or (idx shl MotionEvent.ACTION_POINTER_INDEX_SHIFT))
-            ok = runCatching { inject(e, displayId) }.getOrDefault(false) && ok; e.recycle()
+    /**
+     * Cancel the held fingers on [displayId] that a cancel from [epoch] may take away ([InputFence.cancels]); returns
+     * how many. 1.4.2-beta6: never a lift. Before, a cancel sent ACTION_UP at the finger's last point, which apps take
+     * as a tap: hiding the window with a pinch tapped the background screen under the user's finger, and a Stop could
+     * complete the agent's press. When every finger down is cancelled the whole gesture gets ACTION_CANCEL; otherwise
+     * each cancelled finger leaves with a POINTER_UP marked canceled and the others stay down. Caller holds [fingers].
+     */
+    private fun cancelFingers(displayId: Int, epoch: Long): Int {
+        val g = fingers[displayId] ?: return 0
+        val gone = g.list.filter { InputFence.cancels(epoch, it.id) }
+        if (gone.isEmpty()) return 0
+        if (gone.size == g.list.size) {
+            val e = multi(g, MotionEvent.ACTION_CANCEL, MOTION_FLAG_CANCELED)
+            runCatching { inject(e, displayId, 1) }; e.recycle()
+            fingers.remove(displayId)
+            return gone.size
+        }
+        for (f in gone) {
+            val idx = g.list.indexOf(f)
+            val e = multi(g, MotionEvent.ACTION_POINTER_UP or (idx shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), MOTION_FLAG_CANCELED)
+            runCatching { inject(e, displayId) }; e.recycle()
             g.list.removeAt(idx)
         }
-        if (g.list.isNotEmpty()) {
-            val e = multi(g, MotionEvent.ACTION_UP)
-            ok = runCatching { inject(e, displayId, 1) }.getOrDefault(false) && ok; e.recycle()
-        }
-        fingers.remove(displayId)
-        return ok
+        g.lastMs = SystemClock.uptimeMillis()
+        return gone.size
     }
 
-    /** A finger nobody moved for [FINGER_MAX_IDLE_MS] is lifted, so a dead app never leaves a finger down. */
+    /** Cancel every finger on [displayId] (the safety timeout). Caller holds [fingers]. */
+    private fun cancelAll(displayId: Int) {
+        val g = fingers.remove(displayId) ?: return
+        if (g.list.isEmpty()) return
+        val e = multi(g, MotionEvent.ACTION_CANCEL, MOTION_FLAG_CANCELED)
+        runCatching { inject(e, displayId, 1) }; e.recycle()
+    }
+
+    /** A finger nobody moved for [FINGER_MAX_IDLE_MS] is cancelled, so a dead app never leaves a finger down. */
     private fun startFingerWatch() {
         if (fingerWatch) return
         fingerWatch = true
@@ -774,7 +846,7 @@ class VScreenDisplayService : Binder {
                 com.kilon.agentvscreen.host.quiet("VScreenDisplayService:508") { Thread.sleep(1_000) }
                 synchronized(fingers) {
                     val now = SystemClock.uptimeMillis()
-                    fingers.entries.filter { now - it.value.lastMs > FINGER_MAX_IDLE_MS }.map { it.key }.forEach { liftAll(it) }
+                    fingers.entries.filter { now - it.value.lastMs > FINGER_MAX_IDLE_MS }.map { it.key }.forEach { cancelAll(it) }
                 }
             }
         }.apply { isDaemon = true; name = "vscreen-fingers" }.start()
@@ -935,18 +1007,26 @@ class VScreenDisplayService : Binder {
          */
         const val EXEC = FIRST_CALL_TRANSACTION + 20
         const val CREATE_PARKING = FIRST_CALL_TRANSACTION + 21
+        /**
+         * 1.4.2-beta6 (protocol 15): a change of control. in displayId, epoch(long), agentAllowed(0/1)  out: status,
+         * agent fingers cancelled. Every INJECT_* and POINTER call now ends with the epoch (long) it was planned under
+         * ([InputFence.USER] for the user's own input); see [InputFence].
+         */
+        const val FENCE = FIRST_CALL_TRANSACTION + 22
         /** Apps the service silenced, so a service that was killed gives them back on its next start. Shell-owned. */
         const val FILE = "/data/local/tmp/agent-vscreen-muted.json"
         /** "allow" / "ignore" / "default" … as `appops get` says it, or null when it cannot be read. */
         /** The package's own PLAY_AUDIO record ("default" when it has none); null when the output says nothing. */
         fun parsePlayAudio(out: String): String? =
             PlayAudio.parse(out).pkg ?: if (out.contains("No operations", true) || out.contains("PLAY_AUDIO")) "default" else null
-        /** A held finger with no update for this long is lifted by the service. */
+        /** MotionEvent.FLAG_CANCELED (public from API 33; older input stacks ignore the bit, the CANCEL action carries it). */
+        private const val MOTION_FLAG_CANCELED = 0x20
+        /** A held finger with no update for this long is cancelled by the service. */
         const val FINGER_MAX_IDLE_MS = 30_000L
         /** A display nobody touched for this long (app gone) is released. */
         const val ORPHAN_MS = 20 * 60_000L
         /** Bump when the protocol changes, so Shizuku restarts an old service process. */
-        const val PROTOCOL = 14
+        const val PROTOCOL = 15
         /** Shizuku's reserved "destroy user service" transaction. */
         const val DESTROY_CODE = 16777115
         private const val SHELL_PKG = "com.android.shell"

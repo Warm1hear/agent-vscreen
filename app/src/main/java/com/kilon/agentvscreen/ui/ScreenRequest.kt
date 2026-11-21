@@ -182,8 +182,6 @@ internal fun RequestCard(a: UserAsk.Ask?, session: String, recording: Boolean, p
                         }
                         GlassPill(tr("先滑过去", "Move there"), false, 1f) {
                             mark.finding = true
-                            val st = BackgroundOperation.state.value
-                            if (st.userStopped) BackgroundOperation.userResume()
                             BackgroundOperation.beginTakeover(session)
                         }
                     }

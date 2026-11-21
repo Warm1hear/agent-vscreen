@@ -40,6 +40,7 @@ object VScreenTyping {
     fun setField(displayId: Int, value: String, was: String) {
         val svc = VScreenAccessibilityService.getInstance()
         val node = if (svc != null) runCatching { focusedEditable(displayId) }.getOrNull() else null
+        Control.admitInput()
         if (node != null && !node.isPassword && svc!!.setNodeText(node, value)) return
         val common = was.commonPrefixWith(value).length
         repeat(was.length - common) { VScreenShell.key(displayId, "del") }
@@ -105,6 +106,9 @@ object VScreenTyping {
      */
     @Throws(ActionError::class)
     fun typeFact(displayId: Int, text: String, append: Boolean, tappedAt: Pair<Int, Int>? = null, focusBefore: String? = null): TypeFact {
+        // 1.4.2-beta6: asked for every piece typed (slow and paced typing call this per character / piece), so typing
+        // stops the moment the user takes over or stops, instead of going on into whatever box they are using.
+        Control.admitInput()
         val svc = VScreenAccessibilityService.getInstance()
         val roots = if (svc != null) BackgroundOperation.nodeRoots(displayId) else emptyList()
         val a11y = svc != null && roots.isNotEmpty()
@@ -129,6 +133,8 @@ object VScreenTyping {
         val before = node?.let { fieldText(it) }.orEmpty()
         val rawBefore = node?.text?.toString()
         var wrote = false
+        // Reading the box took time (up to 300 ms more): ask again right before writing into it.
+        Control.admitInput()
         val method = when {
             node != null && svc!!.setNodeText(node, if (append) before + text else text) -> { wrote = true; tr("无障碍写入", "accessibility write") }
             text.all { it.code in 32..126 } -> {
@@ -157,9 +163,14 @@ object VScreenTyping {
         return TypeFact(method, now, ab, after?.viewIdResourceName?.substringAfterLast('/'), password = after?.isPassword == true, unreadable = unreadable)
     }
 
+    private fun restoreClip(cm: ClipboardManager, prev: ClipData?) {
+        Handler(Looper.getMainLooper()).post { runCatching { if (prev != null) cm.setPrimaryClip(prev) else cm.clearPrimaryClip() } }
+    }
+
     /** Put [text] on the clipboard and press PASTE on [displayId]'s focused field. */
     @Throws(ActionError::class)
     fun pasteText(displayId: Int, text: String): String {
+        Control.admitInput()
         // Writing the clipboard is allowed from the background; reading it usually is not
         // (Android 10+), so the user's previous clip can be put back only when we could read it.
         val cm = (BackgroundOperation.appContextOrNull() ?: error("not initialized")).getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -175,8 +186,10 @@ object VScreenTyping {
         if (!clipOk) throw ActionError("TYPE_FAILED", tr("无法写入剪贴板", "Cannot write the clipboard"))
         // 1.4.0-beta14 (test K6: the paste key did nothing in a web page, while ctrl+v there worked): paste with
         // ctrl+v, the shortcut every text box handles (native boxes too); the paste key only when that cannot be sent.
-        val r = VScreenShell.key(displayId, "ctrl+v").takeIf { it.ok } ?: VScreenShell.key(displayId, "paste")
-        if (!r.ok) throw ActionError(r.code, r.message)
+        // 1.4.2-beta6: the clipboard is put back whatever happens to the paste (it is refused once the user takes over).
+        val r = try { VScreenShell.key(displayId, "ctrl+v").takeIf { it.ok } ?: VScreenShell.key(displayId, "paste") }
+            catch (e: ActionError) { restoreClip(cm, previous); throw e }
+        if (!r.ok) { restoreClip(cm, previous); throw ActionError(r.code, r.message) }
         // Give the app a moment to read the clip, then do not leave our text on the clipboard.
         Thread.sleep(400)
         val restore = CountDownLatch(1)

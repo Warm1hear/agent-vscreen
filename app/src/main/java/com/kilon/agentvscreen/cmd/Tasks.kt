@@ -41,6 +41,8 @@ internal object Tasks {
             val id = "t" + (++seq) + "-" + java.lang.Long.toString((Math.random() * 46656).toLong(), 36)
             val c = Call(sid, parent?.tokenId ?: "main", parent?.tokenName ?: "main", parent?.scopes ?: setOf("look", "operate", "system"), parent?.peer, parent?.requestId, parent?.lang, parent?.trustUntil ?: 0L, parent?.via ?: com.kilon.agentvscreen.api.Abilities.Via.CLI)
             c.taskId = id
+            // 1.4.2-beta6: a task plans with what its caller saw, so it keeps the epoch the request arrived in.
+            parent?.let { c.epoch = it.epoch }
             Task(id, sid, c.tokenId, com.kilon.agentvscreen.host.Audit.redact(argv).take(120), c).also { tasks[id] = it }
         }
         // 1.3: a task is part of its session's turn for as long as it runs. Before, only the request that started it

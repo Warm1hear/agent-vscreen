@@ -286,6 +286,7 @@ look x1,y1,x2,y2 的旧写法：放大看一块区域（图边上标着副屏坐
 | `APP_READ_ONLY` | `ask_user` | 用户把这个应用设成只读：能看、滚动、返回，不能点击/输入/滑动。 |
 | `USER_TAKEOVER` | `ask_user` | 用户正在自己操作副屏。停下告诉用户，等用户交还（vscreen events --wait 收 handback）；副屏和页面会留着，不要 release 或重新 launch。 |
 | `USER_STOPPED` | `ask_user` | 用户按了“停止 AI”。所有操作都被拒绝，只有用户能解除；把返回里怎么解除的那句转告用户。 |
+| `CONTROL_CHANGED` | `look` | 这条命令收到之后，用户接管、停止或交还过副屏：它计划时的画面可能已经不在了，剩下的动作都没做。act（不带步骤）看一眼现在的画面，再按看到的重发。 |
 | `REREAD_REQUIRED` | `look` | 用户刚接管过副屏，页面可能变了，这次没有执行。只拒这一次：act（不带步骤）看一眼现在的画面，再重发。 |
 | `HOST_RESTARTED` | `look` | Agent-VScreen 进程重启过，上一轮的任务被打断。这次的返回就是现在的画面，不要假设之前的步骤都做完了。 |
 | `MAIN_SCREEN_CHANGED` | `ask_user` | 副屏这边的应用或任务跑到了主屏，打扰了用户正在用的主屏。停下告诉用户；handoff in 把它拿回副屏。用户自己在主屏切换应用不会报这条。 |
@@ -631,6 +632,7 @@ scope: `look`
 | `APP_READ_ONLY` | `ask_user` | The user set this app to read-only: you may look, scroll and go back, not tap / type / swipe. |
 | `USER_TAKEOVER` | `ask_user` | The user is operating the screen. Stop, tell the user, and wait for the hand-back (vscreen events --wait for handback); the screen and its page stay, don't release or launch again. |
 | `USER_STOPPED` | `ask_user` | The user pressed "Stop AI". Everything is refused and only the user can lift it; pass on the line that says how. |
+| `CONTROL_CHANGED` | `look` | The user took over, stopped or handed back the screen after this command arrived: the screen it was planned for may be gone, and the rest of its actions were not done. Look with act (no steps), then send what is needed for what you see. |
 | `REREAD_REQUIRED` | `look` | The user just had the screen and the page may have changed; this was not done. Refused only this once: look with act (no steps), then send it again. |
 | `HOST_RESTARTED` | `look` | The Agent-VScreen process restarted and the last task was cut off. This reply is the screen now; don't assume earlier steps completed. |
 | `MAIN_SCREEN_CHANGED` | `ask_user` | An app or task of ours came to the main screen and disturbed what the user is using. Stop and tell the user; take it back with handoff in. The user switching apps on the main screen is not reported. |

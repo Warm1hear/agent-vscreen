@@ -383,7 +383,7 @@ internal fun VScreenOffloadHandler.workApp(sid: String, d: VScreenDisplay): Stri
 /** 1.3.0-beta18: the most steps one stretch does, repeats counted (each step of each round). */
 private const val MAX_RUN = 300
 
-private val INTERRUPTS = setOf("APP_WITH_USER", "USER_TAKEOVER", "USER_STOPPED", "CONNECTION_LOST", "CANCELLED", "NOT_CONNECTED", "BUSY", "NO_SCREEN")
+private val INTERRUPTS = setOf("APP_WITH_USER", "USER_TAKEOVER", "USER_STOPPED", "CONTROL_CHANGED", "DISABLED", "CONNECTION_LOST", "CANCELLED", "NOT_CONNECTED", "BUSY", "NO_SCREEN")
 
 /** Run a stretch of [steps] on the session's screen. Never throws for a step: a failed step ends the stretch and is said. */
 internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, steps: List<Step>, o: SegmentOpts): SegmentOut {
@@ -658,7 +658,8 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
     fun fail(code: String, message: String, at: String) {
         notes.add(code, message)
         outcome = if (code in INTERRUPTS) "interrupted" else "refused"
-        if (code == "REREAD_REQUIRED" || code == "HOST_RESTARTED") BackgroundOperation.acknowledgeReread(sid)
+        // This reply shows the screen as it is now: that is the look the code asks for (CONTROL_CHANGED too, 1.4.2-beta6).
+        if (code == "REREAD_REQUIRED" || code == "HOST_RESTARTED" || code == "CONTROL_CHANGED") BackgroundOperation.acknowledgeReread(sid)
         lines += tr("（从这里起没做：$code）", "(not done from here: $code)")
         outs.lastOrNull { it.status == "skipped" && it.n == at } ?: outs.add(StepOut(at, "", "refused", "").also { it.code = code })
     }

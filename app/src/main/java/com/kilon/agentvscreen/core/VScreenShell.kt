@@ -40,6 +40,7 @@ internal object VScreenShell {
 
     /** Focus this exact task without sending a launcher intent (which can recreate activities). */
     fun bringToFront(displayId: Int, taskId: Int): Boolean {
+        Control.admitInput()
         if (VScreenHandoff.tasksOrNull(displayId)?.any { it.taskId == taskId && it.foreground } == true) return true
         if (taskFocus(taskId, displayId).getOrNull() != true) return false
         repeat(8) {
@@ -50,6 +51,7 @@ internal object VScreenShell {
     }
 
     fun launch(displayId: Int, pkg: String, activity: String?, mode0: LaunchMode = LaunchMode.ROOT, intent: List<String>? = null): Outcome {
+        Control.admitInput()
         val clean = pkg.trim()
         if (clean.isEmpty()) return fail("INVALID_ARGS", tr("缺少包名", "Missing package name"))
         // v22 传送门: with an explicit intent (deep link / shortcut / learned page) the app is
@@ -313,6 +315,8 @@ internal object VScreenShell {
 
     /**
      * 1.2: the one way input reaches a display. The default goes to the Shizuku display service; tests replace it.
+     * 1.4.2-beta6: every public input function above it asks [Control.admitInput] first, and the default carries the
+     * control epoch ([Control.wireEpoch], read on the caller's thread) for the service's own fence ([InputFence]).
      * Each call answers true (injected), false (the system refused the event) or fails (service not connected).
      */
     interface Injector {
@@ -349,24 +353,28 @@ internal object VScreenShell {
     }
 
     fun tap(displayId: Int, x: Int, y: Int, holdMs: Int = TAP_MS): Outcome {
+        Control.admitInput()
         val (ix, iy) = mx(displayId, x, y)
         val hold = holdMs.coerceIn(30, 250)
         return injected("tap", displayId, injector.gesture(displayId, ix, iy, ix, iy, 0, hold), hold.toLong())
     }
 
     fun longPress(displayId: Int, x: Int, y: Int, ms: Int): Outcome {
+        Control.admitInput()
         val (ix, iy) = mx(displayId, x, y)
         return injected("press", displayId, injector.gesture(displayId, ix, iy, ix, iy, 0, ms.coerceIn(300, 10_000)), ms.coerceIn(300, 10_000).toLong())
     }
 
     /** A swipe: the finger moves at an even speed and lifts while moving, so lists fling (hold = -1). */
     fun swipe(displayId: Int, x1: Int, y1: Int, x2: Int, y2: Int, ms: Int): Outcome {
+        Control.admitInput()
         val (a, b) = mx(displayId, x1, y1); val (c, e) = mx(displayId, x2, y2)
         return injected("swipe", displayId, injector.gesture(displayId, a, b, c, e, ms.coerceIn(50, 5000), -1), ms.coerceIn(50, 5000).toLong())
     }
 
     /** A precise drag: eased, with a still hold at the end (no fling). */
     fun drag(displayId: Int, x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int, holdMs: Int): Outcome {
+        Control.admitInput()
         val (a, b) = mx(displayId, x1, y1); val (c, e) = mx(displayId, x2, y2)
         return injected("drag", displayId, injector.gesture(displayId, a, b, c, e, durationMs.coerceIn(50, 5000), holdMs.coerceIn(0, 3000)), (durationMs.coerceIn(50, 5000) + holdMs.coerceIn(0, 3000)).toLong())
     }
@@ -374,6 +382,8 @@ internal object VScreenShell {
     /** Held finger [pointerId] (multi-touch across calls): op "down" | "move" | "up" | "cancel". */
     fun finger(displayId: Int, op: String, pointerId: Int, x: Int, y: Int): Pair<Outcome, Int> {
         val code = when (op) { "down" -> 0; "move" -> 1; "up" -> 2; else -> 3 }
+        // A cancel is always allowed: it only ever takes the caller's own fingers away (1.4.2-beta6).
+        if (code != 3) Control.admitInput()
         val (ix, iy) = if (x < 0 || y < 0) (-1 to -1) else mx(displayId, x, y)
         val r = injector.pointer(displayId, code, pointerId, ix.toFloat(), iy.toFloat())
         val v = r.getOrNull() ?: return fail("NOT_CONNECTED", tr("副屏服务（Shizuku）不可用：${r.exceptionOrNull()?.message}", "The screen service (Shizuku) is unavailable: ${r.exceptionOrNull()?.message}")) to 0
@@ -415,6 +425,7 @@ internal object VScreenShell {
 
     /** Key event on [displayId], injected with the display id set. */
     fun keyWithMethod(displayId: Int, key: String): KeyResult {
+        Control.admitInput()
         if (key.length > 1 && '+' in key) {
             val c = runCatching { combo(key) }.getOrElse { return KeyResult(fail("INVALID_ARGS", it.message ?: key), "none") }
             if (c != null) return KeyResult(injected(tr("组合键 $key", "shortcut $key"), displayId, again { injector.combo(displayId, c.first, c.second) }), "inject")
@@ -439,6 +450,7 @@ internal object VScreenShell {
 
     /** Characters the virtual keyboard can produce (ASCII), typed as key events. Other text goes through accessibility or the clipboard. */
     fun typeKeys(displayId: Int, text: String): Outcome {
+        Control.admitInput()
         if (text.any { it.code > 126 || it.code < 32 }) return fail("NON_ASCII", tr("按键方式只能输入 ASCII 字符", "Key events can only type ASCII characters"))
         return injected(tr("输入", "typing"), displayId, injector.text(displayId, text))
     }
