@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T04:18:00Z",
-  "updated_at": "2026-11-21T03:33:13Z",
+  "updated_at": "2026-11-21T04:16:05Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -59,9 +59,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "bb25c380f3596444a8ee633b68bd11cd07b85c958d8ff3ee40cf57980f19840e",
-      "size": 89584,
-      "normalized_sha256": "bb25c380f3596444a8ee633b68bd11cd07b85c958d8ff3ee40cf57980f19840e"
+      "sha256": "1c9a910b0614127ae8229ce2c12fa79b812d214958743b88666fe4708435c8e5",
+      "size": 90340,
+      "normalized_sha256": "1c9a910b0614127ae8229ce2c12fa79b812d214958743b88666fe4708435c8e5"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -224,15 +224,15 @@
     },
     "app/src/main/java/com/kilon/agentvscreen/cmd/Codes.kt": {
       "role": "index",
-      "sha256": "599f6b35d3e0e0e6f519eaa0aac6fc60dc98530d1c78941545915f59dc83f0bb",
-      "size": 21342,
-      "normalized_sha256": "599f6b35d3e0e0e6f519eaa0aac6fc60dc98530d1c78941545915f59dc83f0bb"
+      "sha256": "7e885579e0247a210d4c17a2cef79f879d00f1c247adafbef862dc5d1e1ffb8e",
+      "size": 21621,
+      "normalized_sha256": "7e885579e0247a210d4c17a2cef79f879d00f1c247adafbef862dc5d1e1ffb8e"
     },
     "app/src/main/java/com/kilon/agentvscreen/cmd/CommandSpec.kt": {
       "role": "index",
-      "sha256": "5f377ea10861a616b736669509931971347415b34a8137bb7239b8635e380edd",
-      "size": 54756,
-      "normalized_sha256": "5f377ea10861a616b736669509931971347415b34a8137bb7239b8635e380edd"
+      "sha256": "844a20b09511c052911e93f8c439878ebdd4bf6717cfb45170c022c604d7eef2",
+      "size": 55211,
+      "normalized_sha256": "844a20b09511c052911e93f8c439878ebdd4bf6717cfb45170c022c604d7eef2"
     },
     "app/src/main/java/com/kilon/agentvscreen/cmd/OffloadArgs.kt": {
       "role": "index",
@@ -320,9 +320,9 @@
     },
     "app/src/main/java/com/kilon/agentvscreen/cmd/VScreenOpenCommands.kt": {
       "role": "index",
-      "sha256": "c367e0dba240c0a71d8db2cdf02faf0e497e1a69f33b55c82d1be5ee068d4953",
-      "size": 33867,
-      "normalized_sha256": "c367e0dba240c0a71d8db2cdf02faf0e497e1a69f33b55c82d1be5ee068d4953"
+      "sha256": "8ea222d5a6228fe60b56e40dbd85fa0a57ab3dd9250b7bf6f4fd2537edd8eb42",
+      "size": 34481,
+      "normalized_sha256": "8ea222d5a6228fe60b56e40dbd85fa0a57ab3dd9250b7bf6f4fd2537edd8eb42"
     },
     "app/src/main/java/com/kilon/agentvscreen/cmd/VScreenOptions.kt": {
       "role": "index",
@@ -380,9 +380,9 @@
     },
     "app/src/main/java/com/kilon/agentvscreen/core/BackgroundOperation.kt": {
       "role": "index",
-      "sha256": "ca57299b6be1ce21d4f9fee103ff65c37e3835f837ba1605493b253226d0bc1d",
-      "size": 70747,
-      "normalized_sha256": "ca57299b6be1ce21d4f9fee103ff65c37e3835f837ba1605493b253226d0bc1d"
+      "sha256": "e2f2c762f0474bb3ca26f965b33211c94905e0d395e1604152fb5fd5580850fc",
+      "size": 77543,
+      "normalized_sha256": "e2f2c762f0474bb3ca26f965b33211c94905e0d395e1604152fb5fd5580850fc"
     },
     "app/src/main/java/com/kilon/agentvscreen/core/Change.kt": {
       "role": "index",
@@ -431,6 +431,12 @@
       "sha256": "ef498f4b9a6612114865f2aff8ebe2b3dc316f1dabff9a391e5657a1450a3541",
       "size": 4997,
       "normalized_sha256": "ef498f4b9a6612114865f2aff8ebe2b3dc316f1dabff9a391e5657a1450a3541"
+    },
+    "app/src/main/java/com/kilon/agentvscreen/core/Takeover.kt": {
+      "role": "index",
+      "sha256": "6187c8c2fe410ca2168e9140ee031f8fa19579a93c52e11c2cedb4ab0d2376c7",
+      "size": 2777,
+      "normalized_sha256": "6187c8c2fe410ca2168e9140ee031f8fa19579a93c52e11c2cedb4ab0d2376c7"
     },
     "app/src/main/java/com/kilon/agentvscreen/core/TaskLog.kt": {
       "role": "index",
@@ -800,9 +806,9 @@
     },
     "app/src/main/java/com/kilon/agentvscreen/ui/FullscreenActivity.kt": {
       "role": "index",
-      "sha256": "32db139a9729160a68e75673e508a145be58835615698cbfaf1b37bc0a4edbf4",
-      "size": 38575,
-      "normalized_sha256": "32db139a9729160a68e75673e508a145be58835615698cbfaf1b37bc0a4edbf4"
+      "sha256": "6e5a947abd002ecefae7afe7c27575c1fd2d6e64de0440867d9eb681ff796e89",
+      "size": 38576,
+      "normalized_sha256": "6e5a947abd002ecefae7afe7c27575c1fd2d6e64de0440867d9eb681ff796e89"
     },
     "app/src/main/java/com/kilon/agentvscreen/ui/Kit.kt": {
       "role": "index",
@@ -1236,6 +1242,12 @@
       "size": 9136,
       "normalized_sha256": "8a98b427fe67ba16eae854d18612af471a6c6a951bdcfb243c618cf6eef98dc3"
     },
+    "app/src/test/java/com/kilon/agentvscreen/core/V142Beta4Test.kt": {
+      "role": "index",
+      "sha256": "a22fbd4cdbfb899325efc61026c07ed87f8f9036fb7d939c83c38536ce3c1a52",
+      "size": 4603,
+      "normalized_sha256": "a22fbd4cdbfb899325efc61026c07ed87f8f9036fb7d939c83c38536ce3c1a52"
+    },
     "app/src/test/java/com/kilon/agentvscreen/host/RootWayTest.kt": {
       "role": "index",
       "sha256": "4a49bfa9f2a63be1110d6defc5035d79f23bd869cf850eacc9e9bc62cc8075ae",
@@ -1286,9 +1298,9 @@
     },
     "docs/REFERENCE.md": {
       "role": "index",
-      "sha256": "32c78005c9d07f52e81bd8aa6d31a8c4bc286ccf2f01708dea10490c515d6045",
-      "size": 54640,
-      "normalized_sha256": "32c78005c9d07f52e81bd8aa6d31a8c4bc286ccf2f01708dea10490c515d6045"
+      "sha256": "b1a02b33c5ccd138193bc72d3f4b818ca6dfc3157c7bbb9717697c8adfb84e67",
+      "size": 54919,
+      "normalized_sha256": "b1a02b33c5ccd138193bc72d3f4b818ca6dfc3157c7bbb9717697c8adfb84e67"
     },
     "docs/SPIKE-FRONT-DOOR.md": {
       "role": "index",
