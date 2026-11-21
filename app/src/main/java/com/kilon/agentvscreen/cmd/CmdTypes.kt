@@ -33,6 +33,11 @@ class Call(val session: String, val tokenId: String = "main", val tokenName: Str
            val via: com.kilon.agentvscreen.api.Abilities.Via = com.kilon.agentvscreen.api.Abilities.Via.CLI) {
     /** Set when the caller went away or cancelled the task: the command stops before its next step. */
     @Volatile var cancelled = false
+    /**
+     * 1.4.2-beta6: the control epoch the call arrived in ([com.kilon.agentvscreen.core.Control]). Once the user takes
+     * over, stops, or hands back after it arrived, nothing it planned may change the screen any more.
+     */
+    @Volatile var epoch: Long = com.kilon.agentvscreen.core.Control.epoch
     /** 1.3: when the phone received the call (wall clock), to tell phone-side time from time outside the phone. */
     val receivedAt: Long = System.currentTimeMillis()
     /** 1.3: set when this call runs as a task (--async): nobody is holding a connection open for it. */

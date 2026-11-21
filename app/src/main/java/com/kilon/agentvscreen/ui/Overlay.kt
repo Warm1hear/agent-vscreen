@@ -981,7 +981,6 @@ private fun PictureLayer(owner: String, k: Float, picture: (@Composable (String)
                             hold = ((SystemClock.uptimeMillis() - t0 - 100L) / 400f).clampIn(0f, 1f)
                             if (hold >= 1f) {
                                 held = true; hold = 0f; Overlay.pictureHeld = true
-                                if (BackgroundOperation.state.value.userStopped) BackgroundOperation.userResume()
                                 BackgroundOperation.beginTakeover(owner)
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                             }

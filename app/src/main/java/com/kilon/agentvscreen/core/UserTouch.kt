@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicReference
  */
 object UserTouch {
     /** The pointer id kept for the user (agents use the low ids). */
-    private const val FINGER = 9
+    private const val FINGER = InputFence.USER_FINGER
 
     private val thread = HandlerThread("vscreen-user-touch").apply { isDaemon = true; start() }
     private val handler = Handler(thread.looper)
@@ -32,8 +32,16 @@ object UserTouch {
     private fun inject(id: Int, op: String, x: Int, y: Int) {
         sent++
         sink?.let { it(id, op, x, y); return }
-        runCatching { VScreenShell.finger(id, op, FINGER, x, y) }
+        // 1.4.2-beta6: the user's own input: not fenced, and its cancel takes away only the user's finger.
+        runCatching { Control.asUser { VScreenShell.finger(id, op, FINGER, x, y) } }
     }
+
+    /**
+     * 1.4.2-beta6: run [r] on the touch thread, in order with the user's touches. A change of control is told to the
+     * screen service here ([Control.fence]), so the user's first finger after taking over lands only after the
+     * agent's gesture in flight was cancelled.
+     */
+    internal fun inOrder(r: () -> Unit) { handler.post { runCatching(r) } }
 
     private val flushMove = Runnable {
         val p = pendingMove.getAndSet(null) ?: return@Runnable
@@ -67,7 +75,7 @@ object UserTouch {
 
     fun up(x: Int, y: Int) = end("up", x, y)
 
-    /** The gesture was taken away (a second finger, the window closed): lift without a tap at the last point. */
+    /** The gesture was taken away (a second finger, the window closed): cancelled, never a tap at the last point (1.4.2-beta6: before, the service lifted it, which was a tap). */
     fun cancel() = end("cancel", -1, -1)
 
     private fun end(op: String, x: Int, y: Int) {

@@ -33,7 +33,8 @@ object ManualScreen {
         BackgroundOperation.onTaskStarted(SESSION)
         val t0 = System.currentTimeMillis()
         try {
-            val facts = with(com.kilon.agentvscreen.cmd.VScreenOffloadHandler(ctx.applicationContext)) { doLaunch(SESSION, pkg, null, false).done.joinToString("; ") }
+            // 1.4.2-beta6: the user's own launch: not fenced like an agent's (the user may open an app while the AI is stopped).
+            val facts = Control.asUser { with(com.kilon.agentvscreen.cmd.VScreenOffloadHandler(ctx.applicationContext)) { doLaunch(SESSION, pkg, null, false).done.joinToString("; ") } }
             BackgroundOperation.beginTakeover(SESSION)
             BackgroundOperation.setTitle(SESSION, label(ctx, pkg))
             // A task like an agent's: the home page and the task list show this one, not the agent's before it.

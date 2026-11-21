@@ -318,7 +318,6 @@ class FullscreenActivity : PageActivity() {
                                         hold = ((elapsed - 100L) / 400f).clampIn(0f, 1f); holdAt = down.position
                                         if (hold >= 1f) {
                                             held = true; hold = 0f
-                                            if (s.userStopped) BackgroundOperation.userResume()
                                             BackgroundOperation.beginTakeover(session)
                                         }
                                     }
@@ -470,7 +469,6 @@ class FullscreenActivity : PageActivity() {
                     } else {
                         if (mode == Mode.STOPPED) Pill(tr("交还 AI", "Hand back"), Icons.Filled.SmartToy, Palette.takeover, Color(0xFF052E1C)) { BackgroundOperation.userResume() }
                         Pill(tr("接管", "Take over"), Icons.Filled.TouchApp, Color(0x22FFFFFF), Color.White) {
-                            if (s.userStopped) BackgroundOperation.userResume()
                             BackgroundOperation.beginTakeover(session)
                         }
                         Pill(tr("移到主屏", "Move to main screen"), Icons.Filled.PhoneAndroid, Color(0x22FFFFFF), Color.White) {
@@ -535,7 +533,7 @@ internal class FieldMirror(private val session: String) {
             if (st.takeoverSessionId != session) return@execute
             // 1.3.0 (test M): the lesson's "before typing" screen is read before the first character lands.
             if (x != start) runCatching { Teach.beforeTyping()?.get(1500, java.util.concurrent.TimeUnit.MILLISECONDS) }
-            runCatching { VScreenTyping.setField(id, x, sent) }.onSuccess { sent = x; Teach.typingNow(if (x != start) x else null) }
+            runCatching { com.kilon.agentvscreen.core.Control.asUser { VScreenTyping.setField(id, x, sent) } }.onSuccess { sent = x; Teach.typingNow(if (x != start) x else null) }
         }
     }
 
@@ -561,7 +559,8 @@ internal fun vscreenUserInput(sessionId: String, op: (Int) -> Unit) {
     val s = BackgroundOperation.state.value
     val id = s.displayId ?: return
     if (s.takeoverSessionId != sessionId) return
-    Thread { runCatching { op(id) } }.apply { isDaemon = true; name = "vscreen-user-input" }.start()
+    // 1.4.2-beta6: the user's own keys and typing: not fenced like the agent's.
+    Thread { runCatching { com.kilon.agentvscreen.core.Control.asUser { op(id) } } }.apply { isDaemon = true; name = "vscreen-user-input" }.start()
 }
 
 /** The system's gesture areas along the window's edges (window pixels). */

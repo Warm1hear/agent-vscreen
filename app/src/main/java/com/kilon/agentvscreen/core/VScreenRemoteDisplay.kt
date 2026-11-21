@@ -213,22 +213,22 @@ internal object VScreenRemoteDisplay {
     }
 
     /** Key event with the display id set (reaches a display with its own focus). */
-    fun injectKey(displayId: Int, keyCode: Int, longPress: Boolean = false): Result<Boolean> =
-        call(VScreenDisplayService.INJECT_KEY, { it.writeInt(displayId); it.writeInt(keyCode); it.writeInt(if (longPress) 1 else 0) }) { it.readInt() != 0 }
+    fun injectKey(displayId: Int, keyCode: Int, longPress: Boolean = false, epoch: Long = Control.wireEpoch()): Result<Boolean> =
+        call(VScreenDisplayService.INJECT_KEY, { it.writeInt(displayId); it.writeInt(keyCode); it.writeInt(if (longPress) 1 else 0); it.writeLong(epoch) }) { it.readInt() != 0 }
 
     /** 1.4.0-beta13: a key with modifier keys held (see VScreenDisplayService.injectCombo). */
-    fun injectCombo(displayId: Int, keyCode: Int, mods: List<Int>): Result<Boolean> =
-        call(VScreenDisplayService.INJECT_COMBO, { it.writeInt(displayId); it.writeInt(keyCode); it.writeInt(mods.size); mods.forEach { m -> it.writeInt(m) } }) { it.readInt() != 0 }
+    fun injectCombo(displayId: Int, keyCode: Int, mods: List<Int>, epoch: Long = Control.wireEpoch()): Result<Boolean> =
+        call(VScreenDisplayService.INJECT_COMBO, { it.writeInt(displayId); it.writeInt(keyCode); it.writeInt(mods.size); mods.forEach { m -> it.writeInt(m) }; it.writeLong(epoch) }) { it.readInt() != 0 }
 
     /** 1.2: characters typed as key events on [displayId] (ASCII; see VScreenDisplayService.injectText). */
-    fun injectText(displayId: Int, text: String): Result<Boolean> =
-        call(VScreenDisplayService.INJECT_TEXT, { it.writeInt(displayId); it.writeString(text) }) { it.readInt() != 0 }
+    fun injectText(displayId: Int, text: String, epoch: Long = Control.wireEpoch()): Result<Boolean> =
+        call(VScreenDisplayService.INJECT_TEXT, { it.writeInt(displayId); it.writeString(text); it.writeLong(epoch) }) { it.readInt() != 0 }
 
     /** Finger drag (or tap when start == end) on [displayId]; see VScreenDisplayService.injectDrag. */
-    fun injectDrag(displayId: Int, x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int, holdMs: Int): Result<Boolean> =
+    fun injectDrag(displayId: Int, x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int, holdMs: Int, epoch: Long = Control.wireEpoch()): Result<Boolean> =
         call(VScreenDisplayService.INJECT_DRAG, {
             it.writeInt(displayId); it.writeInt(x1); it.writeInt(y1); it.writeInt(x2); it.writeInt(y2)
-            it.writeInt(durationMs); it.writeInt(holdMs)
+            it.writeInt(durationMs); it.writeInt(holdMs); it.writeLong(epoch)
         }, extraMs = (durationMs.coerceAtLeast(0) + holdMs.coerceAtLeast(0)).toLong()) { it.readInt() != 0 }
 
     /** (rotation, logicalWidth, logicalHeight) as the system sees [displayId]. */
@@ -236,10 +236,18 @@ internal object VScreenRemoteDisplay {
         call(VScreenDisplayService.ROTATION, { it.writeInt(displayId) }) { Triple(it.readInt(), it.readInt(), it.readInt()) }
 
     /** Held finger: op 0 down, 1 move, 2 up (x,y < 0 keeps the last point), 3 lift all. Returns (injected, fingers still down). */
-    fun pointer(displayId: Int, op: Int, pointerId: Int, x: Float, y: Float): Result<Pair<Boolean, Int>> =
+    fun pointer(displayId: Int, op: Int, pointerId: Int, x: Float, y: Float, epoch: Long = Control.wireEpoch()): Result<Pair<Boolean, Int>> =
         call(VScreenDisplayService.POINTER, {
-            it.writeInt(displayId); it.writeInt(op); it.writeInt(pointerId); it.writeFloat(x); it.writeFloat(y)
+            it.writeInt(displayId); it.writeInt(op); it.writeInt(pointerId); it.writeFloat(x); it.writeFloat(y); it.writeLong(epoch)
         }) { (it.readInt() != 0) to it.readInt() }
+
+    /**
+     * 1.4.2-beta6: tell the service a change of control on [displayId] ([InputFence]): agent input needs [epoch] or newer
+     * and is refused while ![agentAllowed]. Returns the number of agent fingers it cancelled, once the agent's input in
+     * flight has ended.
+     */
+    fun fence(displayId: Int, epoch: Long, agentAllowed: Boolean): Result<Int> =
+        call(VScreenDisplayService.FENCE, { it.writeInt(displayId); it.writeLong(epoch); it.writeInt(if (agentAllowed) 1 else 0) }) { it.readInt() }
 
     /** Remove [taskId] only if the system says it is on [displayId] (the service checks; refuses otherwise). */
     fun removeTask(taskId: Int, displayId: Int): Result<Boolean> =
