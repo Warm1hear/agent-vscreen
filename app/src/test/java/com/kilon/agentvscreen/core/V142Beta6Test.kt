@@ -38,6 +38,28 @@ class V142Beta6Test {
 
     // ── the screen service's fence ──────────────────────────────────────
 
+    @Test fun settingsIsNotALauncher() {
+        // `cmd package query-activities` long form on a Pixel image: Settings' FallbackHome (boot only) is a fallback.
+        val out = """
+2 activities found:
+  Activity #0:
+    priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=false
+    ActivityInfo:
+      name=com.google.android.apps.nexuslauncher.NexusLauncherActivity
+      packageName=com.google.android.apps.nexuslauncher
+      enabled=true exported=true directBootAware=false
+  Activity #1:
+    priority=-1000 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=false
+    ActivityInfo:
+      name=com.android.settings.FallbackHome
+      packageName=com.android.settings
+      enabled=true exported=true directBootAware=true
+"""
+        assertEquals(setOf("com.google.android.apps.nexuslauncher"), VScreenHandoff.homePackagesFrom(out))
+        // An older shell that prints only components still names every launcher it lists.
+        assertEquals(setOf("com.miui.home"), VScreenHandoff.homePackagesFrom("com.miui.home/.launcher.Launcher\n"))
+    }
+
     @Test fun theServiceAnswersTheFenceCall() {
         // The emulator run found the service refusing FENCE: onTransact served codes only up to CREATE_PARKING.
         val svc = VScreenDisplayService()

@@ -339,7 +339,8 @@ def session_and_control(target, x=None, y=None):
     r = api("act")
     check("after the hand-back the agent can look", r.get("ok") is True, str(r.get("code")))
     r = api(tap)
-    check("and act again", r.get("ok") is True or r.get("code") in ("NO_CHANGE",), str(r.get("code")))
+    # Not refused is the point: the page may have moved on, so a target that is gone (NOT_FOUND) still counts.
+    check("and act again", r.get("ok") is True or r.get("code") not in ("USER_TAKEOVER", "USER_STOPPED", "CONTROL_CHANGED", None), why(r))
     api('act "key back"')
     before = activity(api("act"))
 
