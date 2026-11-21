@@ -90,6 +90,7 @@ class VScreenDisplayService : Binder {
         meta.remove(id)
         touched.remove(id)
         fence.forget(id)
+        synchronized(injectable) { injectable.remove(id) }
         displays.remove(id)?.release()
     }
     @Volatile private var reaperStarted = false
@@ -249,7 +250,8 @@ class VScreenDisplayService : Binder {
             System.exit(0)
             return true
         }
-        if (code !in CREATE..CREATE_PARKING) return super.onTransact(code, data, reply, flags)
+        // Every call code up to LAST_CALL: a range that stopped short of a newer code made the service refuse it (FENCE did).
+        if (code !in CREATE..LAST_CALL) return super.onTransact(code, data, reply, flags)
         data.enforceInterface(DESCRIPTOR)
         val out = reply ?: return true
         try {
@@ -598,7 +600,27 @@ class VScreenDisplayService : Binder {
         }
     }
 
+    /** Displays input may go to, decided once per display (ids are not reused while the service lives). */
+    private val injectable = HashMap<Int, Boolean>()
+
+    /**
+     * 1.4.2-beta6: input goes only to a screen of ours: one this service created, or a virtual display the app owns
+     * (its own fallback screen). Never the main screen or another app's display, whatever display id a caller sends.
+     */
+    private fun mayInject(displayId: Int): Boolean {
+        synchronized(injectable) { injectable[displayId]?.let { return it } }
+        val created = synchronized(displays) { displays.containsKey(displayId) }
+        val owner = if (created || displayId == android.view.Display.DEFAULT_DISPLAY) null else runCatching {
+            displayManager().getDisplay(displayId)?.let { d -> android.view.Display::class.java.getMethod("getOwnerPackageName").invoke(d) as String? }
+        }.getOrNull()
+        val ok = injectableDisplay(displayId, created, owner, com.kilon.agentvscreen.BuildConfig.APPLICATION_ID)
+        if (!ok) System.err.println("vscreen-service: input to display $displayId refused: not a screen of ours (owner=$owner)")
+        if (ok || owner != null || displayId == android.view.Display.DEFAULT_DISPLAY) synchronized(injectable) { injectable[displayId] = ok }
+        return ok
+    }
+
     private fun inject(event: InputEvent, displayId: Int, mode: Int = 0): Boolean {
+        if (!mayInject(displayId)) return false
         setDisplayId.invoke(event, displayId)
         // 0 = INJECT_INPUT_EVENT_MODE_ASYNC: never block on a busy app.
         // 1 = WAIT_FOR_RESULT: used for the final UP so it is known to be queued.
@@ -1013,6 +1035,14 @@ class VScreenDisplayService : Binder {
          * ([InputFence.USER] for the user's own input); see [InputFence].
          */
         const val FENCE = FIRST_CALL_TRANSACTION + 22
+        /** The rule of [mayInject]: never the main screen; a display this service created, or one the app owns. */
+        internal fun injectableDisplay(displayId: Int, created: Boolean, owner: String?, appPkg: String): Boolean = when {
+            displayId == android.view.Display.DEFAULT_DISPLAY -> false
+            created -> true
+            else -> owner == appPkg
+        }
+        /** The newest call code; onTransact serves CREATE..LAST_CALL. A new code moves this. */
+        const val LAST_CALL = FENCE
         /** Apps the service silenced, so a service that was killed gives them back on its next start. Shell-owned. */
         const val FILE = "/data/local/tmp/agent-vscreen-muted.json"
         /** "allow" / "ignore" / "default" … as `appops get` says it, or null when it cannot be read. */
