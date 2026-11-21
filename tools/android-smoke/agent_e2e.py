@@ -341,7 +341,8 @@ def session_and_control(target, x=None, y=None):
     r = api(tap)
     # Not refused is the point: the page may have moved on, so a target that is gone (NOT_FOUND) still counts.
     check("and act again", r.get("ok") is True or r.get("code") not in ("USER_TAKEOVER", "USER_STOPPED", "CONTROL_CHANGED", None), why(r))
-    api('act "key back"')
+    # No back key here: on the Settings home page it closes the app, and the press then waits in the system's input
+    # queue for a window that never comes (the emulator run showed a 5 s wait, not a gesture that went on).
     before = activity(api("act"))
 
     # A long press the user stops midway ends with a cancel: the call comes back early and no tap reaches the app
