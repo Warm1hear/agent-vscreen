@@ -36,6 +36,7 @@ internal object Codes {
         Code("FOCUS_ELSEWHERE", Next.LOOK, "有焦点的输入框不是你刚点的地方，没有输入。", "The focused input box is not where you just tapped; nothing was typed."),
         Code("TYPE_FAILED", Next.LOOK, "文字没能送进去。", "The text could not be sent."),
         Code("NO_CHANGE", Next.LOOK, "这一步做了，但之后画面没有可见的变化（可能没点中，或这里本来就不会变）。", "The step was done but the picture did not visibly change afterwards (the tap may have missed, or nothing changes here)."),
+        Code("UNPROVEN", Next.LOOK, "这一步点在画面上一直自己在动的地方，之后的变化可能只是动画，不能说明点中了。看图核对。", "The step tapped where the screen keeps moving by itself; the change afterwards may be only the animation and does not show the tap worked. Check the picture."),
         // user safety
         Code("CONFIRM_PENDING", Next.USER, "这一步要用户在手机上确认（付费/不可撤销/用户设为每次询问的应用/会影响主屏的操作），用户还没答复，没做。请用户在手机通知里点“允许”，然后把这一段重发一遍。", "This step needs the user's confirmation on the phone (payment / irreversible / an app set to ask every time / something that affects the main screen); the user has not answered and it was not done. Ask the user to tap Allow in the phone's notification, then send this stretch again."),
         Code("USER_DENIED", Next.USER, "用户在手机上拒绝了这一步。不要重试，问用户想怎么办。", "The user denied this step on the phone. Don't retry; ask the user what they want."),

@@ -162,6 +162,16 @@ class V142Beta6Test {
         refused("USER_TAKEOVER") { VScreenShell.longPress(4, 1, 1, 6_000) }
     }
 
+    @Test fun theWindowTitleBelongsToTheAgentThatSetIt() {
+        val s = BackgroundOperation.State(ownerSessionId = "a", titleText = "a long test title", titleSession = "a")
+        assertEquals("a long test title", s.agentTitle)
+        // Another agent has the screen now, or nobody: the old title is not shown.
+        assertNull(s.copy(ownerSessionId = "b").agentTitle)
+        assertNull(s.copy(ownerSessionId = null).agentTitle)
+        // Set before the agent had the screen: shown once it does.
+        assertEquals("t", BackgroundOperation.State(titleText = "t", titleSession = "c").copy(ownerSessionId = "c").agentTitle)
+    }
+
     // ── bounded memory ───────────────────────────────────────────────────
 
     @Test fun elementNumbersRememberOnlyTheRecentLabels() {

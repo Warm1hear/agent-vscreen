@@ -275,6 +275,7 @@ look x1,y1,x2,y2 的旧写法：放大看一块区域（图边上标着副屏坐
 | `FOCUS_ELSEWHERE` | `look` | 有焦点的输入框不是你刚点的地方，没有输入。 |
 | `TYPE_FAILED` | `look` | 文字没能送进去。 |
 | `NO_CHANGE` | `look` | 这一步做了，但之后画面没有可见的变化（可能没点中，或这里本来就不会变）。 |
+| `UNPROVEN` | `look` | 这一步点在画面上一直自己在动的地方，之后的变化可能只是动画，不能说明点中了。看图核对。 |
 | `CONFIRM_PENDING` | `ask_user` | 这一步要用户在手机上确认（付费/不可撤销/用户设为每次询问的应用/会影响主屏的操作），用户还没答复，没做。请用户在手机通知里点“允许”，然后把这一段重发一遍。 |
 | `USER_DENIED` | `ask_user` | 用户在手机上拒绝了这一步。不要重试，问用户想怎么办。 |
 | `CONFIRM_REQUIRED` | `ask_user` | 同 CONFIRM_PENDING（旧名字）。 |
@@ -621,6 +622,7 @@ scope: `look`
 | `FOCUS_ELSEWHERE` | `look` | The focused input box is not where you just tapped; nothing was typed. |
 | `TYPE_FAILED` | `look` | The text could not be sent. |
 | `NO_CHANGE` | `look` | The step was done but the picture did not visibly change afterwards (the tap may have missed, or nothing changes here). |
+| `UNPROVEN` | `look` | The step tapped where the screen keeps moving by itself; the change afterwards may be only the animation and does not show the tap worked. Check the picture. |
 | `CONFIRM_PENDING` | `ask_user` | This step needs the user's confirmation on the phone (payment / irreversible / an app set to ask every time / something that affects the main screen); the user has not answered and it was not done. Ask the user to tap Allow in the phone's notification, then send this stretch again. |
 | `USER_DENIED` | `ask_user` | The user denied this step on the phone. Don't retry; ask the user what they want. |
 | `CONFIRM_REQUIRED` | `ask_user` | Same as CONFIRM_PENDING (old name). |

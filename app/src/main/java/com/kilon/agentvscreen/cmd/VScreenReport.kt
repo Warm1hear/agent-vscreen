@@ -416,7 +416,13 @@ internal fun wordFacts(d: VScreenDisplay, from: Long, to: Long): List<String> {
         val appeared = now.filter { val k = VScreenOcr.norm(it); k !in thenN && !partOf(k, nowN) }
         val gone = then.filter { val k = VScreenOcr.norm(it); k !in nowN && !partOf(k, nowN) }
         val between = LinkedHashMap<String, String>()
-        for (r in rs.drop(1).dropLast(1)) for (w in r.words) { val k = VScreenOcr.norm(w); if (k !in thenN && k !in nowN && !partOf(k, nowN) && !partOf(k, thenN)) between.putIfAbsent(k, w) }
+        // 1.4.2-beta6 (test: an animated screen listed "周-, 0', K, 6, R, 个" here): a short piece read once, in one
+        // reading only, is the OCR catching a moving picture mid-frame, not a word that came and went. A word counts
+        // when it was read in two readings, or is long enough to be a real word read once (a toast seen briefly).
+        val seen = HashMap<String, Int>()
+        for (r in rs.drop(1).dropLast(1)) for (k in r.words.map { VScreenOcr.norm(it) }.toSet()) seen[k] = (seen[k] ?: 0) + 1
+        fun real(k: String) = (seen[k] ?: 0) >= 2 || k.length >= 4
+        for (r in rs.drop(1).dropLast(1)) for (w in r.words) { val k = VScreenOcr.norm(w); if (real(k) && k !in thenN && k !in nowN && !partOf(k, nowN) && !partOf(k, thenN)) between.putIfAbsent(k, w) }
         if (appeared.isNotEmpty()) lines += tr("出现了：", "appeared: ") + list(appeared, 20)
         if (gone.isNotEmpty()) lines += tr("不见了：", "disappeared: ") + list(gone, 20)
         if (between.isNotEmpty()) lines += tr("中途出现过又消失：", "appeared and disappeared meanwhile: ") + list(between.values.toList(), 12)

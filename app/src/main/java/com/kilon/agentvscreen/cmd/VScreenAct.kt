@@ -641,6 +641,16 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
                     late.stopped?.let { stoppedBy = it; stoppedAt = label; so.status = "stopped" }
                 }
                 if (same != null) so.changed = !same
+                // 1.4.2-beta6 (test: a menu with moving lines behind it swallowed a tap during its entry animation, and the
+                // reply said the tap was done and the screen settled): where the screen keeps moving by itself, "the picture
+                // changed" proves nothing about a tap. When the tap point is inside an area that moves on its own (or most
+                // of the screen does), the change is not counted as the tap's effect, and the reply says it is unproven.
+                val tapped = so.point?.takeIf { step.kind == StepKind.TAP || step.kind == StepKind.PRESS }
+                if (same == false && so.status == "done" && tapped != null && mask != null && (mask.mostly || mask.covers(tapped.first, tapped.second))) {
+                    so.changed = null
+                    notes.add("UNPROVEN", tr("第 $label 步（${step.raw}）点在一直自己在动的画面上，之后的变化可能只是动画：不能说明点中了（动画中的界面也可能还不接受点击）。看图核对，没生效就等界面停下再点",
+                        "Step $label (${step.raw}) tapped where the screen keeps moving by itself, so the change afterwards may be only the animation: it does not show the tap worked (an animating screen may not take taps yet). Check the picture; if it did not work, tap again once that part stops"))
+                }
                 if (same == true && so.status == "done") notes.add("NO_CHANGE", tr("第 $label 步（${step.raw}）之后画面没有任何变化：可能没点中、控件没响应，或变化不在画面上。看图核对这一步有没有生效", "After step $label (${step.raw}) nothing on the screen changed: it may have missed, the control may not respond, or the effect is not visible. Check the picture to see whether the step took effect"))
             }
             so.text = tr("$label ${step.raw} → $fact；$waitTxt", "$label ${step.raw} → $fact; $waitTxt") + if (so.changed == false) tr("；画面没有变化", "; the screen did not change") else ""
