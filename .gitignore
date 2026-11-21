@@ -16,6 +16,8 @@ keystore.properties
 app/src/main/jniLibs/arm64-v8a/libtsbridge.so
 app/src/main/jniLibs/arm64-v8a/libtsnode.so
 __pycache__/
+# CI build outputs
+.avs-build/
 
 # AOCI agent host integration (machine-bound; do not commit)
 .mcp.json
