@@ -101,11 +101,22 @@ class MainActivity : ComponentActivity(), AppHost {
             ShizukuBackend.Ask.ALREADY -> say(tr("Shizuku 已授权", "Shizuku is authorized"))
             ShizukuBackend.Ask.NO_BINDER -> { ShizukuManager.openShizukuApp(this); say(ShizukuManager.missingBinderHint()) }
             ShizukuBackend.Ask.DENIED_ON_RECORD, ShizukuBackend.Ask.FAILED -> inManager()
-            // A dialog should show; if no answer comes within 8 s, the request went nowhere.
-            ShizukuBackend.Ask.ASKED -> window.decorView.postDelayed({
-                ShizukuManager.refresh()
-                if (ShizukuManager.snapshot.value.state == ShizukuManager.State.NEED_PERMISSION && !isFinishing && hasWindowFocus()) inManager()
-            }, 8_000L)
+            // A dialog should show. A denial (the user's Deny or Shizuku's "adb permission limited") gets both
+            // readings; no answer within 8 s means the request went nowhere. Checks belong to this request only.
+            ShizukuBackend.Ask.ASKED -> {
+                val attempt = ShizukuManager.attempt()
+                var told = false
+                fun check(last: Boolean) {
+                    if (told || isFinishing || ShizukuManager.attempt() != attempt) return
+                    ShizukuManager.refresh()
+                    val s = ShizukuManager.snapshot.value
+                    if (s.state != ShizukuManager.State.NEED_PERMISSION) return
+                    if (s.denied) { told = true; say(ShizukuManager.deniedHint()) }
+                    else if (last && hasWindowFocus()) inManager()
+                }
+                window.decorView.postDelayed({ check(last = false) }, 3_000L)
+                window.decorView.postDelayed({ check(last = true) }, 8_000L)
+            }
         }
     }
 

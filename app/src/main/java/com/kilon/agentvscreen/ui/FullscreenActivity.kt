@@ -1,6 +1,7 @@
 package com.kilon.agentvscreen.ui
 
 import androidx.compose.foundation.layout.offset
+import com.kilon.agentvscreen.steps
 import com.kilon.agentvscreen.tr
 
 import android.os.Bundle
@@ -365,12 +366,12 @@ class FullscreenActivity : PageActivity() {
                 Circle(Icons.Filled.CloseFullscreen, tr("小窗", "Small window"), Color(0x33FFFFFF)) { back() }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(appLabel ?: tr("后台副屏", "Background screen"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(appLabel ?: tr("后台副屏", "Background screen"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.scrollIfLong())
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(7.dp).clip(CircleShape).background(if (mode == Mode.ACTING) Brush.sweepGradient(Palette.rainbow) else SolidColor(Palette.of(mode))))
                         Spacer(Modifier.width(5.dp))
-                        val word = if (recording) tr("示教录制中 · 已记 $teachN 步", "Recording a lesson · $teachN steps") else if (prepId != null) tr("示教准备中：先走到起点", "Getting ready to show") else s.agentTitle ?: (Palette.word(mode) + if (mode == Mode.STANDBY && left >= 0) (" · " + tr("${left / 60000}:${"%02d".format((left / 1000) % 60)} 后省电", "power save in ${left / 60000}:${"%02d".format((left / 1000) % 60)}")) else "")
-                        Text(word, color = Color(0xCCFFFFFF), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val word = if (recording) tr("示教录制中 · 已记 $teachN 步", "Recording a lesson · ${steps(teachN)}") else if (prepId != null) tr("示教准备中：先走到起点", "Getting ready to show") else s.agentTitle ?: (Palette.word(mode) + if (mode == Mode.STANDBY && left >= 0) (" · " + tr("${left / 60000}:${"%02d".format((left / 1000) % 60)} 后省电", "power save in ${left / 60000}:${"%02d".format((left / 1000) % 60)}")) else "")
+                        Text(word, color = Color(0xCCFFFFFF), fontSize = 12.sp, maxLines = 1, modifier = Modifier.scrollIfLong())
                     }
                 }
                 // 1.4.0-beta4: turn the page to landscape and back, whatever the phone's rotation lock says (a

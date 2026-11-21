@@ -356,7 +356,7 @@ private fun FixCard(problems: List<Readiness.Item>, setupLeft: Boolean) {
             "frozen_in_background" -> tr("系统冻结了后台", "The system froze the app")
             else -> tr("有一项需要处理", "Something needs you")
         } to first.text
-        else -> tr("还差 ${app.left} 项配置", "${app.left} setup steps left") to tr("配好之后 agent 才能用副屏", "Agents can use the screen once it is set up")
+        else -> tr("还差 ${app.left} 项配置", if (app.left == 1) "1 setup step left" else "${app.left} setup steps left") to tr("配好之后 agent 才能用副屏", "Agents can use the screen once it is set up")
     }
     var busy by remember { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
