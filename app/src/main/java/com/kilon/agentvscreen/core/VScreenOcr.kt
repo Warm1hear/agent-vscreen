@@ -74,6 +74,28 @@ internal object VScreenOcr {
         TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
     }
     @Volatile private var cache: Result? = null
+
+    /**
+     * 1.4.2: ML Kit runs one image at a time, and Tasks.await giving up does not stop its task. Before, a timed-out task
+     * kept the queue (the service-start self-test held it while the agent's first look waited and timed out: OCR_DOWN on
+     * API 35 CI) and kept reading a bitmap its caller had already recycled. Now one task of ours is in ML Kit at a time
+     * (the slot is given back when the task really completes), and the task reads its own copy, recycled with it.
+     */
+    private val mlSlot = java.util.concurrent.Semaphore(1)
+    private fun mlkit(frame: Bitmap, timeoutS: Long): Text {
+        if (!mlSlot.tryAcquire(timeoutS, TimeUnit.SECONDS)) throw java.util.concurrent.TimeoutException("ML Kit busy: an earlier reading has not finished in ${timeoutS}s")
+        val own: Bitmap
+        val task: com.google.android.gms.tasks.Task<Text>
+        try {
+            own = frame.copy(Bitmap.Config.ARGB_8888, false) ?: throw IllegalStateException("ML Kit: could not copy the frame")
+            task = try { recognizer.process(InputImage.fromBitmap(own, 0)) } catch (t: Throwable) { own.recycle(); throw t }
+        } catch (t: Throwable) {
+            mlSlot.release()
+            throw t
+        }
+        task.addOnCompleteListener({ it.run() }) { own.recycle(); mlSlot.release() }
+        return Tasks.await(task, timeoutS, TimeUnit.SECONDS)
+    }
     /** The fast engine's last failure, cleared by its next success: lets a reused or skipped reading still say OCR is down. */
     @Volatile private var fastError: String? = null
 
@@ -115,22 +137,25 @@ internal object VScreenOcr {
     @Volatile var selfTestReport: String? = null; private set
     fun selfTest(ctx: android.content.Context): String {
         val lines = ArrayList<String>()
-        lines += try {
-            val (words, hit, ms) = VScreenPaddleOcr.selfTest(ctx)
-            "PP-OCRv6: ${if (hit.size == VScreenPaddleOcr.EXPECT.size) "ok" else "WRONG"} ${hit.size}/${VScreenPaddleOcr.EXPECT.size} expected words, ${words.size} lines, ${ms}ms" +
-                (VScreenPaddleOcr.optNote?.let { " [$it]" } ?: "")
-        } catch (t: Throwable) { "PP-OCRv6: FAILED ${t.javaClass.simpleName}: ${t.message?.take(240)}" }
+        // ML Kit first: it warms up in seconds, so an agent whose accurate read waits behind the slow PP-OCRv6 build
+        // falls back to a warm ML Kit instead of a cold one. The report keeps PP-OCRv6 on the first line.
         lines += try {
             val bmp = ctx.assets.open("vscreen-ocr/selftest.png").use { android.graphics.BitmapFactory.decodeStream(it) }
             try {
                 val t0 = SystemClock.elapsedRealtime()
-                val text = Tasks.await(recognizer.process(InputImage.fromBitmap(bmp, 0)), 10, TimeUnit.SECONDS)
+                // Cold ML Kit takes ~9 s under emulator translation; the self-test may wait longer than an agent's read.
+                val text = mlkit(bmp, 30)
                 val words = text.textBlocks.flatMap { b -> b.lines.map { it.text } }
                 val hit = VScreenPaddleOcr.EXPECT.filter { w -> words.any { it.contains(w) } }
                 fastError = null
                 "ML Kit: ${if (hit.isNotEmpty()) "ok" else "WRONG"} ${hit.size}/${VScreenPaddleOcr.EXPECT.size} expected words, ${words.size} lines, ${SystemClock.elapsedRealtime() - t0}ms"
             } finally { bmp.recycle() }
         } catch (t: Throwable) { val c = t.cause ?: t; fastError = "${c.javaClass.simpleName}: ${c.message}"; "ML Kit: FAILED ${c.javaClass.simpleName}: ${c.message?.take(240)}" }
+        lines.add(0, try {
+            val (words, hit, ms) = VScreenPaddleOcr.selfTest(ctx)
+            "PP-OCRv6: ${if (hit.size == VScreenPaddleOcr.EXPECT.size) "ok" else "WRONG"} ${hit.size}/${VScreenPaddleOcr.EXPECT.size} expected words, ${words.size} lines, ${ms}ms" +
+                (VScreenPaddleOcr.optNote?.let { " [$it]" } ?: "")
+        } catch (t: Throwable) { "PP-OCRv6: FAILED ${t.javaClass.simpleName}: ${t.message?.take(240)}" })
         return lines.joinToString("\n").also { selfTestReport = it; AppLogger.info(TAG, "self-test\n$it") }
     }
 
@@ -221,7 +246,7 @@ internal object VScreenOcr {
         if (reusable(c, displayId, frame, version)) return c!!
         val t0 = SystemClock.elapsedRealtime()
         return try {
-            val text = Tasks.await(recognizer.process(InputImage.fromBitmap(frame, 0)), 10, TimeUnit.SECONDS)
+            val text = mlkit(frame, 10)
             val items = ArrayList<Item>()
             for (block in text.textBlocks) for (line in block.lines) items += segment(line)
             items.sortWith(compareBy<Item>({ it.box.top / 8 }, { it.box.left }))

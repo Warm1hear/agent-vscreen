@@ -127,7 +127,9 @@ internal object VScreenPaddleOcr {
                 r.readLines().filter { it.isNotEmpty() }
             }
             val chars = (listOf("") + dict + listOf(" ")).toTypedArray()
-            return Engine(env, session("det.onnx"), session("rec.onnx"), chars).also { engine = it }
+            val det = session("det.onnx")
+            val rec = try { session("rec.onnx") } catch (t: Throwable) { runCatching { det.close() }; throw t }
+            return Engine(env, det, rec, chars).also { engine = it }
         } catch (t: Throwable) {
             loadError = "${t.javaClass.simpleName}: ${t.message}"
             AppLogger.warning(TAG, "PP-OCRv6 load failed: $loadError")
@@ -137,9 +139,13 @@ internal object VScreenPaddleOcr {
 
     /** 1.4.2: the longest one accurate reading may take before the caller falls back to ML Kit. */
     internal const val TIMEOUT_MS = 15_000L
-    /** One reading at a time (v44: callers on several threads); the ONNX sessions are used by one reader. */
-    private val reading = java.util.concurrent.locks.ReentrantLock()
-    @Volatile private var stuckSince = 0L
+    /**
+     * 1.4.2: the one reading slot. A caller takes it before a reader thread exists, and only that reader gives it back,
+     * when it really ends (also after its caller gave up). So at most one reader thread and one frame copy exist,
+     * however many callers come or time out, and the ONNX sessions are used by one reader.
+     */
+    private val slot = java.util.concurrent.Semaphore(1)
+    @Volatile private var busySince = 0L
 
     /**
      * Items in frame pixels. Throws on any failure. Not on the main thread.
@@ -148,28 +154,37 @@ internal object VScreenPaddleOcr {
      * engine forever: every later read queued behind it and the agent's call never came back. Now the reading runs on
      * its own thread and the caller waits at most [TIMEOUT_MS], then gets an error (VScreenOcr falls back to ML Kit and
      * says so). A stuck native call cannot be stopped: its thread stays until the call returns, and while it does,
-     * later readings fail at once instead of queueing, then recover by themselves.
+     * later callers wait at most [TIMEOUT_MS] for the slot and then fail, then recover by themselves.
+     *
+     * The reader works on its own copy of [frame]: a caller that timed out goes on to recycle or reuse its bitmap, and
+     * the reader that is still running must not read a recycled picture (API 35 CI: "getWidth() on a recycle()'d bitmap").
      */
     fun recognize(context: Context, frame: Bitmap): List<VScreenOcr.Item> {
-        val since = stuckSince
-        if (since != 0L && reading.isLocked) error("PP-OCRv6 busy: a reading has not finished for ${(android.os.SystemClock.elapsedRealtime() - since) / 1000} s")
-        val task = java.util.concurrent.FutureTask {
-            reading.lock()
-            try {
-                val e = engine(context)
-                val boxes = detect(e, frame)
-                if (boxes.isEmpty()) emptyList() else recognizeBoxes(e, frame, boxes)
-            } finally {
-                stuckSince = 0L
-                reading.unlock()
+        if (!slot.tryAcquire(TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS))
+            error("PP-OCRv6 busy: a reading has not finished for ${(android.os.SystemClock.elapsedRealtime() - busySince) / 1000} s")
+        val own: Bitmap
+        val task: java.util.concurrent.FutureTask<List<VScreenOcr.Item>>
+        try {
+            own = frame.copy(Bitmap.Config.ARGB_8888, false) ?: error("PP-OCRv6: could not copy the frame")
+            busySince = android.os.SystemClock.elapsedRealtime()
+            task = java.util.concurrent.FutureTask {
+                try {
+                    val e = engine(context)
+                    val boxes = detect(e, own)
+                    if (boxes.isEmpty()) emptyList() else recognizeBoxes(e, own, boxes)
+                } finally {
+                    own.recycle()
+                    slot.release()
+                }
             }
+            Thread(task, "vscreen-ocr").apply { isDaemon = true }.start()
+        } catch (t: Throwable) {
+            slot.release()
+            throw t
         }
-        Thread(task, "vscreen-ocr").apply { isDaemon = true }.start()
-        val t0 = android.os.SystemClock.elapsedRealtime()
         return try {
             task.get(TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
         } catch (_: java.util.concurrent.TimeoutException) {
-            if (stuckSince == 0L) stuckSince = t0
             AppLogger.warning(TAG, "PP-OCRv6 no result in ${TIMEOUT_MS}ms")
             error("PP-OCRv6 timed out after ${TIMEOUT_MS / 1000} s")
         } catch (e: java.util.concurrent.ExecutionException) {
