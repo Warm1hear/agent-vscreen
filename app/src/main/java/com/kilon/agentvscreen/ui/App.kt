@@ -7,11 +7,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,6 +48,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kilon.agentvscreen.core.BackgroundOperation
@@ -61,7 +70,10 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
+import top.yukonga.miuix.kmp.basic.ScrollBehavior
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.TopAppBarDefaults
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.BlurDefaults
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
@@ -299,6 +311,7 @@ fun MiuixPage(
     /** Top-left of the bar when there is no back arrow (the home page's state pill). */
     lead: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    marqueeTitle: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val nav = LocalNav.current
@@ -313,16 +326,15 @@ fun MiuixPage(
         topBar = {
             Box(if (blurNow && backdrop != null) Modifier.textureBlur(backdrop = backdrop, shape = RectangleShape, blurRadius = 25f,
                 colors = BlurDefaults.blurColors(blendColors = listOf(BlendColorEntry(color = surface.copy(0.8f))))) else Modifier) {
-                TopAppBar(
-                    title = title, subtitle = subtitle, scrollBehavior = bar,
-                    color = if (blurNow) Color.Transparent else surface,
-                    navigationIcon = {
-                        if (back) IconButton(onClick = { nav.back() }, modifier = Modifier.padding(start = 16.dp)) {
-                            Icon(MiuixIcons.Back, tr("返回", "Back"))
-                        } else lead?.invoke()
-                    },
-                    actions = actions,
-                )
+                val navigation: @Composable () -> Unit = {
+                    if (back) IconButton(onClick = { nav.back() }, modifier = Modifier.padding(start = 16.dp)) {
+                        Icon(MiuixIcons.Back, tr("返回", "Back"))
+                    } else lead?.invoke()
+                }
+                val barColor = if (blurNow) Color.Transparent else surface
+                if (marqueeTitle) TaskTitleBar(title, subtitle, bar, barColor, navigation, actions)
+                else TopAppBar(title = title, subtitle = subtitle, scrollBehavior = bar,
+                    color = barColor, navigationIcon = navigation, actions = actions)
             }
         },
     ) { pad ->
@@ -331,6 +343,50 @@ fun MiuixPage(
                 Modifier.fillMaxSize().overScrollVertical().nestedScroll(bar.nestedScrollConnection).verticalScroll(scroll)
                     .padding(top = pad.calculateTopPadding(), bottom = maxOf(bottom, pad.calculateBottomPadding()) + 24.dp),
             ) { content() }
+        }
+    }
+}
+
+/** Miuix's string-only TopAppBar wraps the expanded title and truncates the collapsed one. Task titles
+ * need a composable in both slots, but keep the same scroll state, paddings and navigation. */
+@Composable
+internal fun TaskTitleBar(
+    title: String,
+    subtitle: String,
+    scrollBehavior: ScrollBehavior,
+    color: Color,
+    navigation: @Composable () -> Unit,
+    actions: @Composable RowScope.() -> Unit,
+) {
+    val state = scrollBehavior.state
+    val collapsed by remember(state) { androidx.compose.runtime.derivedStateOf { state.collapsedFraction >= 0.5f } }
+    val colors = MiuixTheme.colorScheme
+    val styles = MiuixTheme.textStyles
+    Column(Modifier.fillMaxWidth().background(color)
+        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
+        Row(Modifier.fillMaxWidth().height(TopAppBarDefaults.CollapsedHeight), verticalAlignment = Alignment.CenterVertically) {
+            navigation()
+            Box(Modifier.weight(1f).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+                if (collapsed) Text(title, modifier = Modifier.scrollIfLong(), maxLines = 1, softWrap = false,
+                    fontSize = styles.title3.fontSize, color = colors.onSurface, fontWeight = FontWeight.Medium)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, content = actions)
+        }
+        // Keep the large slot measured while collapsed so it can expand again. Only the active title animates.
+        Column(Modifier.fillMaxWidth().clipToBounds().layout { measurable, constraints ->
+            val child = measurable.measure(constraints.copy(minHeight = 0))
+            val limit = -child.height.toFloat()
+            if (state.heightOffsetLimit != limit) {
+                state.heightOffsetLimit = limit
+                state.heightOffset = state.heightOffset
+            }
+            layout(child.width, (child.height + state.heightOffset.toInt()).coerceAtLeast(0)) { child.placeRelative(0, 0) }
+        }.padding(horizontal = TopAppBarDefaults.TitlePadding).padding(bottom =
+            if (subtitle.isEmpty()) TopAppBarDefaults.LargeTitleBottomPadding else TopAppBarDefaults.SubtitleBottomPadding)) {
+            // Keep the same line height when hidden; an empty title still occupies one line.
+            Text(if (collapsed) "" else title, modifier = if (collapsed) Modifier else Modifier.scrollIfLong(),
+                color = colors.onSurface, fontSize = styles.title1.fontSize, maxLines = 1, softWrap = false)
+            if (subtitle.isNotEmpty()) Text(subtitle, color = colors.onSurfaceVariantSummary, style = styles.body2)
         }
     }
 }

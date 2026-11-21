@@ -51,14 +51,21 @@ object VScreenPerception {
 
     /** Start (or keep alive) the watcher for [d]. Cheap to call on every command. */
     fun ensure(d: VScreenDisplay) {
-        if (d.released) return
         synchronized(watchers) {
+            if (d.released) return
             val w = watchers[d.displayId]
             if (w != null && w.running && w.d === d) { w.lastUse = SystemClock.elapsedRealtime(); return }
             w?.running = false
             val nw = Watcher(d)
             watchers[d.displayId] = nw
-            nw.thread = Thread { runCatching { loop(nw) }.onFailure { AppLogger.warning(TAG, "loop: ${it.message}") }; nw.running = false }
+            nw.thread = Thread {
+                try { loop(nw) }
+                catch (t: Throwable) { AppLogger.warning(TAG, "loop: ${t.message}") }
+                finally {
+                    finish(nw)
+                    synchronized(watchers) { if (watchers[d.displayId] === nw) watchers.remove(d.displayId) }
+                }
+            }
                 .apply { isDaemon = true; name = "vscreen-perception-${d.displayId}"; priority = Thread.MIN_PRIORITY; start() }
         }
     }
@@ -227,6 +234,7 @@ object VScreenPerception {
             if (fv == null) { Thread.sleep(MIN_GAP_MS); continue }
             val now = SystemClock.elapsedRealtime()
             if (now - pkgAt > 5_000L || pkg == null) { pkg = VScreenShell.topPackage(d.displayId); pkgAt = now }
+            if (!w.running || d.released) break
             VScreenRecorder.offer(d, fv.first, fv.second, pkg)
             if (fv.second != lastVersion) {
                 changedSinceOcr = fv.second != w.readingVersion; lastVersion = fv.second
@@ -269,6 +277,9 @@ object VScreenPerception {
             val left = MIN_GAP_MS - (SystemClock.elapsedRealtime() - t0)
             if (left > 0) Thread.sleep(left)
         }
+    }
+
+    private fun finish(w: Watcher) {
         w.running = false
         w.prevTiny?.recycle(); w.prevTiny = null
         synchronized(w.lock) {

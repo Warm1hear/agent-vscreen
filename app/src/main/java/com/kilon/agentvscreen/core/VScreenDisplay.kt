@@ -15,6 +15,25 @@ import com.kilon.agentvscreen.host.AppLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.atomic.AtomicBoolean
+
+/** Passive subscribers don't change the cadence. A direct request bypasses it once, without falsifying frame age. */
+internal class CaptureThrottle {
+    private val urgent = AtomicBoolean(false)
+    private var lastStartMs: Long? = null // pump thread only
+
+    fun request() { urgent.set(true) }
+
+    fun delayMs(now: Long, intervalMs: Long): Long = when {
+        urgent.get() -> 0L
+        else -> lastStartMs?.let { (intervalMs - (now - it)).coerceAtLeast(0) } ?: 0L
+    }
+
+    fun onConvert(now: Long) {
+        urgent.getAndSet(false)
+        lastStartMs = now
+    }
+}
 
 /**
  * [vscreen] One agent-owned virtual display plus its frame pump.
@@ -195,6 +214,7 @@ class VScreenDisplay private constructor(
             val want = bufferTurn
             if (want == latestTurn) return b
             synchronized(frameLock) {
+                if (released) return null
                 val cur = latestRaw ?: return null
                 if (want == latestTurn) return cur
                 val m = android.graphics.Matrix().apply { postRotate(((want - latestTurn + 360) % 360).toFloat()) }
@@ -204,7 +224,9 @@ class VScreenDisplay private constructor(
                 return t
             }
         }
-    @Volatile private var lastConvertMs = 0L
+    private val throttle = CaptureThrottle()
+    @Volatile private var latestCaptureMs = -1L
+    @Volatile private var fullConversions = 0L
     @Volatile var released = false
         private set
 
@@ -226,12 +248,15 @@ class VScreenDisplay private constructor(
     /** Pump-thread only: the newest frame skipped by the throttle, converted when the throttle opens. */
     private var pending: android.media.Image? = null
     private var pumpHandler: Handler? = null
+    private var pendingCaptureMs = 0L
+    private var pendingWasPreviewed = false
     private val flushPending = Runnable {
         val p = pending ?: return@Runnable
         pending = null
         // The trailing frame is also the picture the viewer must end on.
-        if (previewIntervalMs != Long.MAX_VALUE) drawPreview(p)
-        convert(p)
+        if (previewIntervalMs != Long.MAX_VALUE && !pendingWasPreviewed) drawPreview(p)
+        pendingWasPreviewed = false
+        convert(p, pendingCaptureMs)
     }
 
     private fun startPump() {
@@ -242,15 +267,19 @@ class VScreenDisplay private constructor(
             val img = runCatching { r.acquireLatestImage() }.getOrNull() ?: return@setOnImageAvailableListener
             val now = SystemClock.elapsedRealtime()
             lastFrameAtMs = now
+            val previewBefore = _previewVersion.value
             if (now - lastPreviewMs >= previewIntervalMs) drawPreview(img)
-            val wait = frameInterval - (now - lastConvertMs)
-            if (wait > 0 && latest != null) {
+            val previewed = _previewVersion.value != previewBefore
+            val wait = throttle.delayMs(now, frameInterval)
+            if (wait > 0 && latestRaw != null) {
                 // Throttled. Keep this frame as the trailing one instead of dropping it:
                 // otherwise the LAST frame of an animation (a list snapping back, a page
                 // sliding in) can be lost and a static screen keeps showing a mid-animation
                 // picture (e.g. two stacked title bars) until something else redraws.
                 com.kilon.agentvscreen.host.quiet("VScreenDisplay:238") { pending?.close() }
                 pending = img
+                pendingCaptureMs = now
+                pendingWasPreviewed = previewed
                 h.removeCallbacks(flushPending)
                 h.postDelayed(flushPending, wait)
                 return@setOnImageAvailableListener
@@ -258,15 +287,16 @@ class VScreenDisplay private constructor(
             h.removeCallbacks(flushPending)
             com.kilon.agentvscreen.host.quiet("VScreenDisplay:245") { pending?.close() }
             pending = null
-            convert(img)
+            pendingWasPreviewed = false
+            convert(img, now)
         }, h)
     }
 
     /** Convert [img] into the shared bitmap and close it. Pump thread only. */
-    private fun convert(img: android.media.Image) {
+    private fun convert(img: android.media.Image, capturedAt: Long) {
         try {
             if (released) return
-            lastConvertMs = SystemClock.elapsedRealtime()
+            throttle.onConvert(SystemClock.elapsedRealtime())
             val plane = img.planes[0]
             val pixelStride = plane.pixelStride
             val rowStride = plane.rowStride
@@ -285,8 +315,11 @@ class VScreenDisplay private constructor(
             // The old bitmap is NOT recycled: a preview frame may still be
             // drawing it. Letting the GC reclaim it is the safe choice.
             synchronized(frameLock) {
+                if (released) return
                 latestRaw = exact
                 latestTurn = turn
+                fullConversions++
+                latestCaptureMs = capturedAt
                 _frameVersion.value = _frameVersion.value + 1
             }
             synchronized(frameSignal) { frameSignal.notifyAll() }
@@ -322,16 +355,30 @@ class VScreenDisplay private constructor(
     val previewVersion: StateFlow<Long> = _previewVersion.asStateFlow()
 
     private val viewers = mutableMapOf<Any, Pair<Long, Int>>()
+    // Pump-owned. The UI/RenderThread may still hold a published bitmap, so drop references only.
+    private fun dropPreviewBuffers() {
+        previewBitmap = null
+        previewRing.fill(null)
+        scratch?.recycle() // Scratch never leaves the pump.
+        scratch = null
+    }
+    private val refreshPreview = Runnable {
+        if (!released && previewLongSide > 0) latest?.let { paintPreview(it, it.width, it.height, 0) }
+    }
+    private val trimPreview = Runnable { if (previewLongSide == 0) dropPreviewBuffers() }
+
+    @Synchronized internal fun frameWork(): String =
+        "${physWidth}x$physHeight, source_latest_ms=${lastFrameAtMs.takeIf { it != 0L }?.let { SystemClock.elapsedRealtime() - it } ?: -1}, " +
+            "full_conversions=$fullConversions, preview_frames=${_previewVersion.value}, viewers=${viewers.size}"
 
     @Synchronized fun setPreview(viewer: Any, intervalMs: Long, longSidePx: Int) {
         if (released) return
-        viewers[viewer] = intervalMs to longSidePx
-        updatePreview()
+        val request = intervalMs to longSidePx
+        if (viewers.put(viewer, request) != request) updatePreview()
     }
 
     @Synchronized fun clearPreview(viewer: Any) {
-        viewers.remove(viewer)
-        updatePreview()
+        if (viewers.remove(viewer) != null) updatePreview()
     }
 
     private fun updatePreview() {
@@ -342,7 +389,14 @@ class VScreenDisplay private constructor(
         previewLongSide = longSidePx
         previewIntervalMs = intervalMs.coerceAtLeast(16L)
         // A still screen sends no frames: paint the viewer's picture from the frame we already have.
-        if (longSidePx > 0 && (resized || first)) pumpHandler?.post { latest?.let { paintPreview(it, it.width, it.height, 0) } }
+        pumpHandler?.let { h ->
+            h.removeCallbacks(trimPreview)
+            if (resized || first) {
+                h.removeCallbacks(refreshPreview)
+                if (longSidePx > 0) h.post(refreshPreview)
+            }
+            if (longSidePx == 0) h.postDelayed(trimPreview, 750L)
+        }
     }
 
     /** The viewer's picture (scaled to the size it is shown at); null before the first one. Do not recycle it. */
@@ -400,9 +454,10 @@ class VScreenDisplay private constructor(
      * the frame itself, so loops that watch the screen run when the picture changes instead of on a fixed clock, and a
      * static screen costs nothing.
      */
-    fun awaitNewFrame(afterVersion: Long, timeoutMs: Long): Boolean {
+    fun awaitNewFrame(afterVersion: Long, timeoutMs: Long, urgent: Boolean = false): Boolean {
         val deadline = SystemClock.elapsedRealtime() + timeoutMs
-        lastConvertMs = 0L
+        // The background watcher must not defeat the rate limit whenever it waits for the next frame.
+        if (urgent && _frameVersion.value <= afterVersion) requestFreshFrame()
         synchronized(frameSignal) {
             while (!released && _frameVersion.value <= afterVersion) {
                 val left = deadline - SystemClock.elapsedRealtime()
@@ -463,7 +518,7 @@ class VScreenDisplay private constructor(
     }
 
     /** Make the pump convert the very next frame regardless of the throttle. */
-    fun requestFreshFrame() { lastConvertMs = 0L }
+    fun requestFreshFrame() { throttle.request() }
 
     /**
      * A frame at least as new as [notOlderThanMs] (elapsed realtime), waiting
@@ -473,9 +528,9 @@ class VScreenDisplay private constructor(
     fun awaitFrameAfter(notOlderThanMs: Long, timeoutMs: Long): Bitmap? {
         val deadline = SystemClock.elapsedRealtime() + timeoutMs
         // Force the next frame to be converted regardless of the throttle.
-        lastConvertMs = 0L
+        requestFreshFrame()
         while (SystemClock.elapsedRealtime() < deadline) {
-            if (lastConvertMs >= notOlderThanMs && latest != null) return latest
+            if (latestCaptureMs >= notOlderThanMs) latest?.let { return it }
             synchronized(frameSignal) { frameSignal.wait((deadline - SystemClock.elapsedRealtime()).coerceIn(1L, 30L)) }
         }
         // A static screen produces no new frames; the last one is still correct.
@@ -489,7 +544,11 @@ class VScreenDisplay private constructor(
         listener = null
         com.kilon.agentvscreen.host.quiet("VScreenDisplay:403") { reader.setOnImageAvailableListener(null, null) }
         val h = pumpHandler
+        synchronized(this) { viewers.clear(); previewLongSide = 0; previewIntervalMs = Long.MAX_VALUE }
         h?.removeCallbacks(flushPending)
+        h?.removeCallbacks(refreshPreview)
+        h?.removeCallbacks(trimPreview)
+        synchronized(frameSignal) { frameSignal.notifyAll() }
         if (shellOwned) runCatching { VScreenRemoteDisplay.release(displayId) }
         else runCatching { virtualDisplay?.release() }
         // The reader is closed on the pump thread: convert() runs there and reads the image's
@@ -498,14 +557,13 @@ class VScreenDisplay private constructor(
         val queued = h != null && runCatching {
             h.post {
                 runCatching { pending?.close() }; pending = null
+                dropPreviewBuffers()
                 com.kilon.agentvscreen.host.quiet("VScreenDisplay:414") { reader.close() }
             }
         }.getOrDefault(false)
-        if (!queued) { runCatching { pending?.close() }; pending = null; runCatching { reader.close() } }
+        if (!queued) { runCatching { pending?.close() }; pending = null; dropPreviewBuffers(); runCatching { reader.close() } }
         com.kilon.agentvscreen.host.quiet("VScreenDisplay:418") { thread.quitSafely() }
-        synchronized(this) { viewers.clear(); previewIntervalMs = Long.MAX_VALUE }
-        previewBitmap = null
-        latestRaw = null
+        synchronized(frameLock) { latestRaw = null }
     }
 
     companion object {

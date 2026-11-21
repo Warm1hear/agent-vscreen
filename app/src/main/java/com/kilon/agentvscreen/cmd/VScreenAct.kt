@@ -301,7 +301,7 @@ internal fun waitOn(d: VScreenDisplay, probe: Probe?, maxMs: Long, stop: Probe?)
     var seen = d.version
     while (true) {
         val tick = SystemClock.elapsedRealtime()
-        d.awaitNewFrame(seen, 100)
+        d.awaitNewFrame(seen, 100, urgent = true)
         seen = d.version
         (33 - (SystemClock.elapsedRealtime() - tick)).let { if (it > 0) Thread.sleep(it) }
         val el = SystemClock.elapsedRealtime() - t0
@@ -633,7 +633,7 @@ internal fun VScreenOffloadHandler.runSegment(sid: String, d: VScreenDisplay, st
                     val call = Call.current()
                     var seen = d.version
                     val late = lookLate(Probe.LATE_MS, { SystemClock.elapsedRealtime() - tWait },
-                        nextSame = { d.awaitNewFrame(seen, 100); seen = d.version; checkInterrupts(d, call); sameAsBefore() },
+                        nextSame = { d.awaitNewFrame(seen, 100, urgent = true); seen = d.version; checkInterrupts(d, call); sameAsBefore() },
                         stop = { stop?.poll() },
                         settle = { val p = Probe(this, d, listOf(Cond("stable", CondKind.STABLE))); try { waitOn(d, p, 3_000L, stop) } finally { p.close() } })
                     same = late.same
