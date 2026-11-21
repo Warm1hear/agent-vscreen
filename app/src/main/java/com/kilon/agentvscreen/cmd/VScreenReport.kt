@@ -688,13 +688,23 @@ internal fun numbered(sid: String, d: VScreenDisplay, els: List<El>, activity: S
             val n = match[i]?.n ?: ++book.max
             book.labels[n] = e.label.take(40)
             e.copy(n = n)
-        }
+        }.also { book.trim() }
     }
 }
 
 /** Every number given out on a screen (per session and screen generation), so none is ever reused. */
 internal object Numbers {
-    class Book { var max = 0; val labels = LinkedHashMap<Int, String>() }
+    /**
+     * 1.4.2-beta6: [labels] keeps the [MAX_LABELS] numbers seen most recently (access order: every look re-puts what is
+     * on the screen). Before, one long session that scrolled through a long list grew it without end. A number older
+     * than that is still never reused ([max] only rises); it is just reported as unknown instead of by its old words.
+     */
+    class Book {
+        var max = 0
+        val labels = LinkedHashMap<Int, String>(64, 0.75f, true)
+        fun trim() { val it = labels.keys.iterator(); while (labels.size > MAX_LABELS && it.hasNext()) { it.next(); it.remove() } }
+    }
+    const val MAX_LABELS = 2_000
     private val books = LinkedHashMap<String, Book>()
     fun of(key: String): Book = books.getOrPut(key) { Book() }.also { while (books.size > 16) books.remove(books.keys.first()) }
     /** What [n] was when it was given out on [key]'s screen, or null when it never was. */

@@ -347,6 +347,9 @@ internal object VScreenShell {
     }
 
     private fun injectedOutcome(what: String, displayId: Int, r: Result<Boolean>): Outcome = when {
+        // 1.4.2-beta6: an input the screen service cut short because the user took over or stopped meanwhile (it ended
+        // with a cancel) says so (USER_STOPPED / USER_TAKEOVER / CONTROL_CHANGED), not "the system refused".
+        r.getOrNull() == false && !Control.isUser() -> { Control.admitInput(); fail("INPUT_FAILED", tr("系统拒绝了副屏 $displayId 上的 $what 注入", "The system refused injecting $what on screen $displayId")) }
         r.getOrNull() == true -> ok(tr("副屏 $displayId：$what 已注入", "screen $displayId: $what injected"))
         r.isFailure -> fail("NOT_CONNECTED", tr("副屏服务（Shizuku）不可用，$what 没有做：${r.exceptionOrNull()?.message}。多半是 Shizuku 停了：请用户打开 Shizuku 启动它", "The screen service (Shizuku) is unavailable, $what was not done: ${r.exceptionOrNull()?.message}. Most likely Shizuku stopped: ask the user to start it in Shizuku"))
         else -> fail("INPUT_FAILED", tr("系统拒绝了副屏 $displayId 上的 $what 注入", "The system refused injecting $what on screen $displayId"))

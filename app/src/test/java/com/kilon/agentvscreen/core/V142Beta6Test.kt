@@ -148,6 +148,39 @@ class V142Beta6Test {
         Call.with(child) { assertEquals("CONTROL_CHANGED", Control.refusal(false, false, Control.planned(), Control.epoch)) }
     }
 
+    @Test fun aGestureCutShortByTheUserSaysWhy() {
+        // The user takes over while the press is held; the service ends it with a cancel and answers "not injected".
+        VScreenShell.injector = object : VScreenShell.Injector {
+            override fun gesture(displayId: Int, x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int, holdMs: Int): Result<Boolean> {
+                BackgroundOperation.updateStateForTest { it.copy(takeoverSessionId = "s1") }
+                return Result.success(false)
+            }
+            override fun key(displayId: Int, code: Int) = Result.success(true)
+            override fun text(displayId: Int, text: String) = Result.success(true)
+            override fun pointer(displayId: Int, op: Int, pointerId: Int, x: Float, y: Float) = Result.success(true to 0)
+        }
+        refused("USER_TAKEOVER") { VScreenShell.longPress(4, 1, 1, 6_000) }
+    }
+
+    // ── bounded memory ───────────────────────────────────────────────────
+
+    @Test fun elementNumbersRememberOnlyTheRecentLabels() {
+        val b = com.kilon.agentvscreen.cmd.Numbers.Book()
+        for (n in 1..com.kilon.agentvscreen.cmd.Numbers.MAX_LABELS + 50) { b.labels[n] = "x$n"; b.trim() }
+        assertEquals(com.kilon.agentvscreen.cmd.Numbers.MAX_LABELS, b.labels.size)
+        assertNull(b.labels[1])
+        assertEquals("x${com.kilon.agentvscreen.cmd.Numbers.MAX_LABELS + 50}", b.labels[com.kilon.agentvscreen.cmd.Numbers.MAX_LABELS + 50])
+    }
+
+    @Test fun perSessionMemoryKeepsTheRecentSessions() {
+        val m: HashMap<String, Int> = com.kilon.agentvscreen.cmd.VScreenOffloadHandler.recent()
+        m["first"] = 0
+        for (i in 1..com.kilon.agentvscreen.cmd.VScreenOffloadHandler.RECENT + 10) { m["s$i"] = i; m["first"] }
+        assertEquals(com.kilon.agentvscreen.cmd.VScreenOffloadHandler.RECENT, m.size)
+        assertTrue("used every time, so kept", "first" in m)
+        assertFalse("s1" in m)
+    }
+
     @Test fun theEpochKeepsRisingAcrossRestarts() {
         // It starts at the wall clock, so a restarted app is never "older" than the fence the service kept.
         assertTrue(Control.epoch >= 1_700_000_000_000L)

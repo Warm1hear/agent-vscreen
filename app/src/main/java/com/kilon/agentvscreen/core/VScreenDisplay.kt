@@ -580,9 +580,11 @@ class VScreenDisplay private constructor(
          * app process: give it a fresh ImageReader surface. Null on failure.
          */
         internal fun adopt(e: VScreenRemoteDisplay.Existing): VScreenDisplay? {
+            // 1.4.2-beta6: the reader first, the thread only once it exists (a reader that failed left a thread behind).
+            val reader = runCatching { ImageReader.newInstance(e.width, e.height, PixelFormat.RGBA_8888, 3) }
+                .onFailure { AppLogger.warning(TAG, "adopt ${e.displayId}: no image reader: ${it.message}") }.getOrNull() ?: return null
             val thread = HandlerThread("minis-vscreen-frames").apply { start() }
-            val reader = ImageReader.newInstance(e.width, e.height, PixelFormat.RGBA_8888, 3)
-            val r = VScreenRemoteDisplay.setSurface(e.displayId, reader.surface)
+            val r = runCatching { VScreenRemoteDisplay.setSurface(e.displayId, reader.surface) }.getOrElse { Result.failure(it) }
             if (r.isFailure) {
                 AppLogger.warning(TAG, "adopt ${e.displayId} failed: ${r.exceptionOrNull()?.message}")
                 runCatching { reader.close() }; thread.quitSafely()
@@ -603,8 +605,9 @@ class VScreenDisplay private constructor(
         fun create(context: Context, name: String, width: Int, height: Int, dpi: Int): Result<VScreenDisplay> {
             val dm = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
                 ?: return Result.failure(IllegalStateException("DisplayManager unavailable"))
+            val reader = runCatching { ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3) }
+                .getOrElse { return Result.failure(IllegalStateException("ImageReader ${width}x$height: ${it.message}", it)) }
             val thread = HandlerThread("minis-vscreen-frames").apply { start() }
-            val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3)
             // Preferred: a shell-owned (and on Android 13+ trusted) display made by
             // the Shizuku UserService. An app-owned display is untrusted: the system
             // refuses `am start --display` from the shell uid and silently opens the

@@ -630,9 +630,9 @@ object BackgroundOperation {
         appContext?.let { c -> com.kilon.agentvscreen.host.UserAsk.withdrawSession(c, sessionId) }
         // 1.4.0-beta10: a lesson the user took is theirs to finish; the agent's turn ending does not end it (withdraw
         // above leaves the question the lesson answers alone).
-        // A finger the agent left down (run … --keep without a release) never outlives the turn. Not while the user
-        // holds the screen: "cancel" lifts every pointer, the user's finger included.
-        if (_state.value.ownerSessionId == sessionId && _state.value.takeoverSessionId == null) display?.let { d ->
+        // A finger the agent left down (run … --keep without a release) never outlives the turn. 1.4.2-beta6: the
+        // cancel takes only the agent's own pointers (InputFence.cancels), so it is safe under the user's finger too.
+        if (_state.value.ownerSessionId == sessionId) display?.let { d ->
             Thread { runCatching { VScreenShell.finger(d.displayId, "cancel", 0, -1, -1) } }.apply { isDaemon = true }.start()
         }
         if (_state.value.ownerSessionId == sessionId && display != null) {
