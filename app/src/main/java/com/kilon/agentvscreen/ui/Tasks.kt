@@ -151,7 +151,7 @@ fun TaskRow(t: TaskLog.Task, onClick: () -> Unit) {
         AppBadge(icon)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(taskTitle(t, app), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(taskTitle(t, app), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, modifier = Modifier.scrollIfLong())
             Row {
                 Text(word, fontSize = 12.5.sp, color = if (good) Palette.takeover else Palette.stopped)
                 Text(" · " + steps(t.commands) + " · " + took(t) + " · " + hhmm(t.start) + " · " + com.kilon.agentvscreen.api.Agents.nameOfSession(t.session), fontSize = 12.5.sp,
@@ -175,7 +175,7 @@ fun TaskCard(t: TaskLog.Task, onClick: () -> Unit) {
             AppBadge(icon, 30.dp)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(taskTitle(t, app), fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(taskTitle(t, app), fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, modifier = Modifier.scrollIfLong())
                 Row {
                     Text(word, fontSize = 12.5.sp, color = if (good) Palette.takeover else Palette.stopped)
                     Text(" · " + steps(t.commands) + " · " + took(t) + " · " + com.kilon.agentvscreen.api.Agents.nameOfSession(t.session), fontSize = 12.5.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -213,7 +213,7 @@ fun TaskPage(id: Long) {
     }
     var preview by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
     var step by remember { mutableStateOf<JSONObject?>(null) }
-    MiuixPage(taskTitle(t, app), subtitle = hhmm(t.start) + " · " + com.kilon.agentvscreen.api.Agents.nameOfSession(t.session)) {
+    MiuixPage(taskTitle(t, app), marqueeTitle = true, subtitle = hhmm(t.start) + " · " + com.kilon.agentvscreen.api.Agents.nameOfSession(t.session)) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(word, fontSize = 14.sp, color = if (good) Palette.takeover else Palette.stopped)
             Text(" · " + steps(t.commands) + " · " + took(t) + (app?.let { " · $it" } ?: ""), fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)

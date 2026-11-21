@@ -46,8 +46,7 @@ object UserTouch {
         val s = BackgroundOperation.state.value
         val id = s.displayId ?: return false
         if (s.takeoverSessionId != sessionId) return false
-        // Frames at full rate while the finger is down and a little after, so the picture keeps up with it.
-        BackgroundOperation.previewDisplayFor(sessionId)?.boost(1_500)
+        // The takeover preview already runs independently at 30 fps. Human touch does not boost full-size captures.
         begin(id, x, y)
         return true
     }
@@ -84,7 +83,6 @@ object UserTouch {
             if (op == "up" && last != null) inject(id, "move", last.first, last.second)
             inject(id, op, x, y)
         }
-        if (op == "up") BackgroundOperation.state.value.ownerSessionId?.let { BackgroundOperation.previewDisplayFor(it)?.boost(1_500) }
     }
 
     val active: Boolean get() = displayId != null
