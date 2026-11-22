@@ -6,17 +6,17 @@
   <a href="https://github.com/kilolonion/agent-vscreen/releases/latest"><img src="https://img.shields.io/github/v/release/kilolonion/agent-vscreen" alt="最新正式版"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/kilolonion/agent-vscreen" alt="license"></a>
   <img src="https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white" alt="Android 11+">
-  <img src="https://img.shields.io/badge/root-not%20required-blue" alt="no root">
+  <img src="https://img.shields.io/badge/Shizuku%20or%20root-supported-blue" alt="Shizuku or root">
   <img src="https://img.shields.io/badge/MCP-supported-8A2BE2" alt="MCP">
 </p>
 
-给任何手机 agent 用的**后台副屏**。
+安卓手机上的**后台副屏**，手机、电脑或云端的 AI agent 都能用。
 
 中文 · [English](README.md)
 
 Agent-VScreen 在一块看不见的虚拟屏上打开和操作别的应用，你的主屏照常用，不会被打断。屏幕上只有一个悬浮小窗，让你看到 AI 在做什么，随时可以接管或叫停。
 
-手机上的任何 agent 都可以调用它：带终端的 agent 用命令行 `vscreen`，支持 MCP 的用 MCP，自己写代码的用 HTTP。
+不管 agent 跑在这台手机上，还是在电脑、服务器或另一台手机上，都可以调用它：带终端的 agent 用命令行 `vscreen`，支持 MCP 的用 MCP，自己写代码的用 HTTP。
 
 <p align="center"><img src="docs/app.png" width="760" alt="Agent-VScreen 现在、接入、记录和设置页面"></p>
 <p align="center"><sub>App 界面：现在（agent 正在副屏上做什么、接管或停止、最近的任务）、接入（已接入的 agent、远程连接、令牌）、记录（每次任务、提问和预约，带步骤缩略图）、设置（谁能连进来、agent 能做多少、应用规则、悬浮窗）。</sub></p>
